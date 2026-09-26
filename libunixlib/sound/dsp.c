@@ -46,6 +46,7 @@ static int dr_frequency = 44100;
 
 static int dr_buffers = 0;     /* Number of buffers in use */
 static int dr_fragscale = 1;
+static int dr_owner = 0;       /* Non-zero once this program activated it */
 
 
 /* Avoid warnings, but don't advertise */
@@ -57,6 +58,12 @@ void __dsp_exit (void);
 void
 __dsp_exit (void)
 {
+  /* 2026: only if this program started DigitalRenderer.  _exit() calls this
+     in every program, so it used to stop the sound of whichever other
+     program was playing whenever any UnixLib program quit.  */
+  if (!dr_owner)
+    return;
+  dr_owner = 0;
   DRender_Deactivate ();
   DRender_NumBuffers (0);
 }
@@ -91,6 +98,18 @@ static const _kernel_oserror *
 activate_defaults (void)
 {
   const _kernel_oserror *err;
+  int n;
+
+  /* 2026: the buffer settings are applied here, when this program starts
+     playing, not when it opens /dev/dsp or changes a setting: those used to
+     reconfigure (and stop) DigitalRenderer while another program was
+     playing through it.  */
+  if ((n = DRender_NumBuffers (dr_buffers)) > 0)
+    dr_buffers = n;
+  /* Set to fill with zero when out of data,
+     but no upcalls nor blocking on overflow */
+  DRender_StreamFlags (DRStream_OverrunNull, 0);
+
   if (dr_format == AFMT_S16_LE)
     {
       if ((err = DRender_Activate16 (dr_channels, DRENDERER_BUFFER_SIZE,
@@ -109,6 +128,8 @@ activate_defaults (void)
       err = DRender_Activate (dr_channels, DRENDERER_BUFFER_SIZE,
                               1e6 / dr_frequency, NULL);
     }
+  if (err == NULL)
+    dr_owner = 1;
   return err;
 }
 
@@ -123,8 +144,13 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
   if ((err = check_state (&old_state)) != NULL)
     return err;
 
-  if ((old_state & DRState_Active) && (old_state != -1))
-    DRender_Deactivate ();
+  /* Only stop DigitalRenderer if this program is the one playing; the new
+     settings take effect at the next write.  */
+  if (dr_owner && (old_state & DRState_Active) && (old_state != -1))
+    {
+      DRender_Deactivate ();
+      dr_owner = 0;
+    }
 
   if (channels)
     dr_channels = channels;
@@ -148,12 +174,7 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
                      )
                 + 1;
     }
-  if ((dr_buffers = DRender_NumBuffers (buffers)) < 0)
-    dr_buffers = 0;
-
-  /* Set to fill with zero when out of data,
-     but no upcalls nor blocking on overflow */
-  DRender_StreamFlags (DRStream_OverrunNull, 0);
+  dr_buffers = buffers;
 
 #if 0 /* Defer re-activating until samples are written to the stream */
   if ((old_state & DRState_Active) && (old_state != -1))
@@ -205,6 +226,9 @@ __dspclose (struct __unixlib_fd *fd)
   if (fd->devicehandle->handle)
     {
       const _kernel_oserror *err;
+      if (!dr_owner)
+        return 0;	/* Never played anything: leave others' sound alone.  */
+      dr_owner = 0;
       if ((err = DRender_Deactivate ()) != NULL)
         return __ul_seterr (err, EOPSYS);
       DRender_NumBuffers (0);
@@ -240,9 +264,16 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
   */
   {
     int state;
-    if (   (err = check_state (&state)) == NULL
-        && !(state & DRState_Active)
-       )
+    if ((err = check_state (&state)) == NULL && !dr_owner)
+      {
+        /* Someone else is playing: DigitalRenderer has one user at a
+           time, so take it over (as before), but only now that this
+           program has something to play.  */
+        if (state & DRState_Active)
+          DRender_Deactivate ();
+        err = activate_defaults ();
+      }
+    else if (err == NULL && !(state & DRState_Active))
       err = activate_defaults ();
     if (err)
       return __ul_seterr (err, EOPSYS);
