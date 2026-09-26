@@ -16,6 +16,10 @@
  *
  * We support 16-bit and 8-bit ulaw in stereo and mono.
  *
+ * 2026: SharedSoundBuffer / StreamManager output when those modules are
+ * loaded (mixes with other programs; see the second half of this file),
+ * and DigitalRenderer is no longer stopped by programs that didn't use it.
+ *
  * Copyright (c) 2004-2012 UnixLib Developers
  */
 
@@ -29,6 +33,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/soundcard.h>
+#include <strings.h>
+#include <time.h>
 
 #include <internal/os.h>
 #include <internal/dev.h>
@@ -49,14 +55,11 @@ static int dr_fragscale = 1;
 static int dr_owner = 0;       /* Non-zero once this program activated it */
 
 
-/* Avoid warnings, but don't advertise */
-void __dsp_exit (void);
-
 /* Close /dev/dsp upon exit if it's still open.  This is mostly
    to ensure that DigitalRenderer is in a good state after
    an Alt-Break or an exception.  */
-void
-__dsp_exit (void)
+static void
+dr_exit (void)
 {
   /* 2026: only if this program started DigitalRenderer.  _exit() calls this
      in every program, so it used to stop the sound of whichever other
@@ -185,8 +188,8 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
 }
 
 
-void *
-__dspopen (struct __unixlib_fd *fd, const char *file, int mode)
+static void *
+dr_open (struct __unixlib_fd *fd, const char *file, int mode)
 {
   const _kernel_oserror *err = NULL;
   dr_fragscale = 1;
@@ -220,8 +223,8 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
 }
 
 
-int
-__dspclose (struct __unixlib_fd *fd)
+static int
+dr_close (struct __unixlib_fd *fd)
 {
   if (fd->devicehandle->handle)
     {
@@ -245,8 +248,8 @@ __dsplseek (struct __unixlib_fd *fd, __off_t lpos, int whence)
 }
 
 
-int
-__dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
+static int
+dr_write (struct __unixlib_fd *fd, const void *data, int nbyte)
 {
   const _kernel_oserror *err;
 
@@ -311,8 +314,8 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
 }
 
 
-int
-__dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+static int
+dr_ioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
 {
   request &= 0xffff;
 
@@ -435,4 +438,564 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
     }
 
   return __set_errno (EINVAL);
+}
+
+
+/* ------------------------------------------------------------------------
+   2026: SharedSoundBuffer / StreamManager output.
+
+   SharedSoundBuffer (RISC OS 5, SharedSound 1.07+, StreamManager 0.03+,
+   SharedSoundBuffer 0.07+) plays a stream of 16-bit stereo samples at any
+   rate through SharedSound, so it mixes with every other program making
+   sound and resamples to the hardware rate.  StreamManager copies each
+   block into its own memory, so this is plain user mode code with no
+   interrupt handlers.  Same interface as RDPClient and SDL2's RISC OS
+   audio driver.
+
+   Used when those modules are loaded, else DigitalRenderer as before.
+   UnixLib$DSP set to "DigitalRenderer" forces the old path, and to
+   "SharedSound" refuses to fall back.
+
+   Everything the program writes is converted to S16LE stereo here, so all
+   the usual OSS formats work in mono or stereo.  The OSS "fragment" sizes
+   the program sees are in its own format; internally everything is kept in
+   output bytes (4 per frame).
+   ------------------------------------------------------------------------ */
+
+#define XSharedSoundBuffer_OpenStream         0x75FC0
+#define XSharedSoundBuffer_CloseStream        0x75FC1
+#define XSharedSoundBuffer_Volume             0x75FC4
+#define XSharedSoundBuffer_SampleRate         0x75FC5
+#define XSharedSoundBuffer_Pause              0x75FC9
+#define XSharedSoundBuffer_ReturnStreamHandle 0x75FCE
+#define XStreamManager_AddBlock               0x77282
+#define XStreamManager_SetBuffer              0x77287
+#define XStreamManager_BufferStats            0x77288
+
+#define SSB_FORMATS (AFMT_S16_LE | AFMT_S16_BE | AFMT_U8 | AFMT_S8 | AFMT_MU_LAW)
+#define SSB_OUT_FRAG_DEFAULT 4096	/* output bytes: 1024 frames */
+#define SSB_NFRAGS_DEFAULT   8		/* ~190 ms at 44.1 kHz */
+
+enum { BACKEND_NONE, BACKEND_DR, BACKEND_SSB };
+static int dsp_backend = BACKEND_NONE;
+
+static struct
+{
+  int channels, format, rate;
+  int frag_out;			/* fragment size, output bytes */
+  int cap_out;			/* how much may be queued, output bytes */
+  int handle, stream;		/* 0 while the stream isn't open */
+  int started;			/* unpaused */
+  unsigned int played_base;	/* for GETOPTR */
+  unsigned int last_frag;
+  unsigned char carry[4];	/* incomplete input frame */
+  int carry_len;
+  unsigned char conv[8192] __attribute__ ((aligned (4)));
+				/* conversion buffer, output bytes */
+} ssb;
+
+static int
+swi_exists (const char *name)
+{
+  int n;
+  return _swix (OS_SWINumberFromString, _IN(1) | _OUT(0), name, &n) == NULL;
+}
+
+static int
+ssb_available (void)
+{
+  return swi_exists ("SharedSoundBuffer_OpenStream")
+	 && swi_exists ("StreamManager_AddBlock");
+}
+
+static int
+ssb_in_frame (void)
+{
+  int bps = (ssb.format == AFMT_S16_LE || ssb.format == AFMT_S16_BE) ? 2 : 1;
+  return bps * ssb.channels;
+}
+
+/* Output bytes <-> the program's bytes.  */
+static int
+ssb_to_client (int out)
+{
+  return (out / 4) * ssb_in_frame ();
+}
+
+/* Bytes queued and not yet played (output bytes), or -1.  */
+static int
+ssb_queued (unsigned int *played)
+{
+  int added, done;
+  if (!ssb.handle
+      || _swix (XStreamManager_BufferStats, _IN(0) | _OUTR(0,1),
+		ssb.stream, &added, &done) != NULL)
+    return -1;
+  if (played)
+    *played = (unsigned int) done;
+  return added - done;
+}
+
+static void
+ssb_pause (int pause)
+{
+  if (ssb.handle)
+    _swix (XSharedSoundBuffer_Pause, _INR(0,1), ssb.handle, pause ? 0 : 1);
+  ssb.started = !pause;
+}
+
+static void
+ssb_close_stream (void)
+{
+  if (ssb.handle)
+    _swix (XSharedSoundBuffer_CloseStream, _IN(0), ssb.handle);
+  ssb.handle = ssb.stream = 0;
+  ssb.started = 0;
+  ssb.carry_len = 0;
+}
+
+static const _kernel_oserror *
+ssb_open_stream (void)
+{
+  const _kernel_oserror *err;
+  const char *name = program_invocation_short_name;
+
+  if (ssb.handle)
+    return NULL;
+  /* R0 bit 1: R2 is the usual block size.  */
+  err = _swix (XSharedSoundBuffer_OpenStream, _INR(0,2) | _OUT(0), 2,
+	       (name && *name) ? name : "UnixLib", ssb.frag_out, &ssb.handle);
+  if (err)
+    {
+      ssb.handle = 0;
+      return err;
+    }
+  err = _swix (XSharedSoundBuffer_ReturnStreamHandle, _IN(0) | _OUT(0),
+	       ssb.handle, &ssb.stream);
+  if (err)
+    {
+      _swix (XSharedSoundBuffer_CloseStream, _IN(0), ssb.handle);
+      ssb.handle = 0;
+      return err;
+    }
+  /* Room for well over what we queue, so AddBlock never refuses.  */
+  _swix (XStreamManager_SetBuffer, _INR(0,1), ssb.stream,
+	 ssb.cap_out * 2 + (int) sizeof (ssb.conv) * 2);
+  _swix (XSharedSoundBuffer_SampleRate, _INR(0,1), ssb.handle,
+	 ssb.rate * 1024);
+  _swix (XSharedSoundBuffer_Volume, _INR(0,1), ssb.handle, 0xFFFFFFFF);
+  ssb.played_base = ssb.last_frag = 0;
+  /* Paused until a fragment is queued, so it doesn't start by running
+     dry.  */
+  ssb_pause (1);
+  return NULL;
+}
+
+static void
+ssb_set_defaults (void)
+{
+  ssb.channels = 2;
+  ssb.format = AFMT_S16_LE;
+  ssb.rate = 44100;
+  ssb.frag_out = SSB_OUT_FRAG_DEFAULT;
+  ssb.cap_out = SSB_OUT_FRAG_DEFAULT * SSB_NFRAGS_DEFAULT;
+  ssb.carry_len = 0;
+}
+
+/* Wait a little for the queue to drain.  Returns 0 if it's stuck (nothing
+   played for two seconds while unpaused).  */
+static int
+ssb_wait (int *last_queued, clock_t *since)
+{
+  int q = ssb_queued (NULL);
+  if (!ssb.started)
+    ssb_pause (0);		/* waiting for room: it must be playing */
+  if (q < 0)
+    return 0;
+  if (q != *last_queued)
+    {
+      *last_queued = q;
+      *since = clock ();
+    }
+  else if (clock () - *since > 200)
+    return 0;
+  __pthread_enable_ints ();
+  pthread_yield ();
+  __pthread_disable_ints ();
+  return 1;
+}
+
+static inline short
+ulaw_to_s16 (unsigned char u)
+{
+  int t;
+  u = ~u;
+  t = ((u & 0x0f) << 3) + 0x84;
+  t <<= (u & 0x70) >> 4;
+  return (short) ((u & 0x80) ? (0x84 - t) : (t - 0x84));
+}
+
+/* Convert FRAMES input frames at IN to S16LE stereo at OUT.  */
+static void
+ssb_convert (const unsigned char *in, short *out, int frames)
+{
+  int i, c, ch = ssb.channels;
+  for (i = 0; i < frames; i++)
+    {
+      short v[2] = { 0, 0 };
+      for (c = 0; c < ch; c++)
+	{
+	  switch (ssb.format)
+	    {
+	    case AFMT_S16_LE: v[c] = (short) (in[0] | (in[1] << 8)); in += 2; break;
+	    case AFMT_S16_BE: v[c] = (short) (in[1] | (in[0] << 8)); in += 2; break;
+	    case AFMT_U8:     v[c] = (short) ((in[0] - 128) << 8); in++; break;
+	    case AFMT_S8:     v[c] = (short) (((signed char) in[0]) << 8); in++; break;
+	    default:          v[c] = ulaw_to_s16 (in[0]); in++; break;
+	    }
+	}
+      *out++ = v[0];
+      *out++ = (ch == 2) ? v[1] : v[0];
+    }
+}
+
+static int
+ssb_add (const void *block, int len)
+{
+  return _swix (XStreamManager_AddBlock, _INR(0,2), ssb.stream, block, len)
+	 == NULL;
+}
+
+static void
+ssb_maybe_start (void)
+{
+  if (!ssb.started && ssb_queued (NULL) >= ssb.frag_out)
+    ssb_pause (0);
+}
+
+static int
+ssb_write (struct __unixlib_fd *fd, const void *data, int nbyte)
+{
+  const _kernel_oserror *err;
+  const unsigned char *in = data;
+  int fs = ssb_in_frame ();
+  int left = nbyte, done = 0;
+  int nonblock = (fd->fflag & O_NONBLOCK) != 0;
+  int last_q = -1;
+  clock_t since = clock ();
+
+  if (!ssb.handle && (err = ssb_open_stream ()) != NULL)
+    return __ul_seterr (err, EOPSYS);
+
+  /* Finish an input frame left over from the last write.  */
+  if (ssb.carry_len)
+    {
+      int need = fs - ssb.carry_len;
+      if (left < need)
+	{
+	  memcpy (ssb.carry + ssb.carry_len, in, left);
+	  ssb.carry_len += left;
+	  return nbyte;
+	}
+      memcpy (ssb.carry + ssb.carry_len, in, need);
+      ssb_convert (ssb.carry, (short *) ssb.conv, 1);
+      while (!ssb_add (ssb.conv, 4))
+	if (nonblock || !ssb_wait (&last_q, &since))
+	  break;		/* drop one frame rather than hang */
+      ssb.carry_len = 0;
+      in += need; left -= need; done += need;
+    }
+
+  while (left >= fs)
+    {
+      int q = ssb_queued (NULL), space, frames, out;
+      if (q < 0)
+	return done ? done : __set_errno (EIO);
+      space = ssb.cap_out - q;
+      frames = left / fs;
+      if (frames > (int) sizeof (ssb.conv) / 4)
+	frames = sizeof (ssb.conv) / 4;
+      out = frames * 4;
+      if (space < out)
+	{
+	  /* Full.  Wait for room for a whole block (or what's left), so we
+	     don't trickle tiny blocks into the stream.  */
+	  if (space >= ssb.frag_out || (space > 0 && space >= out / 2))
+	    out = space & ~3, frames = out / 4;
+	  else
+	    {
+	      if (!ssb.started)
+		ssb_pause (0);	/* queue full: must play now */
+	      if (nonblock)
+		break;
+	      if (!ssb_wait (&last_q, &since))
+		{
+		  if (done)
+		    break;
+		  return __set_errno (EIO);
+		}
+	      continue;
+	    }
+	}
+      ssb_convert (in, (short *) ssb.conv, frames);
+      if (!ssb_add (ssb.conv, out))
+	{
+	  if (nonblock)
+	    break;
+	  if (!ssb_wait (&last_q, &since))
+	    return done ? done : __set_errno (EIO);
+	  continue;
+	}
+      in += frames * fs; left -= frames * fs; done += frames * fs;
+      ssb_maybe_start ();
+    }
+
+  /* Keep an incomplete trailing frame for next time.  */
+  if (left > 0 && left < fs)
+    {
+      memcpy (ssb.carry, in, left);
+      ssb.carry_len = left;
+      done += left;
+    }
+
+  if (done == 0 && nbyte > 0)
+    return __set_errno (EAGAIN);
+  return done;
+}
+
+/* Start playing and wait until everything queued has played.  */
+static void
+ssb_drain (void)
+{
+  int last_q = -1;
+  clock_t since = clock ();
+  if (!ssb.handle)
+    return;
+  if (!ssb.started)
+    ssb_pause (0);
+  while (ssb_queued (NULL) > 0 && ssb_wait (&last_q, &since))
+    ;
+}
+
+static int
+ssb_ioctl (struct __unixlib_fd *fd, unsigned long full_request, void *arg)
+{
+  int *iarg = arg;
+  unsigned long request = full_request & 0xffff;
+
+  switch (request)
+    {
+    case SNDCTL_DSP_RESET & 0xffff:	/* also SNDCTL_DSP_HALT */
+      ssb_close_stream ();		/* drops what's queued */
+      return 0;
+
+    case SNDCTL_DSP_SYNC & 0xffff:
+      ssb_drain ();
+      return 0;
+
+    case SNDCTL_DSP_POST & 0xffff:
+      if (ssb.handle && !ssb.started)
+	ssb_pause (0);
+      return 0;
+    }
+
+  if (!arg)
+    return __set_errno (EINVAL);
+
+  switch (request)
+    {
+    case SNDCTL_DSP_SPEED & 0xffff:
+      {
+	int rate = *iarg;
+	if (rate < 4000)
+	  rate = 4000;
+	if (rate > 96000)
+	  rate = 96000;
+	ssb.rate = rate;
+	if (ssb.handle)
+	  _swix (XSharedSoundBuffer_SampleRate, _INR(0,1), ssb.handle,
+		 rate * 1024);
+	*iarg = rate;
+	return 0;
+      }
+
+    case SNDCTL_DSP_SETFMT & 0xffff:
+      if (*iarg != AFMT_QUERY)
+	{
+	  ssb.format = (*iarg & SSB_FORMATS) && !(*iarg & (*iarg - 1))
+		       ? *iarg : AFMT_S16_LE;
+	  ssb.carry_len = 0;
+	}
+      *iarg = ssb.format;
+      return 0;
+
+    case SNDCTL_DSP_STEREO & 0xffff:
+      ssb.channels = *iarg ? 2 : 1;
+      ssb.carry_len = 0;
+      *iarg = ssb.channels - 1;
+      return 0;
+
+    case SNDCTL_DSP_CHANNELS & 0xffff:
+      if (*iarg != 0)
+	{
+	  ssb.channels = (*iarg == 1) ? 1 : 2;
+	  ssb.carry_len = 0;
+	}
+      *iarg = ssb.channels;
+      return 0;
+
+    case SNDCTL_DSP_GETFMTS & 0xffff:
+      *iarg = SSB_FORMATS;
+      return 0;
+
+    case SNDCTL_DSP_GETBLKSIZE & 0xffff:
+      *iarg = ssb_to_client (ssb.frag_out);
+      return 0;
+
+    case SNDCTL_DSP_SETFRAGMENT & 0xffff:
+      {
+	int frags = (*iarg >> 16) & 0x7fff;
+	int size = 1 << (*iarg & 0xffff);
+	int fs = ssb_in_frame ();
+	int min_cap = ssb.rate * 4 / 50;	/* 20 ms */
+	int max_cap = ssb.rate * 4 * 2;		/* 2 s */
+
+	if ((*iarg & 0xffff) > 16)
+	  size = 65536;
+	if (size < 128)
+	  size = 128;
+	/* Program bytes -> output bytes, whole frames.  */
+	ssb.frag_out = (size / fs) * 4;
+	if (ssb.frag_out < 64)
+	  ssb.frag_out = 64;
+	if (frags == 0 || frags == 0x7fff)
+	  frags = SSB_NFRAGS_DEFAULT;
+	if (frags < 2)
+	  frags = 2;
+	ssb.cap_out = ssb.frag_out * frags;
+	if (ssb.cap_out < min_cap)
+	  ssb.cap_out = min_cap;
+	if (ssb.cap_out > max_cap)
+	  ssb.cap_out = max_cap;
+	if (ssb.handle)
+	  _swix (XStreamManager_SetBuffer, _INR(0,1), ssb.stream,
+		 ssb.cap_out * 2 + (int) sizeof (ssb.conv) * 2);
+	return 0;
+      }
+
+    case SNDCTL_DSP_GETOSPACE & 0xffff:
+      {
+	struct audio_buf_info *info = arg;
+	int q = ssb_queued (NULL), space;
+	if (q < 0)
+	  q = 0;
+	space = ssb.cap_out - q;
+	if (space < 0)
+	  space = 0;
+	info->fragsize = ssb_to_client (ssb.frag_out);
+	info->fragstotal = ssb.cap_out / ssb.frag_out;
+	info->fragments = space / ssb.frag_out;
+	info->bytes = ssb_to_client (space);
+	return 0;
+      }
+
+    case SNDCTL_DSP_GETODELAY & 0xffff:
+      {
+	int q = ssb_queued (NULL);
+	*iarg = q > 0 ? ssb_to_client (q) : 0;
+	return 0;
+      }
+
+    case SNDCTL_DSP_GETOPTR & 0xffff:
+      {
+	struct count_info *info = arg;
+	unsigned int played = 0;
+	ssb_queued (&played);
+	info->bytes = ssb_to_client ((int) (played - ssb.played_base));
+	info->blocks = (int) ((played - ssb.last_frag) / (unsigned) ssb.frag_out);
+	ssb.last_frag += (unsigned) info->blocks * ssb.frag_out;
+	info->ptr = 0;
+	return 0;
+      }
+
+    case SNDCTL_DSP_GETCAPS & 0xffff:
+      *iarg = DSP_CAP_REALTIME;
+      return 0;
+
+    case SNDCTL_DSP_GETTRIGGER & 0xffff:	/* and SETTRIGGER */
+      if (full_request == (unsigned long) SNDCTL_DSP_GETTRIGGER)
+	*iarg = PCM_ENABLE_OUTPUT;
+      return 0;
+    }
+
+  return __set_errno (EINVAL);
+}
+
+
+/* ---- The /dev/dsp device: pick a back end when it's opened.  ---------- */
+
+void __dsp_exit (void);
+
+/* Called from _exit() in every program: only undo what this one did.  */
+void
+__dsp_exit (void)
+{
+  ssb_close_stream ();
+  dr_exit ();
+}
+
+void *
+__dspopen (struct __unixlib_fd *fd, const char *file, int mode)
+{
+  const char *want = getenv ("UnixLib$DSP");
+  int force_dr = want && (strcasecmp (want, "DigitalRenderer") == 0
+			  || strcasecmp (want, "DRender") == 0);
+  int force_ssb = want && strcasecmp (want, "SharedSound") == 0;
+
+  ssb_close_stream ();
+  if (!force_dr && ssb_available ())
+    {
+      dsp_backend = BACKEND_SSB;
+      ssb_set_defaults ();
+      return (void *) 1;
+    }
+  if (force_ssb)
+    {
+      __set_errno (ENODEV);
+      return (void *) -1;
+    }
+  dsp_backend = BACKEND_DR;
+  return dr_open (fd, file, mode);
+}
+
+int
+__dspclose (struct __unixlib_fd *fd)
+{
+  if (dsp_backend == BACKEND_SSB)
+    {
+      /* Like OSS: let what was written finish playing.  */
+      if (!(fd->fflag & O_NONBLOCK))
+	ssb_drain ();
+      ssb_close_stream ();
+      dsp_backend = BACKEND_NONE;
+      return 0;
+    }
+  dsp_backend = BACKEND_NONE;
+  return dr_close (fd);
+}
+
+int
+__dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
+{
+  if (dsp_backend == BACKEND_SSB)
+    return ssb_write (fd, data, nbyte);
+  return dr_write (fd, data, nbyte);
+}
+
+int
+__dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+{
+  if (dsp_backend == BACKEND_SSB)
+    return ssb_ioctl (fd, request, arg);
+  return dr_ioctl (fd, request, arg);
 }
