@@ -120,7 +120,7 @@ index d9221ef..c1e3828 100644
    return 0;
  }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
-index 8a2eb72..a03cce9 100644
+index 8a2eb72..faa63d0 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 @@ -16,6 +16,10 @@
@@ -602,7 +602,7 @@ index 8a2eb72..a03cce9 100644
 +	{
 +	  /* Full.  Wait for room for a whole block (or what's left), so we
 +	     don't trickle tiny blocks into the stream.  */
-+	  if (space >= ssb.frag_out || (space > 0 && space >= out / 2))
++	  if ((space >= ssb.frag_out || space >= out / 2) && space >= 4)
 +	    out = space & ~3, frames = out / 4;
 +	  else
 +	    {
