@@ -1,0 +1,3 @@
+| a thread joined from an atexit() handler (Warzone 2100's quit abort)
+Set UST$Dir <Obey$Dir>
+Run <UST$Dir>.exitjoin

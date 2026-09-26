@@ -50,6 +50,21 @@ index e45417e..86e7c5a 100644
  /* /dev/custom support */
  extern void *__customopen (struct __unixlib_fd *__fd, const char *file, int __mode);
  extern int __customclose (struct __unixlib_fd *__fd);
+diff --git a/gcc4/recipe/files/gcc/libunixlib/include/unistd.h b/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
+index be382ba..e7893a6 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
++++ b/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
+@@ -608,6 +608,10 @@ extern void sync (void) __THROW;
+    This function is a cancellation point.  */
+ extern int fsync (int __fd);
+ 
++/* Synchronize at least the data part of a file with the underlying
++   media (the same as fsync on RISC OS).  */
++extern int fdatasync (int __fildes);
++
+ /* Truncate FILE to LENGTH bytes.  */
+ extern int truncate (const char *__file, __off_t __length) __THROW;
+ 
 diff --git a/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c b/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c
 index d9221ef..c1e3828 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c
@@ -1122,6 +1137,71 @@ index 46a40ba..de75f5a 100644
  #ifndef DEFAULT_MMAP_MAX
  #if HAVE_MMAP
  #define DEFAULT_MMAP_MAX       (65536)
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c
+index 79e92bd..266b0fc 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c
+@@ -79,11 +79,28 @@ __cxa_atexit(void (*destructor)(void *),
+ void
+ __cxa_finalize(void *dso_handle)
+ {
++  atexit_entry *entry, *next;
++  int call;
++
++  /* 2026: thread switching is only held off while the list is read and
++     an entry marked, not while the handler runs.  Before, the whole walk
++     was PTHREAD_UNSAFE, so a handler that waited for another thread
++     (pthread_join, SDL_WaitThread in a C++ destructor or atexit function)
++     hit __pthread_fatal_error in pthread_yield and the program aborted as
++     it quit.  */
+ #ifndef __TARGET_SCL__
+-  PTHREAD_UNSAFE
++#  define FINALIZE_LOCK() \
++  do { if (__ul_global.pthread_system_running) __pthread_disable_ints (); } while (0)
++#  define FINALIZE_UNLOCK() \
++  do { if (__ul_global.pthread_system_running) __pthread_enable_ints (); } while (0)
++#else
++#  define FINALIZE_LOCK() do { } while (0)
++#  define FINALIZE_UNLOCK() do { } while (0)
+ #endif
+ 
+-  atexit_entry *entry = (atexit_entry *)__linklist_first (&atexit_function_list);
++  FINALIZE_LOCK ();
++  entry = (atexit_entry *)__linklist_first (&atexit_function_list);
++  FINALIZE_UNLOCK ();
+ 
+   /* __cxa_atexit adds handlers to the front of the list, so running through
+    * it forwards here means that we process the handlers in reverse order as
+@@ -96,10 +113,16 @@ __cxa_finalize(void *dso_handle)
+    */
+   while (entry)
+     {
+-      atexit_entry *next = (atexit_entry *)__linklist_next (&entry->link);
+-      if (!entry->called && (dso_handle == NULL || dso_handle == entry->dso_handle))
+-        {
+-	  entry->called = 1;
++      FINALIZE_LOCK ();
++      next = (atexit_entry *)__linklist_next (&entry->link);
++      call = !entry->called
++	     && (dso_handle == NULL || dso_handle == entry->dso_handle);
++      if (call)
++	entry->called = 1;
++      FINALIZE_UNLOCK ();
++
++      if (call)
++	{
+ #ifndef __TARGET_SCL__
+ 	  __funcall ((*entry->func), (entry->arg));
+ #else
+@@ -108,6 +131,8 @@ __cxa_finalize(void *dso_handle)
+ 	}
+       entry = next;
+     }
++#undef FINALIZE_LOCK
++#undef FINALIZE_UNLOCK
+ }
+ 
+ #ifndef __TARGET_SCL__
 diff --git a/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c b/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c
 index 9927105..8cb2de5 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c
@@ -1251,6 +1331,44 @@ index de312db..a529ff2 100644
    {"custom", DEV_CUSTOM},
  /*   {"pipe", DEV_PIPE}, does open on /dev/pipe make sense ?  */
  /*   {"socket", DEV_SOCKET}, does open on /dev/socket make sense ?  */
+diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/sync.c b/gcc4/recipe/files/gcc/libunixlib/unix/sync.c
+index f6b1a2f..8547c9f 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/unix/sync.c
++++ b/gcc4/recipe/files/gcc/libunixlib/unix/sync.c
+@@ -30,14 +30,17 @@ fsync (int fd)
+ 
+   struct __unixlib_fd *file_desc = getfd (fd);
+ 
+-  /* Must be only for write.  */
+-  if (!(file_desc->fflag & (O_WRONLY | O_RDWR)))
+-    return __set_errno (EBADF);
+-
+-  /* Only meaningful for those backed by a read RISC OS file handle.  */
++  /* Only meaningful for those backed by a real RISC OS file handle.  */
+   if (file_desc->devicehandle->type != DEV_RISCOS)
+     return __set_errno (EINVAL);
+ 
++  /* 2026: a file open only for reading has nothing to write back, so
++     succeed (as glibc and the BSDs do) rather than fail with EBADF.
++     Programs that fsync() before close() (PhysFS) otherwise never closed
++     read-only files.  */
++  if (!(file_desc->fflag & (O_WRONLY | O_RDWR)))
++    return 0;
++
+   /* Ensure data has been written to the file.  */
+   const _kernel_oserror *err;
+   if ((err = SWI_OS_Args_Flush ((int) file_desc->devicehandle->handle)) != NULL)
+@@ -45,3 +48,10 @@ fsync (int fd)
+ 
+   return 0;
+ }
++
++/* 2026: RISC OS has nothing separate to flush for metadata.  */
++int
++fdatasync (int fd)
++{
++  return fsync (fd);
++}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
 index 7f47f19..ef2abb8 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c

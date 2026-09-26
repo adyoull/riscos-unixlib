@@ -64,4 +64,4 @@ There's no `/dev/sequencer` (timed events) and no MIDI in.
 ## Tests
 
 - Host: `tests/host/dsp/run.sh`, `tests/host/midi/run.sh` (fake modules).
-- RISC OS: `tests/riscos/build.sh` makes `UnixLibSound.zip` (see its ReadMe).
+- RISC OS: `tests/riscos/build.sh` makes `UnixLibTests.zip` (see its ReadMe).

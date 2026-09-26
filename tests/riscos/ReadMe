@@ -1,7 +1,8 @@
-UnixLib sound tests (riscos-unixlib)
-====================================
+UnixLib tests (riscos-unixlib)
+==============================
 
-Programs built with the new UnixLib, to check /dev/dsp and /dev/midi.
+Programs built with the new UnixLib, to check /dev/dsp, /dev/midi and
+two fixes from the Warzone 2100 port.
 Double-click the Obey files. The modules for SharedSoundBuffer output
 (SharedSound, StreamManager, SharedSoundBuffer) must be loaded; see
 !MIDISynth's LoadSound or OpenTTD's !Run, or run:
@@ -21,6 +22,10 @@ ExitBug     DigitalRenderer plays; another program quits after 3 s:
 ExitBugSSB  the same with SharedSoundBuffer
 MIDI        scale and chords through /dev/midi (needs the MIDISynth
             module, which doesn't exist yet, or the MIDI module)
+
+ExitJoin    a thread joined from an atexit() handler: must print PASS,
+            no "Aborted" (Warzone 2100 aborted like this on quit)
+FsyncRO     fsync() on a read-only file: must print PASS
 
 Please report: what each one printed, whether it sounded right, any
 clicks or gaps, and the "max queued" figure.

@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased: from the Warzone 2100 port (2026-09-26)
+
+Handoff from Warzone 2100 (riscos7), found on the Pi.
+
+- **fsync on read-only files** (`unix/sync.c`): returned -1/EBADF; now 0, as
+  glibc does. PhysFS calls fsync before close and gave up on failure, so
+  read-only files were never closed ("Error closing config: Bad file
+  descriptor", then "This file is already open" on every save).
+- **fdatasync()** added (same as fsync).
+- **Joining a thread at exit** (`stdlib/atexit.c`): `__cxa_finalize` blocked
+  thread switching for the whole walk, so an atexit handler or C++
+  destructor that waited for a thread (SDL_WaitThread → pthread_join →
+  pthread_yield) hit `__pthread_fatal_error`: "Fatal signal received:
+  Aborted" on quit. Switching is now blocked only while the list is read.
+- **Unaligned access** (EMT trap in Warzone's map loader): not a UnixLib bug;
+  RISC OS faults unaligned loads. Documented in the README porting notes.
+- Tests: `ExitJoin` and `FsyncRO` in `UnixLibTests.zip` (renamed from
+  UnixLibSound.zip). **Not yet run on RISC OS.**
+
 ## Unreleased: sound (2026-09-26)
 
 Asked for on the ROOL forum: SharedSoundBuffer output for UnixLib's OSS
@@ -27,7 +46,7 @@ program quits the sound gets reset, even if no audio is used".
   MIDISynth module (proposed SWIs in `docs/MIDISYNTH-MODULE.md`) or the MIDI
   module (`MIDI_TxByte`). Notes are turned off on close and at exit.
 - Host tests: `tests/host/dsp` (124 checks), `tests/host/midi` (20 checks).
-  RISC OS test programs: `tests/riscos` (UnixLibSound.zip). **Not yet run on
+  RISC OS test programs: `tests/riscos` (UnixLibTests.zip). **Not yet run on
   RISC OS.**
 
 ## Unreleased (2026-09-26) — first release of this repo

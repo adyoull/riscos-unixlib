@@ -8,7 +8,8 @@
 #   GCCSDK_SRC=<riscos-gccsdk checkout> for autobuilder/develop/gcc/libtool.m4.p
 #   GCCSDK_ENV=<installed env>         default ~/gccsdk/env
 #   CFLAGS                             default "-g -O2 -fstack-clash-protection"
-#   INSTALL=yes                        also copy libunixlib.a into GCCSDK_ENV
+#   INSTALL=yes                        also copy libunixlib.a and UnixLib's
+#                                      headers into GCCSDK_ENV
 #
 # Needs autoconf2.69, automake 1.11 (aclocal-1.11/automake-1.11), perl.
 # Output: build/work/build/.libs/libunixlib.a
@@ -44,5 +45,7 @@ make -j"$(nproc)" >make.log 2>&1 || { tail -40 make.log; exit 1; }
 ls -l .libs/libunixlib.a
 if [ "$INSTALL" = yes ]; then
   cp .libs/libunixlib.a "$GCCSDK_ENV/$T/lib/libunixlib.a"
-  echo "installed into $GCCSDK_ENV/$T/lib"
+  # UnixLib's own headers (a few change, e.g. fdatasync in unistd.h)
+  cp -r "$REPO/libunixlib/include/." "$GCCSDK_ENV/$T/include/"
+  echo "installed libunixlib.a and headers into $GCCSDK_ENV/$T"
 fi

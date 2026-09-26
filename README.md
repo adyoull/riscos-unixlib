@@ -21,6 +21,8 @@ after it is a separate commit.
 | Sound: exit bug | `sound/dsp.c` | Every UnixLib program's exit stopped DigitalRenderer, so quitting *any* UnixLib program cut off another program's sound. Now only the program that played stops it. Opening `/dev/dsp` or changing its settings no longer resets another program's sound either. |
 | Sound: mixing | `sound/dsp.c` | `/dev/dsp` plays through **SharedSoundBuffer / StreamManager** when they're loaded: mixed with other programs' sound, any rate resampled. All common OSS formats (16-bit LE/BE, 8-bit signed/unsigned, µ-law, mono/stereo) and the usual ioctls. Falls back to DigitalRenderer. |
 | Sound: default format | `sound/dsp.c` | The default format was A-law by mistake (16-bit was intended). |
+| fsync | `unix/sync.c` | `fsync()` on a read-only file returns 0 instead of `EBADF` (PhysFS never closed such files); new `fdatasync()`. |
+| Exit | `stdlib/atexit.c` | atexit handlers and C++ destructors run with thread switching allowed, so joining a thread in one (SDL_WaitThread) no longer aborts the program as it quits. |
 | MIDI | `sound/midi.c` | New **`/dev/midi`**: raw MIDI bytes go to a MIDISynth module (proposed, see [docs/MIDISYNTH-MODULE.md](docs/MIDISYNTH-MODULE.md)) or the RISC OS MIDI module. |
 
 Details and reasons: [CHANGELOG.md](CHANGELOG.md). Sound details:
@@ -93,9 +95,18 @@ above). Drop it into `<env>/arm-riscos-gnueabihf/lib/` and relink.
 
 ## Porting notes (UnixLib behaviour ported programs trip over)
 
+- **Unaligned reads fault.** RISC OS 5 has alignment exceptions on, so an
+  `ldrh`/`ldr` from an odd address aborts ("abort on data transfer",
+  reported by UnixLib as SIGEMT, "EMT trap"). Linux on ARM hides this. It
+  bites code that walks a byte buffer with a stride that isn't a multiple of
+  the member alignment, e.g. casting a file buffer to
+  `struct { uint16_t a; uint8_t b; }` and stepping 3 bytes. Fix: mark such
+  file-format structs `__attribute__((packed))` (GCC then uses byte loads),
+  or `memcpy` into an aligned variable. UnixLib can't fix this for you.
 - `popen()` / `system()` run a `*command`, not a Unix shell: `popen("which
   x")` gives "File 'which' not found". Avoid them in ports.
 - `getenv("Name$Var")` reads RISC OS system variables.
+- `fsync()` before `close()` is fine now, and `fdatasync()` exists.
 - There is no `dlopen`, `open_memstream`, `pthread_mutex_timedlock`,
   pthread barriers or `pthread_getcpuclockid`; no ELF TLS
   (`__aeabi_read_tp`).
