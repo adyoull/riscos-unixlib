@@ -30,13 +30,16 @@ fsync (int fd)
 
   struct __unixlib_fd *file_desc = getfd (fd);
 
-  /* Must be only for write.  */
-  if (!(file_desc->fflag & (O_WRONLY | O_RDWR)))
-    return __set_errno (EBADF);
-
-  /* Only meaningful for those backed by a read RISC OS file handle.  */
+  /* Only meaningful for those backed by a real RISC OS file handle.  */
   if (file_desc->devicehandle->type != DEV_RISCOS)
     return __set_errno (EINVAL);
+
+  /* 2026: a file open only for reading has nothing to write back, so
+     succeed (as glibc and the BSDs do) rather than fail with EBADF.
+     Programs that fsync() before close() (PhysFS) otherwise never closed
+     read-only files.  */
+  if (!(file_desc->fflag & (O_WRONLY | O_RDWR)))
+    return 0;
 
   /* Ensure data has been written to the file.  */
   const _kernel_oserror *err;
@@ -44,4 +47,11 @@ fsync (int fd)
     return __ul_seterr (err, EOPSYS);
 
   return 0;
+}
+
+/* 2026: RISC OS has nothing separate to flush for metadata.  */
+int
+fdatasync (int fd)
+{
+  return fsync (fd);
 }

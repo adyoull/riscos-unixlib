@@ -608,6 +608,10 @@ extern void sync (void) __THROW;
    This function is a cancellation point.  */
 extern int fsync (int __fd);
 
+/* Synchronize at least the data part of a file with the underlying
+   media (the same as fsync on RISC OS).  */
+extern int fdatasync (int __fildes);
+
 /* Truncate FILE to LENGTH bytes.  */
 extern int truncate (const char *__file, __off_t __length) __THROW;
 
