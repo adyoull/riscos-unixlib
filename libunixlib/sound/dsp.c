@@ -720,7 +720,7 @@ ssb_write (struct __unixlib_fd *fd, const void *data, int nbyte)
 	{
 	  /* Full.  Wait for room for a whole block (or what's left), so we
 	     don't trickle tiny blocks into the stream.  */
-	  if (space >= ssb.frag_out || (space > 0 && space >= out / 2))
+	  if ((space >= ssb.frag_out || space >= out / 2) && space >= 4)
 	    out = space & ~3, frames = out / 4;
 	  else
 	    {
