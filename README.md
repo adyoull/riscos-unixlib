@@ -18,8 +18,13 @@ after it is a separate commit.
 | Clock | `time/clk_gettime.c` | `CLOCK_MONOTONIC` is interpolated inside the centisecond with the HAL counter (`OS_Hardware` 19/20/21), so `std::chrono::steady_clock` and SDL timing are sub-microsecond instead of 10 ms steps. Falls back to centiseconds if the HAL values look wrong. New internal `__ul_monotonic_ns()`. |
 | Sleeping | `signal/sleep.c` | `nanosleep` sleeps to sub-centisecond accuracy using the new clock; a bad `timespec` now returns `EINVAL`. |
 | Memory | `stdlib/alloc.c` | On EABI, large `malloc`s no longer use `mmap` (each mapping was an ARMEABISupport `mmap#N` dynamic area that was left behind after exit). They come from the heap dynamic area. |
+| Sound: exit bug | `sound/dsp.c` | Every UnixLib program's exit stopped DigitalRenderer, so quitting *any* UnixLib program cut off another program's sound. Now only the program that played stops it. Opening `/dev/dsp` or changing its settings no longer resets another program's sound either. |
+| Sound: mixing | `sound/dsp.c` | `/dev/dsp` plays through **SharedSoundBuffer / StreamManager** when they're loaded: mixed with other programs' sound, any rate resampled. All common OSS formats (16-bit LE/BE, 8-bit signed/unsigned, µ-law, mono/stereo) and the usual ioctls. Falls back to DigitalRenderer. |
+| Sound: default format | `sound/dsp.c` | The default format was A-law by mistake (16-bit was intended). |
+| MIDI | `sound/midi.c` | New **`/dev/midi`**: raw MIDI bytes go to a MIDISynth module (proposed, see [docs/MIDISYNTH-MODULE.md](docs/MIDISYNTH-MODULE.md)) or the RISC OS MIDI module. |
 
-Details and reasons: [CHANGELOG.md](CHANGELOG.md). Known UnixLib problems
+Details and reasons: [CHANGELOG.md](CHANGELOG.md). Sound details:
+[docs/SOUND.md](docs/SOUND.md). Known UnixLib problems
 found by the ports but **not fixed yet**: [docs/TODO.md](docs/TODO.md).
 
 Used by: riscos-openttd (14.1-riscos1 onwards), riscos-warzone2100
@@ -70,6 +75,17 @@ Check: a library built this way from this repo is byte-for-byte identical
 (`.text`, `.data`, `.rodata` of all 894 objects) to the `libunixlib.a` in
 riscos-warzone2100's `gccsdk-gcc10.2-x86_64-linux-env.tgz` toolchain.
 
+### Which programs get the changes
+
+UnixLib is linked into each program. A program only gets these fixes when
+it is **relinked** against this library (static builds, like the OpenTTD and
+Warzone ports), or, for programs using the shared `libunixlib.so` from
+`!SharedLibs`, when a new shared library is installed. Most PackMan programs
+(ffplay, for example) are built with GCCSDK's GCC 4.7.4 and use *that*
+toolchain's shared UnixLib, so they need the change taken into GCCSDK
+(`patches/unixlib-sound.diff` is the sound part on its own, for that) and a
+new `!SharedLibs` UnixLib release.
+
 ### Prebuilt
 
 Releases carry `libunixlib.a` (static, `arm-riscos-gnueabihf`, built as
@@ -85,6 +101,9 @@ above). Drop it into `<env>/arm-riscos-gnueabihf/lib/` and relink.
   (`__aeabi_read_tp`).
 - In a Wimp task, `sleep`/`usleep`/`nanosleep` busy-wait without calling
   Wimp_Poll, so the desktop freezes for the whole sleep (see TODO).
+- Sound: open `/dev/dsp` and write; with SharedSoundBuffer loaded several
+  programs can play at once. `UnixLib$DSP` = `DigitalRenderer` forces the
+  old output. MIDI: write raw bytes to `/dev/midi`.
 
 ## Licence
 

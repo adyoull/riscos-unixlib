@@ -24,16 +24,15 @@ worked around in the program or SDL today. Ordered by how much they hurt.
   behaviour stays as now. UnixLib itself must not call Wimp_Poll: it doesn't
   own the program's event loop.
 
-## 2. `/dev/dsp` busy-waits
+## 2. `/dev/dsp` waits by spinning when its queue is full
 
-- **Where:** `sound/dsp.c` write loop:
-  `while (DRender_StreamStatistics () >= dr_buffers) pthread_yield ();`.
-- **Affects:** SDL's `dsp` audio driver (the fallback when SharedSoundBuffer /
-  StreamManager aren't loaded) and any OSS-style program.
-- **Workaround today:** the SDL RISC OS audio driver (SharedSoundBuffer) is
-  tried first.
-- **Possible fix:** yield through the same sleep hook;
-  at least return a partial write when the caller opened with `O_NONBLOCK`.
+- **Where:** `sound/dsp.c`: a blocking write with a full queue loops on
+  `pthread_yield()` (both the SharedSoundBuffer and DigitalRenderer paths).
+  Other threads run, other Wimp tasks don't (in a Wimp task).
+- **Better since the sound work:** `O_NONBLOCK` writes now return a short
+  count / `EAGAIN` on the SharedSoundBuffer path, and `SNDCTL_DSP_GETOSPACE`
+  is accurate, so a program can write only what fits.
+- **Fix:** the sleep hook from #1.
 
 ## 3. `>` redirection crashes at start-up in a TaskWindow
 
@@ -56,6 +55,19 @@ worked around in the program or SDL today. Ordered by how much they hurt.
 `dlopen`, `open_memstream`, `pthread_mutex_timedlock`, pthread barriers,
 `pthread_getcpuclockid`, ELF TLS (`__aeabi_read_tp`). `open_memstream` and
 `pthread_mutex_timedlock` would be small, self-contained additions.
+
+## 7. Sound: not done yet
+
+- `/dev/dsp` recording (no input).
+- `/dev/sequencer` / `/dev/music` (OSS event interface with timing). Only
+  raw `/dev/midi` exists.
+- `/dev/mixer` (volume): could map to `SharedSoundBuffer_Volume`.
+- The MIDISynth module itself (riscos-midisynth project; spec in
+  `docs/MIDISYNTH-MODULE.md`).
+- `SharedSoundBuffer_Flush` is not used (its arguments aren't documented
+  here); `SNDCTL_DSP_RESET` closes the stream and the next write reopens it.
+- GCCSDK's GCC 4.7.4 UnixLib (used by PackMan programs such as ffplay) needs
+  the same change upstream; see README "Which programs get the changes".
 
 ## 6. Small things in the merged code
 

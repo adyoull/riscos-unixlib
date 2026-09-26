@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased: sound (2026-09-26)
+
+Asked for on the ROOL forum: SharedSoundBuffer output for UnixLib's OSS
+device (it makes a big difference to ffplay), and a fix for "every time a
+program quits the sound gets reset, even if no audio is used".
+
+- **Exit bug fixed** (`sound/dsp.c`): `_exit()` calls
+  `__dsp_exit()` in every program, and it deactivated DigitalRenderer
+  whether or not the program had played anything, cutting off whichever
+  program was playing. Now only the program that activated DigitalRenderer
+  deactivates it. Opening `/dev/dsp` and ioctls no longer stop or
+  reconfigure another program's DigitalRenderer session either; settings
+  apply when the program first writes.
+- **Default format** is 16-bit as intended (the open passed 2 = A-law).
+- **SharedSoundBuffer / StreamManager output** for `/dev/dsp` when the modules
+  are loaded (SharedSound 1.07+, StreamManager 0.03+, SharedSoundBuffer
+  0.07+). Mixes with other programs; any rate 4–96 kHz. Converts S16 LE/BE,
+  U8, S8, µ-law, mono/stereo to S16LE stereo. OSS ioctls: SPEED, SETFMT,
+  STEREO, CHANNELS, GETFMTS, GETBLKSIZE, SETFRAGMENT, GETOSPACE, GETODELAY,
+  GETOPTR, SYNC, POST, RESET, GETCAPS, GET/SETTRIGGER. About 190 ms queued by
+  default (the DigitalRenderer path queued about 5 s). Blocking and
+  O_NONBLOCK writes. `close()` plays out what's queued. `UnixLib$DSP` =
+  `DigitalRenderer` or `SharedSound` picks one.
+- **`/dev/midi`** (new `sound/midi.c`, device `DEV_MIDI`): raw MIDI out to a
+  MIDISynth module (proposed SWIs in `docs/MIDISYNTH-MODULE.md`) or the MIDI
+  module (`MIDI_TxByte`). Notes are turned off on close and at exit.
+- Host tests: `tests/host/dsp` (124 checks), `tests/host/midi` (20 checks).
+  RISC OS test programs: `tests/riscos` (UnixLibSound.zip). **Not yet run on
+  RISC OS.**
+
 ## Unreleased (2026-09-26) — first release of this repo
 
 Merges every UnixLib change made by the RISC OS ports so far. Base: GCCSDK
