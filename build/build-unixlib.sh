@@ -4,8 +4,11 @@
 # rebuilding GCC.
 #
 #   GCC_SRC=<gcc-10.2.0 source>        top-level files (config/, libtool.m4,
-#                                      ltmain.sh, config-ml.in ...) are needed
-#   GCCSDK_SRC=<riscos-gccsdk checkout> for autobuilder/develop/gcc/libtool.m4.p
+#                                      ltmain.sh, config-ml.in ...) are needed;
+#                                      default build/src/gcc-10.2.0
+#   GCCSDK_SRC=<riscos-gccsdk checkout> for autobuilder/develop/gcc/libtool.m4.p;
+#                                      default build/src/riscos-gccsdk
+#   (build/fetch-sources.sh fetches and checks both)
 #   GCCSDK_ENV=<installed env>         default ~/gccsdk/env
 #   CFLAGS                             default "-g -O2 -fstack-clash-protection"
 #   INSTALL=yes                        also copy libunixlib.a and UnixLib's
@@ -14,8 +17,11 @@
 # Needs autoconf2.69, automake 1.11 (aclocal-1.11/automake-1.11), perl.
 # Output: build/work/build/.libs/libunixlib.a
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-: "${GCC_SRC:?set GCC_SRC to a gcc-10.2.0 source tree}"
-: "${GCCSDK_SRC:?set GCCSDK_SRC to a riscos-gccsdk checkout}"
+# Defaults are where build/fetch-sources.sh puts them.
+GCC_SRC=${GCC_SRC:-$REPO/build/src/gcc-10.2.0}
+GCCSDK_SRC=${GCCSDK_SRC:-$REPO/build/src/riscos-gccsdk}
+[ -d "$GCC_SRC/config" ] || { echo "no GCC source at $GCC_SRC (run build/fetch-sources.sh)" >&2; exit 1; }
+[ -f "$GCCSDK_SRC/autobuilder/develop/gcc/libtool.m4.p" ] || { echo "no GCCSDK at $GCCSDK_SRC (run build/fetch-sources.sh)" >&2; exit 1; }
 GCCSDK_ENV=${GCCSDK_ENV:-$HOME/gccsdk/env}
 CFLAGS=${CFLAGS:-"-g -O2 -fstack-clash-protection"}
 T=arm-riscos-gnueabihf
