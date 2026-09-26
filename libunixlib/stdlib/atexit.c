@@ -79,11 +79,28 @@ __cxa_atexit(void (*destructor)(void *),
 void
 __cxa_finalize(void *dso_handle)
 {
+  atexit_entry *entry, *next;
+  int call;
+
+  /* 2026: thread switching is only held off while the list is read and
+     an entry marked, not while the handler runs.  Before, the whole walk
+     was PTHREAD_UNSAFE, so a handler that waited for another thread
+     (pthread_join, SDL_WaitThread in a C++ destructor or atexit function)
+     hit __pthread_fatal_error in pthread_yield and the program aborted as
+     it quit.  */
 #ifndef __TARGET_SCL__
-  PTHREAD_UNSAFE
+#  define FINALIZE_LOCK() \
+  do { if (__ul_global.pthread_system_running) __pthread_disable_ints (); } while (0)
+#  define FINALIZE_UNLOCK() \
+  do { if (__ul_global.pthread_system_running) __pthread_enable_ints (); } while (0)
+#else
+#  define FINALIZE_LOCK() do { } while (0)
+#  define FINALIZE_UNLOCK() do { } while (0)
 #endif
 
-  atexit_entry *entry = (atexit_entry *)__linklist_first (&atexit_function_list);
+  FINALIZE_LOCK ();
+  entry = (atexit_entry *)__linklist_first (&atexit_function_list);
+  FINALIZE_UNLOCK ();
 
   /* __cxa_atexit adds handlers to the front of the list, so running through
    * it forwards here means that we process the handlers in reverse order as
@@ -96,10 +113,16 @@ __cxa_finalize(void *dso_handle)
    */
   while (entry)
     {
-      atexit_entry *next = (atexit_entry *)__linklist_next (&entry->link);
-      if (!entry->called && (dso_handle == NULL || dso_handle == entry->dso_handle))
-        {
-	  entry->called = 1;
+      FINALIZE_LOCK ();
+      next = (atexit_entry *)__linklist_next (&entry->link);
+      call = !entry->called
+	     && (dso_handle == NULL || dso_handle == entry->dso_handle);
+      if (call)
+	entry->called = 1;
+      FINALIZE_UNLOCK ();
+
+      if (call)
+	{
 #ifndef __TARGET_SCL__
 	  __funcall ((*entry->func), (entry->arg));
 #else
@@ -108,6 +131,8 @@ __cxa_finalize(void *dso_handle)
 	}
       entry = next;
     }
+#undef FINALIZE_LOCK
+#undef FINALIZE_UNLOCK
 }
 
 #ifndef __TARGET_SCL__
