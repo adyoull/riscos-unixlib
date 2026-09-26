@@ -5,8 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include "fake/swis.h"
-#include "fake.h"
+#include "swis.h"
+#include "riscos.h"
 
 struct fake F;
 int dr_state, dr_nbuf, dr_activations, dr_deactivations, dr_numbuf_calls, dr_streamed;

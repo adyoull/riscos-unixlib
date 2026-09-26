@@ -1,9 +1,9 @@
 #!/bin/sh -e
-# Host tests for sound/midi.c (fake SWIs; pointers must be < 4 GB).
+# Host tests for sound/midi.c.  Uses the fake headers in ../fake; the test
+# file has its own fake SWIs (MIDISynth module and MIDI module).
 cd "$(dirname "$0")"
+F=../fake
 mkdir -p out
-F=../dsp/fake
-gcc -O1 -g -no-pie -Wall -D_GNU_SOURCE -include $F/prelude.h -I$F -I/usr/include \
-  -Dfake_yield=fake_yield_unused -Dfake_clock=fake_clock_unused \
+gcc -O1 -g -no-pie -Wall -Wno-int-to-pointer-cast -D_GNU_SOURCE -include $F/prelude.h -I$F \
   ../../../libunixlib/sound/midi.c test_midi.c -o out/test_midi
 ./out/test_midi

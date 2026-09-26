@@ -6,8 +6,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/soundcard.h>
-#include "fake/internal/dev.h"
-#include "fake.h"
+#include "internal/dev.h"
+#include "riscos.h"
 
 static int fails, checks;
 #define CHECK(c, ...) do { checks++; if (!(c)) { fails++; printf ("FAIL %s:%d: ", __FILE__, __LINE__); printf (__VA_ARGS__); printf ("\n"); } } while (0)
