@@ -30,6 +30,7 @@
 
 #include <internal/unix.h>
 #include <pthread.h>
+#include <stdint.h>
 
 /* #define DEBUG */
 #ifdef DEBUG
@@ -177,24 +178,47 @@ int usleep (useconds_t usec)
 }
 
 /* Sleep for time periods specified in nanoseconds.  */
+extern uint64_t __ul_monotonic_ns (void);
+
 int nanosleep (const struct timespec *req, struct timespec *rem)
 {
   int ticks, nticks;
+  uint64_t start, target, want;
   PTHREAD_SAFE_CANCELLATION;
 
   if (req->tv_sec < 0 || req->tv_nsec < 0 || req->tv_nsec > 999999999)
-    __set_errno (EINVAL);
+    return __set_errno (EINVAL);
 
-  ticks = (int) sleep_int (((req->tv_nsec + NSECS_PER_CLOCK-1)
-			    / NSECS_PER_CLOCK)
-			   + req->tv_sec * CLOCKS_PER_SEC);
+  /* 2026: sleep with sub-centisecond accuracy.  Whole centiseconds are
+     slept as before; the remainder is waited out against the high
+     resolution monotonic clock (yielding to other threads).  */
+  want = (uint64_t) req->tv_sec * 1000000000u + (uint64_t) req->tv_nsec;
+  start = __ul_monotonic_ns ();
+  target = start + want;
+  if (want >= 20000000u)
+    {
+      ticks = (int) sleep_int ((clock_t) (want / NSECS_PER_CLOCK) - 1);
+      if (ticks > 0)
+	{
+	  /* Interrupted by a signal.  */
+	  if (rem != NULL)
+	    {
+	      uint64_t now = __ul_monotonic_ns ();
+	      uint64_t left = now < target ? target - now : 0;
+	      rem->tv_sec = (time_t) (left / 1000000000u);
+	      rem->tv_nsec = (long) (left % 1000000000u);
+	    }
+	  return __set_errno (EINTR);
+	}
+    }
+  while (__ul_monotonic_ns () < target)
+    pthread_yield ();
 
   if (rem != NULL)
     {
-      rem->tv_sec = ticks / CLOCKS_PER_SEC;
-      ticks -= rem->tv_sec * CLOCKS_PER_SEC;
-      rem->tv_nsec = ticks * NSECS_PER_CLOCK;
+      rem->tv_sec = 0;
+      rem->tv_nsec = 0;
     }
-
+  (void) nticks;
   return 0;
 }
