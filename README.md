@@ -53,29 +53,33 @@ differ), so either file works.
 
 ### Rebuild only libunixlib.a for an installed toolchain
 
-No need to rebuild GCC. `build/build-unixlib.sh` runs GCCSDK's
-`reconf-libunixlib` steps and configures UnixLib on its own with your
-installed cross compiler:
+No need to rebuild GCC. With the cross compiler installed in
+`GCCSDK_ENV` (default `~/gccsdk/env`; see docs/MAINTAINING.md "Toolchain"):
 
 ```sh
-GCC_SRC=~/src/gcc-10.2.0 \
-GCCSDK_SRC=~/src/riscos-gccsdk \
-GCCSDK_ENV=~/gccsdk/env \
-INSTALL=yes build/build-unixlib.sh
+make sources      # GCCSDK + GCC source into build/src, checked
+make install      # build libunixlib.a, copy it + headers into GCCSDK_ENV
 ```
 
-- Needs `autoconf2.69`, automake 1.11 (`aclocal-1.11`, `automake-1.11`) and
-  perl. About 40 s on 2 cores.
+- Needs `autoconf2.69`, automake 1.11 (`aclocal-1.11`, `automake-1.11`),
+  perl and a host gcc. About 40 s on 2 cores.
 - Default `CFLAGS` are `-g -O2 -fstack-clash-protection` (the flags the
   OpenTTD and Warzone toolchains use).
-- Output: `build/work/build/.libs/libunixlib.a`. `INSTALL=yes` copies it
-  into `$GCCSDK_ENV/arm-riscos-gnueabihf/lib/`. Only the static library is
-  built; the ports link `-static`.
-- Then relink your program.
+- Output: `build/work/build/.libs/libunixlib.a`. Only the static library is
+  built; the ports link `-static`. Then relink your program.
+- `make check` runs the host tests and patch checks (no cross compiler
+  needed); `make help` lists the rest.
 
-Check: a library built this way from this repo is byte-for-byte identical
-(`.text`, `.data`, `.rodata` of all 894 objects) to the `libunixlib.a` in
-riscos-warzone2100's `gccsdk-gcc10.2-x86_64-linux-env.tgz` toolchain.
+Check: a library built this way from this repo (before the sound work) was
+identical (`.text`, `.data`, `.rodata` of all 894 objects) to the
+`libunixlib.a` in riscos-warzone2100's `gccsdk-gcc10.2-x86_64-linux-env.tgz`
+toolchain.
+
+### Working on it
+
+Read [docs/MAINTAINING.md](docs/MAINTAINING.md) first: layout, how to make
+and release a change, and the traps found so far. Tests:
+[tests/README.md](tests/README.md).
 
 ### Which programs get the changes
 

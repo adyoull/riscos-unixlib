@@ -1,6 +1,25 @@
 # Changelog
 
-## Unreleased: from the Warzone 2100 port (2026-09-26)
+Versions: 0.1.0 = commit `5f334f8`, 0.2.0 = `14f0161`. Tag them with
+`git tag v0.1.0 5f334f8` and `git tag v0.2.0 14f0161`. How to release:
+docs/MAINTAINING.md.
+
+## Unreleased (0.3.0)
+
+For people working on the repo; nothing changes in the library.
+
+- `build/fetch-sources.sh` fetches and checks GCCSDK and the GCC source
+  (pins in `build/sources.conf`); `build-unixlib.sh` uses them by default.
+- `tools/elf2aif`: the large-image elf2aif, copied from riscos-openttd.
+- `make check` (`tests/check.sh`): host tests, patches match the history and
+  apply to GCCSDK, scripts parse. Runs on GitHub Actions. `Makefile` with
+  shortcuts. `tools/make-patches.sh` generates `patches/`.
+- Host test fakes shared in `tests/host/fake`; `tests/README.md`.
+- `docs/MAINTAINING.md`: layout, how to change and release, traps.
+- The RISC OS test programs are AIF files (the ELF ones had problems on the
+  Pi).
+
+### Fixes from the Warzone 2100 port (2026-09-26)
 
 Handoff from Warzone 2100 (riscos7), found on the Pi.
 
@@ -19,7 +38,7 @@ Handoff from Warzone 2100 (riscos7), found on the Pi.
 - Tests: `ExitJoin` and `FsyncRO` in `UnixLibTests.zip` (renamed from
   UnixLibSound.zip). **Not yet run on RISC OS.**
 
-## Unreleased: sound (2026-09-26)
+## 0.2.0 (2026-09-26): sound
 
 Asked for on the ROOL forum: SharedSoundBuffer output for UnixLib's OSS
 device (it makes a big difference to ffplay), and a fix for "every time a
@@ -49,7 +68,7 @@ program quits the sound gets reset, even if no audio is used".
   RISC OS test programs: `tests/riscos` (UnixLibTests.zip). **Not yet run on
   RISC OS.**
 
-## Unreleased (2026-09-26) — first release of this repo
+## 0.1.0 (2026-09-26): the ports' changes, merged
 
 Merges every UnixLib change made by the RISC OS ports so far. Base: GCCSDK
 `64c6f81` (jhamby/riscos-gccsdk), imported unchanged.

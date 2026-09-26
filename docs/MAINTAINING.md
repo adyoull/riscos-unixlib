@@ -1,0 +1,125 @@
+# Maintaining riscos-unixlib
+
+How the repo fits together, how to build and test it, and the traps found
+so far. Read this before changing anything.
+
+## Layout
+
+| Path | What |
+|---|---|
+| `libunixlib/` | UnixLib itself. First commit = GCCSDK's `gcc4/recipe/files/gcc/libunixlib` at `64c6f81`, unchanged; every change after that is its own commit. |
+| `patches/` | **Generated** from the history by `tools/make-patches.sh`; don't edit by hand. `unixlib-riscos.diff` = everything; `unixlib-sound.diff` = the sound work only (for GCCSDK). |
+| `build/` | `fetch-sources.sh`, `sources.conf` (pinned sources), `build-unixlib.sh`. `build/src` and `build/work` are not in git. |
+| `tests/check.sh` | Everything checkable without RISC OS. `make check` runs it; so does GitHub Actions. |
+| `tests/host/` | Host (PC) tests with a fake RISC OS; see `tests/README.md`. |
+| `tests/riscos/` | Test programs for the Pi, zipped as `UnixLibTests.zip`. |
+| `tools/` | `elf2aif` (large-image fix), `mkrozip.py` (zips with RISC OS filetypes), `make-patches.sh`. |
+| `docs/` | `SOUND.md`, `MIDISYNTH-MODULE.md`, `TODO.md` (known problems), this file. |
+
+## Making a change
+
+1. One fix per commit. Say in the message what broke, how it showed up, and
+   why the fix is right. Author: Andrew Youll.
+2. In the code, mark new or changed parts with a short `2026:` comment
+   saying why (see `sound/dsp.c`, `unix/sync.c`). Keep UnixLib's GNU style:
+   2-space indent, space before `(`, tabs for 8 columns.
+3. New source file: add it to `libunixlib/Makefile.am` (the `*_src` lists;
+   most are inside `if UNIXLIB_BUILDING_SCL ... else ... endif`, and the
+   SharedCLibrary build must not get UnixLib-only files). New internal
+   `__name` symbols that aren't API: add them to `libunixlib/vscript`
+   (the `local:` list). New device: `DEV_*` and `NDEV` in
+   `incl-local/internal/dev.h`, a row in `unix/dev.c` (same order as the
+   numbers), a name in `__sfile[]`, and `common/__stat.c`.
+4. Add or update a host test if the code can run on a PC with fakes, and a
+   `tests/riscos` program if it needs the Pi.
+5. `make patches`, then `make check`. Update `CHANGELOG.md` (under
+   "Unreleased") and, if behaviour changes, `README.md` / `docs/`.
+
+## Building
+
+```sh
+make sources                 # GCCSDK + GCC source into build/src, checked
+make lib                     # -> build/work/build/.libs/libunixlib.a
+make install                 # also copies lib + headers into $GCCSDK_ENV
+make riscos-tests            # -> tests/riscos/out/UnixLibTests.zip
+```
+
+`GCCSDK_ENV` is the installed cross toolchain (default `~/gccsdk/env`).
+Host packages: `autoconf2.69`, `automake1.11`, `perl`, `python3`, a host
+`gcc` (Debian/Ubuntu names).
+
+### Toolchain
+
+The cross compiler (GCCSDK GCC 10.2.0, `arm-riscos-gnueabihf`) is **not**
+built here. Two ways to get it:
+
+- Build it with riscos-warzone2100's `build/build-toolchain.sh`, which
+  follows riscos-mesa's `build/TOOLCHAIN.md` (about 10 minutes on 2 cores).
+  That script also applies this repo's UnixLib patch.
+- Use the prebuilt `gccsdk-gcc10.2-x86_64-linux-env.tgz` (x86-64 Linux; the
+  sha256 is in `build/sources.conf`). It must be unpacked in `/root`
+  (`tar xzf … -C /root` gives `/root/gccsdk/env`): the path is built in.
+  **To do:** attach it to a GitHub release so it can be downloaded.
+
+A library built from this repo is the same, object for object, as the one in
+that toolchain as it was before the sound work (checked: code and data of
+all 894 objects).
+
+## Testing
+
+- `make check` must pass before every push (GitHub runs it too).
+- Host tests can't catch everything: SWI calls are faked. Anything touching
+  RISC OS behaviour needs a Pi run of `UnixLibTests.zip` before a release,
+  and the result noted in `CHANGELOG.md`.
+
+## Releases
+
+Version numbers follow `CHANGELOG.md` (`0.MINOR.PATCH` until it has had wide
+use). To release: move "Unreleased" to a version heading with the date,
+commit, then `git tag vX.Y.Z` and push the tag. Attach
+`build/work/build/.libs/libunixlib.a`, `patches/*.diff` and
+`UnixLibTests.zip` to the GitHub release.
+
+## Traps found so far
+
+- **Use `patch -p1`, not `git apply`,** to apply `patches/*.diff` to a
+  GCCSDK tree that lives inside another git repo: `git apply` silently skips
+  paths outside that repo.
+- **`LIBTOOLIZE=true`** in `build-unixlib.sh` is deliberate: letting
+  autoreconf run the system's libtoolize installs libtool 2.4.7 over GCC's
+  2.2.7a and the build stops with "Version mismatch error".
+- **automake 1.11 and autoconf 2.69** are what GCCSDK's own scripts use;
+  other versions haven't been tried.
+- **Host test fakes:** `tests/host/fake/prelude.h` renames `pthread_yield`,
+  `clock` and `getenv` to fakes, and must include the system headers
+  *first*: glibc declares `pthread_yield` with `__REDIRECT` to
+  `sched_yield`, and a macro defined before the header silently turns the
+  fake into `sched_yield` (the test then hangs).
+- **Host tests pass pointers through `int` SWI registers,** as on RISC OS.
+  On a 64-bit PC anything passed to a fake SWI must be below 4 GB: build
+  with `-no-pie` and keep such buffers static, not on the stack.
+- **`dsp.c` is copied into `tests/host/dsp/out/`** before compiling, so its
+  `#include "DRender.h"` finds the fake instead of the real inline-assembler
+  one next to it.
+- **RISC OS test programs ship as AIF** (`elf2aif -e`), not ELF: the ELF
+  files had problems on the Pi.
+- **Unaligned loads fault on RISC OS** (Linux hides it). See the README's
+  porting notes.
+- **UnixLib code runs in every program.** Anything at exit (`_exit` in
+  `unix/unix.c`) must only undo what *this* program did: the old
+  `__dsp_exit` switched off everybody's sound.
+- **`PTHREAD_UNSAFE`** blocks thread switches until the function returns
+  and keeps one global return address; don't call code that may wait for
+  another thread inside it (that was the atexit abort).
+
+## Keeping in step with other projects
+
+- riscos-openttd and riscos-warzone2100 carry a copy of the UnixLib patch
+  (`patches/unixlib/*.diff`); after a change, send them the new
+  `patches/unixlib-riscos.diff`.
+- `tools/elf2aif` is a copy of riscos-openttd's `tools/elf2aif`.
+- `sound/dsp.c` uses the same SharedSoundBuffer SWIs as the SDL2 RISC OS
+  audio driver (riscos-openttd / riscos-mesa) and RDPClient.
+- GCCSDK upstream: `patches/unixlib-sound.diff` (and the fsync / atexit
+  fixes) should be offered there once tested; PackMan programs only get
+  them through GCCSDK.
