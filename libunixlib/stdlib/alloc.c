@@ -1300,6 +1300,15 @@ void     public_mSTATs(void);
 
 #define M_MMAP_MAX             -4
 
+/* 2026: for ARMEABI (GCC 10) builds, don't service large requests with
+   mmap().  Each mapping lives in an ARMEABISupport "mmap#N" dynamic area,
+   and those were observed to leak (and not be released at program exit).
+   Large blocks now come from the normal heap (the <prog>$Heap dynamic
+   area), which UnixLib removes when the program exits.  */
+#if defined(__ARM_EABI__) && !defined(DEFAULT_MMAP_MAX)
+#define DEFAULT_MMAP_MAX       (0)
+#endif
+
 #ifndef DEFAULT_MMAP_MAX
 #if HAVE_MMAP
 #define DEFAULT_MMAP_MAX       (65536)
