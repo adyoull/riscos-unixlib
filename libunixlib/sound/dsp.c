@@ -202,7 +202,7 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
   */
   {
     int state;
-    if (   (err = set_defaults (fd, 2, 2, 44100, 0)) == NULL
+    if (   (err = set_defaults (fd, 2, AFMT_S16_LE, 44100, 0)) == NULL
         && (err = check_state (&state)) == NULL
         && !(state & DRState_Active)
        )
@@ -212,7 +212,7 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
   /*
     Set the defaults but don't activate them yet.
   */
-  err = set_defaults (fd, 2, 2, 44100, 0);
+  err = set_defaults (fd, 2, AFMT_S16_LE, 44100, 0);
 #endif
   if (err)
     return (void *) __ul_seterr (err, EOPSYS);
