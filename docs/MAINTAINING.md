@@ -75,7 +75,9 @@ all 894 objects).
 ## Releases
 
 Version numbers follow `CHANGELOG.md` (`0.MINOR.PATCH` until it has had wide
-use). To release: move "Unreleased" to a version heading with the date,
+use; `v0.1.0` is commit `22511f2`). A PATCH release is fixes and repo
+housekeeping; a MINOR one adds features (new devices, new functions). To
+release: move "Unreleased" to a version heading with the date,
 commit, then `git tag vX.Y.Z` and push the tag. Attach
 `build/work/build/.libs/libunixlib.a`, `patches/*.diff` and
 `UnixLibTests.zip` to the GitHub release.

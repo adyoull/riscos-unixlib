@@ -1,10 +1,8 @@
 # Changelog
 
-Versions: 0.1.0 = commit `5f334f8`, 0.2.0 = `14f0161`. Tag them with
-`git tag v0.1.0 5f334f8` and `git tag v0.2.0 14f0161`. How to release:
-docs/MAINTAINING.md.
+Versions are git tags `vX.Y.Z`. How to release: docs/MAINTAINING.md.
 
-## Unreleased (0.3.0)
+## Unreleased (0.1.1)
 
 For people working on the repo; nothing changes in the library.
 
@@ -19,7 +17,11 @@ For people working on the repo; nothing changes in the library.
 - The RISC OS test programs are AIF files (the ELF ones had problems on the
   Pi).
 
-### Fixes from the Warzone 2100 port (2026-09-26)
+## 0.1.0 (2026-09-26, tag v0.1.0 = `22511f2`)
+
+The first version: everything below, in three parts.
+
+### Fixes from the Warzone 2100 port
 
 Handoff from Warzone 2100 (riscos7), found on the Pi.
 
@@ -38,7 +40,7 @@ Handoff from Warzone 2100 (riscos7), found on the Pi.
 - Tests: `ExitJoin` and `FsyncRO` in `UnixLibTests.zip` (renamed from
   UnixLibSound.zip). **Not yet run on RISC OS.**
 
-## 0.2.0 (2026-09-26): sound
+### Sound
 
 Asked for on the ROOL forum: SharedSoundBuffer output for UnixLib's OSS
 device (it makes a big difference to ffplay), and a fix for "every time a
@@ -68,12 +70,12 @@ program quits the sound gets reset, even if no audio is used".
   RISC OS test programs: `tests/riscos` (UnixLibTests.zip). **Not yet run on
   RISC OS.**
 
-## 0.1.0 (2026-09-26): the ports' changes, merged
+### The ports' changes, merged (the first commits)
 
 Merges every UnixLib change made by the RISC OS ports so far. Base: GCCSDK
 `64c6f81` (jhamby/riscos-gccsdk), imported unchanged.
 
-### From the OpenTTD port (riscos-openttd `patches/unixlib`, used since 14.1-riscos1)
+#### From the OpenTTD port (riscos-openttd `patches/unixlib`, used since 14.1-riscos1)
 
 - **Wide characters** (`wchar/wmissing.c`, `wchar/wctype.c`): real versions of
   the functions that were "Not implemented" + `abort()`: `wctype`,
@@ -96,13 +98,13 @@ Merges every UnixLib change made by the RISC OS ports so far. Base: GCCSDK
 - **malloc** (`stdlib/alloc.c`): `DEFAULT_MMAP_MAX 0` on EABI. Large blocks
   come from the heap dynamic area instead of leaking `mmap#N` areas.
 
-### From the SDL2 / riscos-mesa work
+#### From the SDL2 / riscos-mesa work
 
 No UnixLib source changes: the SDL overlay works around UnixLib (its own
 Wimp_PollIdle delay, its own sound driver). The UnixLib problems it found are
 recorded in [docs/TODO.md](docs/TODO.md) for a later release.
 
-### Repo
+#### Repo
 
 - `patches/unixlib-riscos.diff`: the whole change set for a GCCSDK checkout.
 - `build/build-unixlib.sh`: rebuild just `libunixlib.a` for an installed
