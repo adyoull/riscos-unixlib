@@ -1,3 +1,4 @@
 | 16-bit big-endian stereo at 22050 Hz
 Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
 Run <UST$Dir>.dsptest -f s16be -r 22050 -s 4

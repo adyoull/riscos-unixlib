@@ -1,3 +1,4 @@
 | mu-law mono at 8000 Hz
 Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
 Run <UST$Dir>.dsptest -f ulaw -m -r 8000 -s 4

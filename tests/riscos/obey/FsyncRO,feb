@@ -1,3 +1,4 @@
 | fsync() on a read-only file (Warzone 2100's "Error closing config")
 Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
 Run <UST$Dir>.fsyncro

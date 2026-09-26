@@ -1,3 +1,4 @@
 | 5 s A major chord, 16-bit stereo 44.1 kHz
 Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
 Run <UST$Dir>.dsptest -s 5

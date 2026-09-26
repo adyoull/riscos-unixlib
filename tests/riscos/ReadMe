@@ -3,7 +3,8 @@ UnixLib tests (riscos-unixlib)
 
 Programs built with the new UnixLib, to check /dev/dsp, /dev/midi and
 two fixes from the Warzone 2100 port.
-Double-click the Obey files. The modules for SharedSoundBuffer output
+Double-click the Obey files. The programs are Absolute (AIF) files, so the
+ELF loader is not needed. The modules for SharedSoundBuffer output
 (SharedSound, StreamManager, SharedSoundBuffer) must be loaded; see
 !MIDISynth's LoadSound or OpenTTD's !Run, or run:
   RMEnsure SharedSound 1.07 RMLoad System:Modules.SSound
@@ -20,8 +21,11 @@ Mix         two programs play at once (should hear both)
 ExitBug     DigitalRenderer plays; another program quits after 3 s:
             the sound must carry on (the long-standing bug)
 ExitBugSSB  the same with SharedSoundBuffer
-MIDI        scale and chords through /dev/midi (needs the MIDISynth
-            module, which doesn't exist yet, or the MIDI module)
+MIDI        scale and chords through /dev/midi. Needs the MIDISynth
+            *module* (not written yet; the !MIDISynth app is not a
+            module) or the MIDI module with a MIDI device. Without
+            either it says "Operation not supported by device": that's
+            the expected result for now.
 
 ExitJoin    a thread joined from an atexit() handler: must print PASS,
             no "Aborted" (Warzone 2100 aborted like this on quit)

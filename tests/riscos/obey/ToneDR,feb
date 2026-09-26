@@ -1,3 +1,4 @@
 | the old DigitalRenderer path (UnixLib$DSP forced)
 Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
 Run <UST$Dir>.dsptest -d -s 5

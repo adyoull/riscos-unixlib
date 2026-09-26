@@ -3,12 +3,16 @@
 # GCCSDK_ENV (default ~/gccsdk/env); run build/build-unixlib.sh first.
 cd "$(dirname "$0")"
 GCCSDK_ENV=${GCCSDK_ENV:-$HOME/gccsdk/env}
+# elf2aif with the large-image fix (riscos-openttd tools/elf2aif). The tests
+# ship as Absolute (AIF, ,ff8) files: they run without the ELF loader.
+ELF2AIF=${ELF2AIF:-elf2aif}
 PATH=$GCCSDK_ENV/bin:$PATH
 L=../../build/work/build/.libs
 O=out/UnixLibTests
 rm -rf out; mkdir -p $O
 for p in dsptest miditest nosound exitjoin fsyncro; do
-  arm-riscos-gnueabihf-gcc -O2 -static -fstack-clash-protection -L$L $p.c -o $O/$p,e1f -lm
+  arm-riscos-gnueabihf-gcc -O2 -static -fstack-clash-protection -L$L $p.c -o out/$p.elf -lm
+  "$ELF2AIF" -e out/$p.elf $O/$p,ff8
 done
 cp obey/*,feb $O/
 cp ReadMe $O/ReadMe,fff

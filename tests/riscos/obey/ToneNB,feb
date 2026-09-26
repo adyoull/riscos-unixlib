@@ -1,3 +1,4 @@
 | non-blocking writes, small fragments (8 x 1024 bytes)
 Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
 Run <UST$Dir>.dsptest -n -F 10 -s 4

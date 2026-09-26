@@ -1,4 +1,5 @@
 | scale + chords through /dev/midi (needs the MIDISynth module, or the
 | MIDI module and a MIDI device)
 Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
 Run <UST$Dir>.miditest

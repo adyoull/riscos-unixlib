@@ -1,3 +1,4 @@
 | 8-bit unsigned mono at 11025 Hz (converted by UnixLib)
 Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
 Run <UST$Dir>.dsptest -f u8 -m -r 11025 -s 4
