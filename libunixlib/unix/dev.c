@@ -78,6 +78,11 @@ const struct dev __dev[NDEV] = {
   /* DEV_EVENTFD */
   {__nullopen, __eventfd_close, __eventfd_read, __eventfd_write,
    __nulllseek, __nullioctl, __eventfd_select, __nullstat, __nullfstat,
+   __nullstat},
+
+  /* DEV_MIDI */
+  {__midiopen, __midiclose, __nullread, __midiwrite,
+   __nulllseek, __midiioctl, __nullselect, __nullstat, __nullfstat,
    __nullstat}
 };
 
@@ -105,6 +110,9 @@ static const struct sfile __sfile[] = {
   {"random", DEV_RANDOM},
   {"urandom", DEV_RANDOM},
   {"dsp", DEV_DSP},
+  {"midi", DEV_MIDI},
+  {"midi0", DEV_MIDI},
+  {"midi00", DEV_MIDI},
   {"custom", DEV_CUSTOM},
 /*   {"pipe", DEV_PIPE}, does open on /dev/pipe make sense ?  */
 /*   {"socket", DEV_SOCKET}, does open on /dev/socket make sense ?  */

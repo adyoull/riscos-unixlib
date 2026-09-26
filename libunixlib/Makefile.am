@@ -863,6 +863,7 @@ sound_src =
 else
 sound_src = \
 	sound/dsp.c \
+	sound/midi.c \
 	sound/DRender.s
 endif
 

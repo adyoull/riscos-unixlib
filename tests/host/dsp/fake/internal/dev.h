@@ -6,3 +6,8 @@ int __dspclose (struct __unixlib_fd *);
 int __dspwrite (struct __unixlib_fd *, const void *, int);
 int __dspioctl (struct __unixlib_fd *, unsigned long, void *);
 void __dsp_exit (void);
+void *__midiopen (struct __unixlib_fd *, const char *, int);
+int __midiclose (struct __unixlib_fd *);
+int __midiwrite (struct __unixlib_fd *, const void *, int);
+int __midiioctl (struct __unixlib_fd *, unsigned long, void *);
+void __midi_exit (void);

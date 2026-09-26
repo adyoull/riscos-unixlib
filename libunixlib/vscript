@@ -16,6 +16,7 @@ VERSION {
      __close;
      __custom*;
      __dsp*;
+     __midi*;
      __dynamic_area_exit;
      __dynamic_area_refcount;
      __env_read;

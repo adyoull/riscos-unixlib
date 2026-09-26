@@ -91,6 +91,7 @@ __stat (unsigned objtype, unsigned loadaddr, unsigned execaddr,
       case DEV_ZERO:
       case DEV_RANDOM:
       case DEV_DSP:
+      case DEV_MIDI:
 	/* Terminal type device file.  */
 	mode |= S_IFCHR;
 	break;

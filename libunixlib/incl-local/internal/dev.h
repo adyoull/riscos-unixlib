@@ -38,8 +38,9 @@ __BEGIN_DECLS
 #define DEV_DSP		7	/* /dev/dsp            */
 #define DEV_CUSTOM	8	/* Custom FD behaviour */
 #define DEV_EVENTFD	9	/* EventFD             */
+#define DEV_MIDI	10	/* /dev/midi           */
 
-#define NDEV		10
+#define NDEV		11
 
 /* Call a device function, ensuring we don't refer to an invalid device */
 #define dev_funcall(type, func, args) __funcall ((*(__dev[(type) < NDEV ? (type) : DEV_NULL].func)), args)
@@ -125,6 +126,12 @@ extern int __dspclose (struct __unixlib_fd *__fd);
 extern int __dspwrite (struct __unixlib_fd *__fd, const void *__data, int __nbyte);
 extern __off_t __dsplseek (struct __unixlib_fd *__fd, __off_t __lpos, int __whence);
 extern int __dspioctl (struct __unixlib_fd *__fd, unsigned long __request, void *__arg);
+
+/* /dev/midi support */
+extern void *__midiopen (struct __unixlib_fd *__file_desc, const char *__file, int __mode);
+extern int __midiclose (struct __unixlib_fd *__fd);
+extern int __midiwrite (struct __unixlib_fd *__fd, const void *__data, int __nbyte);
+extern int __midiioctl (struct __unixlib_fd *__fd, unsigned long __request, void *__arg);
 
 /* /dev/custom support */
 extern void *__customopen (struct __unixlib_fd *__fd, const char *file, int __mode);
