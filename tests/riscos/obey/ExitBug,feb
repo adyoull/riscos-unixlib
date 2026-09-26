@@ -1,0 +1,5 @@
+| DigitalRenderer plays for 10 s; after 3 s another UnixLib program quits.
+| Before the fix the sound stopped when it quit. Now it keeps playing.
+Set UST$Dir <Obey$Dir>
+Do TaskWindow "Run <UST$Dir>.dsptest -d -s 10 -q" -wimpslot 8000k -name "dsptest DR" -quit
+Do TaskWindow "Run <UST$Dir>.nosound 3" -wimpslot 8000k -name "nosound" -quit

@@ -1,0 +1,3 @@
+| 8-bit unsigned mono at 11025 Hz (converted by UnixLib)
+Set UST$Dir <Obey$Dir>
+Run <UST$Dir>.dsptest -f u8 -m -r 11025 -s 4

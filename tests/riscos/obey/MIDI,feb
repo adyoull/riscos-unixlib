@@ -1,0 +1,4 @@
+| scale + chords through /dev/midi (needs the MIDISynth module, or the
+| MIDI module and a MIDI device)
+Set UST$Dir <Obey$Dir>
+Run <UST$Dir>.miditest

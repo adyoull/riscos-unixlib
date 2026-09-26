@@ -1,0 +1,26 @@
+UnixLib sound tests (riscos-unixlib)
+====================================
+
+Programs built with the new UnixLib, to check /dev/dsp and /dev/midi.
+Double-click the Obey files. The modules for SharedSoundBuffer output
+(SharedSound, StreamManager, SharedSoundBuffer) must be loaded; see
+!MIDISynth's LoadSound or OpenTTD's !Run, or run:
+  RMEnsure SharedSound 1.07 RMLoad System:Modules.SSound
+  RMEnsure StreamManager 0.03 RMLoad System:Modules.StreamMan
+  RMEnsure SharedSoundBuffer 0.07 RMLoad System:Modules.SSBuffer
+
+Tone        5 s chord. First line says which output is used.
+ToneMono8   8-bit mono 11 kHz        ) formats UnixLib converts for
+ToneULaw    mu-law mono 8 kHz        ) SharedSoundBuffer: each should
+ToneBE      16-bit big-endian 22 kHz ) sound like the same chord
+ToneNB      non-blocking writes, small fragments
+ToneDR      the old DigitalRenderer path
+Mix         two programs play at once (should hear both)
+ExitBug     DigitalRenderer plays; another program quits after 3 s:
+            the sound must carry on (the long-standing bug)
+ExitBugSSB  the same with SharedSoundBuffer
+MIDI        scale and chords through /dev/midi (needs the MIDISynth
+            module, which doesn't exist yet, or the MIDI module)
+
+Please report: what each one printed, whether it sounded right, any
+clicks or gaps, and the "max queued" figure.

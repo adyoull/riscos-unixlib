@@ -1,0 +1,5 @@
+| two programs at once: both should be heard (SharedSoundBuffer).
+| With DigitalRenderer only one can play.
+Set UST$Dir <Obey$Dir>
+Do TaskWindow "Run <UST$Dir>.dsptest -s 8 -q" -wimpslot 8000k -name "dsptest 1" -quit
+Do TaskWindow "Run <UST$Dir>.dsptest -s 6 -q -r 32000 -m" -wimpslot 8000k -name "dsptest 2" -quit

@@ -1,0 +1,3 @@
+| 5 s A major chord, 16-bit stereo 44.1 kHz
+Set UST$Dir <Obey$Dir>
+Run <UST$Dir>.dsptest -s 5

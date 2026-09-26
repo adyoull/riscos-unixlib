@@ -1,0 +1,3 @@
+| mu-law mono at 8000 Hz
+Set UST$Dir <Obey$Dir>
+Run <UST$Dir>.dsptest -f ulaw -m -r 8000 -s 4

@@ -1,0 +1,4 @@
+| The same with SharedSoundBuffer (also run !MIDISynth or OpenTTD music).
+Set UST$Dir <Obey$Dir>
+Do TaskWindow "Run <UST$Dir>.dsptest -s 10 -q" -wimpslot 8000k -name "dsptest" -quit
+Do TaskWindow "Run <UST$Dir>.nosound 3" -wimpslot 8000k -name "nosound" -quit
