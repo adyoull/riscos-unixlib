@@ -30,6 +30,13 @@ MIDI        scale and chords through /dev/midi. Needs the MIDISynth
 ExitJoin    a thread joined from an atexit() handler: must print PASS,
             no "Aborted" (Warzone 2100 aborted like this on quit)
 FsyncRO     fsync() on a read-only file: must print PASS
+Ticker      two busy threads in a Wimp task for 20 s while other tasks run
+            (have Alarm, a clock or Organizer running). Ends with an error
+            box saying PASS; no other program may crash. The log
+            <Wimp$ScrapDir>.tickertest also shows whether the task handle
+            UnixLib saw at start-up matches Wimp_Initialise's.
+TickerEarly the same with the threads started before Wimp_Initialise: the
+            ticker then stays on while other tasks run (worst case)
 
 Please report: what each one printed, whether it sounded right, any
 clicks or gaps, and the "max queued" figure.

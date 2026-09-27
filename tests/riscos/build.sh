@@ -11,7 +11,7 @@ PATH=$GCCSDK_ENV/bin:$PATH
 L=../../build/work/build/.libs
 O=out/UnixLibTests
 rm -rf out; mkdir -p $O
-for p in dsptest miditest nosound exitjoin fsyncro; do
+for p in dsptest miditest nosound exitjoin fsyncro tickertest; do
   arm-riscos-gnueabihf-gcc -O2 -static -fstack-clash-protection -L$L $p.c -o out/$p.elf -lm
   "$ELF2AIF" -e out/$p.elf $O/$p,ff8
 done

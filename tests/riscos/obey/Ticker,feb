@@ -1,0 +1,5 @@
+| Two busy threads in a Wimp task for 20 s while other tasks run.
+| Have Alarm, a clock or Organizer running. Nothing else should crash.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.tickertest -s 20
