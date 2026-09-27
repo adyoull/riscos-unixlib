@@ -4,19 +4,23 @@
 GCCSDK_ENV ?= $(HOME)/gccsdk/env
 export GCCSDK_ENV
 
-.PHONY: help check sources lib install patches riscos-tests elf2aif clean
+.PHONY: help check check-lib sources lib install patches riscos-tests elf2aif clean
 
 help:
 	@echo "make check         host tests + patch checks (no cross compiler needed)"
 	@echo "make sources       fetch and check GCCSDK and the GCC source (build/src)"
 	@echo "make lib           build libunixlib.a (needs GCCSDK_ENV)"
 	@echo "make install       build it and copy lib + headers into GCCSDK_ENV"
+	@echo "make check-lib     check a built library/program for mismatched objects"
 	@echo "make patches       regenerate patches/*.diff from the history"
 	@echo "make riscos-tests  build tests/riscos/out/UnixLibTests.zip"
 	@echo "make clean         remove build output (keeps build/src)"
 
 check:
 	tests/check.sh
+
+check-lib:
+	tools/check-lib.sh $(FILES)
 
 sources:
 	build/fetch-sources.sh

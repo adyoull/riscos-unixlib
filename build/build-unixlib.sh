@@ -49,6 +49,8 @@ CC=$T-gcc AR=$T-ar RANLIB=$T-ranlib CFLAGS="$CFLAGS" \
     --disable-shared --enable-static --disable-multilib >configure.log
 make -j"$(nproc)" >make.log 2>&1 || { tail -40 make.log; exit 1; }
 ls -l .libs/libunixlib.a
+# Refuse a library built from mismatched objects (see tools/check-lib.sh).
+GCCSDK_ENV="$GCCSDK_ENV" "$REPO/tools/check-lib.sh" "$W/build/.libs/libunixlib.a"
 if [ "$INSTALL" = yes ]; then
   cp .libs/libunixlib.a "$GCCSDK_ENV/$T/lib/libunixlib.a"
   # UnixLib's own headers (a few change, e.g. fdatasync in unistd.h)
