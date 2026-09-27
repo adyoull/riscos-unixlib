@@ -1,8 +1,16 @@
 diff --git a/gcc4/recipe/files/gcc/libunixlib/Makefile.am b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-index e887b17..53319b6 100644
+index e887b17..58a0a90 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 +++ b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-@@ -863,6 +863,7 @@ sound_src =
+@@ -771,6 +771,7 @@ if UNIXLIB_BUILDING_SCL
+ sched_src =
+ else
+ sched_src = \
++	sched/sched_prio.c \
+ 	sched/syield.c
+ endif
+ 
+@@ -863,6 +864,7 @@ sound_src =
  else
  sound_src = \
  	sound/dsp.c \
@@ -10,7 +18,7 @@ index e887b17..53319b6 100644
  	sound/DRender.s
  endif
  
-@@ -1499,6 +1500,18 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
+@@ -1499,6 +1501,18 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
  	$(stdio_src) $(stdlib_src) $(string_src) $(sys_src) \
  	$(termios_src) $(time_src) $(unistd_src) $(unix_src) $(wchar_src)
  
@@ -102,6 +110,22 @@ index eed3e61..bc83847 100644
  extern pthread_t __pthread_thread_list; /* Linked list of all threads */
  
  /* Called once early in program initialisation */
+diff --git a/gcc4/recipe/files/gcc/libunixlib/include/sched.h b/gcc4/recipe/files/gcc/libunixlib/include/sched.h
+index 2e424fb..869176c 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/include/sched.h
++++ b/gcc4/recipe/files/gcc/libunixlib/include/sched.h
+@@ -16,6 +16,11 @@ __BEGIN_DECLS
+ 
+ extern int sched_yield (void);
+ 
++/* The range of priorities for POLICY.  UnixLib's scheduler ignores
++   priorities, so both are 0 for every policy.  */
++extern int sched_get_priority_min (int __policy) __THROW;
++extern int sched_get_priority_max (int __policy) __THROW;
++
+ __END_DECLS
+ 
+ #endif /* __SCHED_H */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/unistd.h b/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
 index be382ba..e7893a6 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
@@ -166,6 +190,21 @@ index fada843..17079f1 100644
  	DECLARE_FUNCTION pthread_call_every
  
  @ This is called from _signal.s::__h_cback and pthread_yield.
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/newnode.c b/gcc4/recipe/files/gcc/libunixlib/pthread/newnode.c
+index 37f75aa..069a2f8 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/newnode.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/newnode.c
+@@ -71,6 +71,10 @@ __pthread_new_node (pthread_t node)
+   node->keys = NULL;
+   node->cleanupfns = NULL;
+   node->state = STATE_RUNNING;
++  /* 2026: these were left uninitialised, so pthread_getschedparam
++     returned whatever malloc left there.  */
++  node->__policy = SCHED_OTHER;
++  node->__param.sched_priority = 0;
+   node->cancelstate = PTHREAD_CANCEL_ENABLE;
+   node->canceltype = PTHREAD_CANCEL_DEFERRED;
+   node->cancelpending = 0;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c b/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
 index 9457494..0e7bca8 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
@@ -218,6 +257,77 @@ index 9457494..0e7bca8 100644
    __pthread_thread_list = __pthread_running_thread;
    gbl->pthread_num_running_threads = 1;
  }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/schedparam.c b/gcc4/recipe/files/gcc/libunixlib/pthread/schedparam.c
+index f6fa1f3..641632c 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/schedparam.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/schedparam.c
+@@ -5,17 +5,22 @@
+ #include <pthread.h>
+ #include <sched.h>
+ 
+-/* Set scheduling parameter (currently ignored) */
++/* Set scheduling parameter.
++   2026: the policy test used || and so rejected every policy with EINVAL.
++   UnixLib's scheduler is a round robin without priorities: SCHED_OTHER
++   with priority 0 is accepted (and recorded), the real-time policies are
++   refused with ENOTSUP as POSIX allows, and anything else is EINVAL.  */
+ int pthread_setschedparam (pthread_t thread, int policy,
+ 			   const struct sched_param *param)
+ {
+   if (thread == NULL || param == NULL)
+     return EINVAL;
+ 
+-  if (policy != SCHED_FIFO
+-      || policy != SCHED_RR
+-      || policy != SCHED_SPORADIC
+-      || policy != SCHED_OTHER)
++  if (policy == SCHED_FIFO || policy == SCHED_RR || policy == SCHED_SPORADIC)
++    return ENOTSUP;
++  if (policy != SCHED_OTHER
++      || param->sched_priority < sched_get_priority_min (policy)
++      || param->sched_priority > sched_get_priority_max (policy))
+     return EINVAL;
+ 
+   thread->__policy = policy;
+diff --git a/gcc4/recipe/files/gcc/libunixlib/sched/sched_prio.c b/gcc4/recipe/files/gcc/libunixlib/sched/sched_prio.c
+new file mode 100644
+index 0000000..09a1e5a
+--- /dev/null
++++ b/gcc4/recipe/files/gcc/libunixlib/sched/sched_prio.c
+@@ -0,0 +1,33 @@
++/* sched_get_priority_min (), sched_get_priority_max ()
++   Copyright (c) 2026 UnixLib Developers.  */
++
++#include <errno.h>
++#include <sched.h>
++
++/* 2026: UnixLib's thread scheduler is a plain round robin that ignores
++   priorities, so every policy has the single priority 0.  Programs that
++   ask (OpenAL Soft, SDL-style thread code) get a valid, empty range
++   instead of a link error.  */
++
++static int
++known_policy (int policy)
++{
++  return policy == SCHED_OTHER || policy == SCHED_FIFO
++	 || policy == SCHED_RR || policy == SCHED_SPORADIC;
++}
++
++int
++sched_get_priority_min (int policy)
++{
++  if (!known_policy (policy))
++    return __set_errno (EINVAL);
++  return 0;
++}
++
++int
++sched_get_priority_max (int policy)
++{
++  if (!known_policy (policy))
++    return __set_errno (EINVAL);
++  return 0;
++}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c b/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c
 index d9221ef..c1e3828 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c

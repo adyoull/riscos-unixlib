@@ -29,6 +29,16 @@ Versions are git tags `vX.Y.Z`. How to release: docs/MAINTAINING.md.
   consistently, run on a Pi 4 with the ticker active and no aborts in other
   tasks.
 
+- **`sched_get_priority_min` / `sched_get_priority_max`** added
+  (`sched/sched_prio.c`, `<sched.h>`), from riscos-mesa: OpenAL Soft found
+  `pthread_setschedparam`, enabled its priority code and failed to link.
+  Every known policy has the single priority 0 (the scheduler ignores
+  priorities).
+- **`pthread_setschedparam`** refused every policy (a `||` that should have
+  been `&&`). Now SCHED_OTHER/0 is accepted, SCHED_FIFO/RR/SPORADIC give
+  ENOTSUP, anything else EINVAL. New threads start as SCHED_OTHER/0; before,
+  `pthread_getschedparam` returned uninitialised memory. Pi test: `Sched`.
+
 ### Repo (nothing changes in the library)
 
 - `tools/check-lib.sh` / `make check-lib FILES=...` (see above).

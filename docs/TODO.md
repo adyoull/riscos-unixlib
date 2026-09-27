@@ -56,6 +56,10 @@ worked around in the program or SDL today. Ordered by how much they hurt.
 `pthread_getcpuclockid`, ELF TLS (`__aeabi_read_tp`). `open_memstream` and
 `pthread_mutex_timedlock` would be small, self-contained additions.
 
+(`sched_get_priority_min`/`max` were on this list via riscos-mesa's OpenAL
+port; added in 0.1.1. The scheduler still has no real-time policies:
+`pthread_setschedparam` refuses them with ENOTSUP.)
+
 ## 7. Sound: not done yet
 
 - `/dev/dsp` recording (no input).

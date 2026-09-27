@@ -112,6 +112,9 @@ above). Drop it into `<env>/arm-riscos-gnueabihf/lib/` and relink.
   x")` gives "File 'which' not found". Avoid them in ports.
 - `getenv("Name$Var")` reads RISC OS system variables.
 - `fsync()` before `close()` is fine now, and `fdatasync()` exists.
+- Thread priorities and real-time policies aren't supported:
+  `sched_get_priority_min`/`max` return 0 and `pthread_setschedparam` refuses
+  SCHED_FIFO/SCHED_RR with ENOTSUP.
 - There is no `dlopen`, `open_memstream`, `pthread_mutex_timedlock`,
   pthread barriers or `pthread_getcpuclockid`; no ELF TLS
   (`__aeabi_read_tp`).
