@@ -28,7 +28,13 @@ MODVER=$(sed -n 's/.*"PThreadTicker\\t\([0-9.]*\) .*/\1/p' libunixlib/module/pth
 M=$OUT/tmp/PThreadTicker
 mkdir -p "$M/!System/310/Modules"
 cp "$B/pthticker" "$M/!System/310/Modules/PThrTicker,ffa"
-sed "s/VERSION/$MODVER/" release/PThreadTicker-ReadMe > "$M/ReadMe,fff"
+case $TAG in
+  *-rc*) STATUS="** Pre-release: not yet tested on RISC OS hardware. **" ;;
+  *) STATUS= ;;
+esac
+awk -v v="$MODVER" -v t="$TAG" -v st="$STATUS" \
+  '{ gsub(/VERSION/, v); gsub(/TAG/, t) } /^STATUS$/ { if (st != "") print st "\n"; next } { print }' \
+  release/PThreadTicker-ReadMe > "$M/ReadMe,fff"
 cp release/PThreadTicker-Licence "$M/Licence,fff"
 python3 tools/mkrozip.py "$OUT/PThreadTicker-$MODVER.zip" "$M"
 rm -rf "$OUT/tmp"

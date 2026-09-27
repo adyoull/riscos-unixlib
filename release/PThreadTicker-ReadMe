@@ -1,12 +1,13 @@
-PThreadTicker VERSION
-=====================
+PThreadTicker
+=============
+
+Version VERSION, from riscos-unixlib TAG.
 
 A small module that makes threaded UnixLib programs (built with GCCSDK
 GCC 10 and riscos-unixlib 0.1.1 or later: Warzone 2100, OpenTTD, SDL
 programs...) safer in the desktop.
 
-** Pre-release: not yet tested on RISC OS hardware. **
-
+STATUS
 What it does
 ------------
 UnixLib switches a program's threads with a timer that fires every
