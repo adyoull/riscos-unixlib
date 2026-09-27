@@ -59,6 +59,13 @@ where the ticker code lives, and why the filters didn't stop it.
    SharedUnixLibrary "1.17"; that was withdrawn: SUL belongs to GCCSDK,
    and an unofficial SUL under the official name wasn't a good idea.)
 
+Why keep a module when the RMA copy works: RISC OS Open has discussed
+splitting the RMA so that modules' code and data claimed with
+`OS_Module 6` live apart (forum thread "Split RMA"), which would let the
+data part be made non-executable. The RMA copy would then stop working;
+code in a loaded module would not. The module is the long-term route, the
+RMA copy the fallback until it's widely installed.
+
 The **filters** were in the program's memory too. FilterManager only calls
 them for the task they were registered for, which is safe if that task is
 really this program. Now they are in the module (or the RMA copy) as well.
