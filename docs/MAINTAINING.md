@@ -145,26 +145,25 @@ and the patch scripts diff against it.
 - **UnixLib code runs in every program.** Anything at exit (`_exit` in
   `unix/unix.c`) must only undo what *this* program did: the old
   `__dsp_exit` switched off everybody's sound.
-- **The thread ticker's routines run from SharedUnixLibrary or RMA,** never
-  from the program: the ticker fires whichever task is paged in. They are
-  one macro, `incl-local/internal/ticker.s`, assembled into SUL
-  (`module/sul.s`) and into UnixLib (`pthread/_context.s`, copied into the
-  RMA block when SUL is older than 1.17). Keep them position independent
-  (only `ip`-relative data, `ADR` within the macro, SWIs; no literal pools,
-  no branches out), valid in both divided and unified syntax, under 320
-  bytes (the assembler checks), and never let the handler touch
-  application space before the upcall/key check. The RMA block offsets
-  they use are an interface between UnixLib and SUL, which are released
-  separately: don't move them (docs/THREAD-TICKER.md). The layout is
+- **The thread ticker's routines run from the PThreadTicker module or
+  RMA,** never from the program: the ticker fires whichever task is paged
+  in. They are one macro, `incl-local/internal/ticker.s`, assembled into
+  the module (`module/pthticker.s`) and into UnixLib (`pthread/_context.s`,
+  copied into the RMA block when the module isn't loaded). Keep them
+  position independent (only `ip`-relative data, `ADR` within the macro,
+  SWIs; no literal pools, no branches out), under 320 bytes (the assembler
+  checks), and never let the handler touch application space before the
+  upcall/key check. The RMA block offsets they use and the module's
+  interface table are an interface between UnixLib and the module, which
+  are released separately: don't move them; bump the interface version
+  for incompatible changes (docs/THREAD-TICKER.md). The block layout is
   written twice, in `incl-local/pthread.h` and `asm_dec.s`; `pthinit.c`
   checks at compile time that they agree. `make check` runs the built
   code in an emulator (`tests/emu`).
-- **SharedUnixLibrary changes** (`module/sul.s`): fields in the process
-  structure after `PROC_SULONLY` are SUL's own, but must be set wherever a
-  structure is created (`alloc_proc`, `sul_fork`); `sul_exit` may have no
-  stack. A new SUL can't replace a running one while UnixLib programs run.
-  SWIs and version numbers belong to GCCSDK: agree them there before a
-  release.
+- **Don't change SharedUnixLibrary** (`module/sul.s`) here: it and its SWIs
+  belong to GCCSDK, and a changed module under the same name and version
+  would be confusing on users' machines. Things that need a module go in
+  our own (like PThreadTicker).
 - **Incremental builds and assembler files.** Automake doesn't track what
   `.s` files include. `Makefile.am` now makes every assembler object depend
   on `asm_dec.s`, the macro files and the two headers they include; if you

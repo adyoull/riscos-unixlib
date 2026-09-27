@@ -1,5 +1,5 @@
 diff --git a/gcc4/recipe/files/gcc/libunixlib/Makefile.am b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-index e887b17..0e7b57b 100644
+index e887b17..742b85e 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 +++ b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 @@ -676,6 +676,7 @@ pthread_src = \
@@ -49,11 +49,35 @@ index e887b17..0e7b57b 100644
 +	$(top_srcdir)/incl-local/internal/defines.h \
 +	$(top_srcdir)/include/unixlib/buildoptions.h
 +unixlib_asm_objs = $(patsubst %.s,%.lo,$(notdir $(filter %.s,$(libunixlib_la_SOURCES))))
-+$(unixlib_asm_objs) crt0.o gcrt0.o sul.o: $(unixlib_asm_deps)
++$(unixlib_asm_objs) crt0.o gcrt0.o sul.o pthticker.o: $(unixlib_asm_deps)
 +
  libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 5:0:0 -Wl,--version-script -Wl,$(top_srcdir)/vscript
  
  libm_la_SOURCES = libm-support/libm.c
+@@ -1553,7 +1570,7 @@ gcrt0.o: crt/gcrt0.s
+ # SUL module ----------------
+ 
+ # Build the SharedUnixLibrary module
+-bin_PROGRAMS = sul
++bin_PROGRAMS = sul pthticker
+ 
+ sul.o: module/sul.s
+ 	$(CCASCOMPILE) -o sul.o -c `test -f 'module/sul.s' || echo '$(srcdir)/'`module/sul.s
+@@ -1564,6 +1581,14 @@ sul.o: module/sul.s
+ sul$(EXEEXT): sul.o
+ 	$(STRIP) -O binary -o sul$(EXEEXT) sul.o
+ 
++# 2026: the PThreadTicker module (runs the thread ticker; see
++# docs/THREAD-TICKER.md).  Not part of SharedUnixLibrary.
++pthticker.o: module/pthticker.s
++	$(CCASCOMPILE) -o pthticker.o -c `test -f 'module/pthticker.s' || echo '$(srcdir)/'`module/pthticker.s
++
++pthticker$(EXEEXT): pthticker.o
++	$(STRIP) -O binary -o pthticker$(EXEEXT) pthticker.o
++
+ install-data-local: install-headers
+ 
+ install-headers:
 diff --git a/gcc4/recipe/files/gcc/libunixlib/common/__stat.c b/gcc4/recipe/files/gcc/libunixlib/common/__stat.c
 index d7a6a30..da15f81 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/common/__stat.c
@@ -67,19 +91,10 @@ index d7a6a30..da15f81 100644
  	mode |= S_IFCHR;
  	break;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
-index 7f01c57..40fded1 100644
+index 7f01c57..4aff7fc 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
-@@ -212,6 +212,8 @@
- @.set	XSharedUnixLibrary_Count, 0x55c83 + X_Bit
- .set	SharedUnixLibrary_Initialise, 0x55c84
- .set	XSharedUnixLibrary_Initialise, 0x55c84 + X_Bit
-+.set	SharedUnixLibrary_Ticker, 0x55c85	@ 2026: SUL 1.17+
-+.set	XSharedUnixLibrary_Ticker, 0x55c85 + X_Bit
- 
- @ A few of these are required to build SUL.
- .set	XARMEABISupport_MemoryOp, 0x59D00 + X_Bit
-@@ -389,6 +391,22 @@ PTHREAD_CALLEVERY_RMA_TICKER_STARTED:		.skip 4
+@@ -389,6 +389,22 @@ PTHREAD_CALLEVERY_RMA_TICKER_STARTED:		.skip 4
  PTHREAD_CALLEVERY_RMA_WORKSEMAPHORE:		.skip 4
  PTHREAD_CALLEVERY_RMA_CALLBACK_SEMAPHORE:	.skip 4
  PTHREAD_CALLEVERY_RMA_FILTER_NAME:		.skip 20
@@ -95,7 +110,7 @@ index 7f01c57..40fded1 100644
 +PTHREAD_CALLEVERY_RMA_POST_CALLS:		.skip 4
 +	@ Task handle the filters are registered for, 0 if none
 +PTHREAD_CALLEVERY_RMA_FILTER_HANDLE:		.skip 4
-+	@ Bit 0 set: SharedUnixLibrary runs the ticker (else the copy below)
++	@ Bit 0 set: the PThreadTicker module's routines (else the copy below)
 +PTHREAD_CALLEVERY_RMA_FLAGS:			.skip 4
 +	@ A copy of the ticker routines (see _context.s)
 +PTHREAD_CALLEVERY_RMA_TICKER_CODE:		.skip 320
@@ -132,11 +147,11 @@ index e45417e..86e7c5a 100644
  extern int __customclose (struct __unixlib_fd *__fd);
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/ticker.s b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/ticker.s
 new file mode 100644
-index 0000000..518ee17
+index 0000000..af20ac3
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/ticker.s
-@@ -0,0 +1,125 @@
-+@ Thread ticker routines, shared by SharedUnixLibrary and UnixLib
+@@ -0,0 +1,126 @@
++@ Thread ticker routines, shared by the PThreadTicker module and UnixLib
 +@ Copyright (c) 2026 UnixLib Developers
 +@
 +@ TICKER_ROUTINES p assembles five routines, all called with ip (r12) =
@@ -149,21 +164,22 @@ index 0000000..518ee17
 +@   p_prefilter  Wimp pre-filter: count, then p_stop
 +@   p_postfilter Wimp post-filter: count, then p_start
 +@
-+@ SharedUnixLibrary 1.17+ assembles them into the module (module/sul.s),
-+@ so they are always paged in. With an older SUL, UnixLib copies them
-+@ into the RMA block at start-up and runs the copy (pthread/_context.s).
++@ The PThreadTicker module (module/pthticker.s) assembles them, so they
++@ are always paged in. Without that module, UnixLib copies them into the
++@ RMA block at start-up and runs the copy (pthread/_context.s).
 +@ Either way they must not depend on where they are: only ip-relative
 +@ data, ADR within this block, SWIs; no literal pools, no branches out.
 +@ The block offsets they use (76, 80, 88, 92, 96 and 120-143) are an
-+@ interface between UnixLib and SharedUnixLibrary: don't move them.
++@ interface between UnixLib and the module, which are released
++@ separately: don't move them.
 +@
 +@ Only the handler may run while another task is paged in. It checks that
 +@ the upcall handler and its R12 are the program's (from SUL) before it
 +@ touches anything but the RMA block, so a tick that finds another task
 +@ paged in does nothing but count.
 +@
-+@ Syntax: valid in both divided (sul.s) and unified (_context.s) syntax,
-+@ so no conditional LDM/STM.
++@ Syntax: keep it valid in both divided and unified syntax (no
++@ conditional LDM/STM), so any module source can use it.
 +
 +.macro	TICKER_ROUTINES p
 +
@@ -262,7 +278,7 @@ index 0000000..518ee17
 +\p\()_end:
 +.endm
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
-index eed3e61..39f2bda 100644
+index eed3e61..827a1d8 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
 @@ -180,8 +180,34 @@ struct __pthread_callevery_block
@@ -278,9 +294,9 @@ index eed3e61..39f2bda 100644
 +  unsigned pre_calls;		/* Wimp pre-filter calls.  */
 +  unsigned post_calls;		/* Wimp post-filter calls.  */
 +  int filter_handle;		/* Task the filters are registered for.  */
-+  unsigned flags;		/* Bit 0: SharedUnixLibrary runs the ticker.  */
-+  /* A copy of the ticker routines, used with SharedUnixLibrary 1.16 and
-+     earlier (1.17 runs its own).  OS_CallEvery runs the handler from
++  unsigned flags;		/* Bit 0: the PThreadTicker module's routines.  */
++  /* A copy of the ticker routines, used when the PThreadTicker module
++     isn't loaded.  OS_CallEvery runs the handler from
 +     here: the ticker can fire while another task is paged in, when the
 +     application's own copy isn't there.  */
 +  unsigned ticker_code[80];
@@ -331,225 +347,160 @@ index be382ba..e7893a6 100644
  /* Truncate FILE to LENGTH bytes.  */
  extern int truncate (const char *__file, __off_t __length) __THROW;
  
-diff --git a/gcc4/recipe/files/gcc/libunixlib/module/sul.s b/gcc4/recipe/files/gcc/libunixlib/module/sul.s
-index 6135755..86a2297 100644
---- a/gcc4/recipe/files/gcc/libunixlib/module/sul.s
-+++ b/gcc4/recipe/files/gcc/libunixlib/module/sul.s
-@@ -2,6 +2,7 @@
- @ Copyright (c) 2002-2015 UnixLib Developers
- 
- #include "internal/asm_dec.s"
+diff --git a/gcc4/recipe/files/gcc/libunixlib/module/pthticker.s b/gcc4/recipe/files/gcc/libunixlib/module/pthticker.s
+new file mode 100644
+index 0000000..0b7caf3
+--- /dev/null
++++ b/gcc4/recipe/files/gcc/libunixlib/module/pthticker.s
+@@ -0,0 +1,146 @@
++@ PThreadTicker: runs UnixLib's thread ticker routines from a module
++@ Copyright (c) 2026 UnixLib Developers
++@
++@ 2026 (riscos-unixlib): UnixLib switches threads with an OS_CallEvery
++@ ticker, and a Wimp task stops it with Wimp filters while it is paged out.
++@ The ticker can still fire while another task is paged in, and the
++@ FilterManager can call the filters for the wrong task, so the routines
++@ must not live in the program. A module is always paged in.
++@
++@ Without this module UnixLib copies the same routines into its RMA block
++@ and runs them there; with it, UnixLib runs the module's copy. The
++@ routines themselves are internal/ticker.s. See docs/THREAD-TICKER.md.
++@
++@ No SWIs (none are allocated to it). UnixLib finds the module with
++@ OS_Module 18 ("PThreadTicker") and reads the interface table that
++@ follows the module header (offset &34):
++@
++@   +0  "PTTk" (&6B545450)
++@   +4  interface version (1)
++@   +8  number of entries that follow (7)
++@   +12 offsets from the module start of:
++@       handler, start, stop, pre-filter, post-filter  (ip = RMA block)
++@       attach, detach                                 (ip = workspace)
++@
++@ attach/detach count the programs using the module; it refuses to be
++@ killed while that count isn't 0. UnixLib attaches at start-up and
++@ detaches at exit, after stopping its ticker and removing its filters.
++
++#include "internal/asm_dec.s"
 +#include "internal/ticker.s"
- 
- #define DEBUG_PROC_MATCHING 0
- 
-@@ -85,7 +86,10 @@
- 	@ Storage for registers to restore on return from a fork/vfork:
- 	@   f4, f5, f6, f7
- 	@   {v1-v6, sl, fp, ip, lr}
--.set	PROC_SIZE, PROC_FORK_STORAGE + 4*12 + 10*4
-+	@ 2026: the program's pthread RMA block while SUL runs its thread
-+	@ ticker (SharedUnixLibrary_Ticker), else 0
-+.set	PROC_TICKERBLOCK, PROC_FORK_STORAGE + 4*12 + 10*4
-+.set	PROC_SIZE, PROC_TICKERBLOCK + 4
- 
- 
- @ The size of a __unixlib_fd struct
-@@ -140,11 +144,11 @@ module_start:
- help:
- 	.ascii	"SharedUnixLibrary"
- 	.byte	9
--	.ascii	"1.16 (3 Apr 2020) "
-+	.ascii	"1.17 (27 Sep 2026) "
- #if DEBUG_PROC_MATCHING
- 	.ascii	"(debug) "
- #endif
--	.asciz	"(C) UnixLib Developers, 2001-2020"
-+	.asciz	"(C) UnixLib Developers, 2001-2026"
- 	.align
- 
- title:
-@@ -155,6 +159,7 @@ swi_table:
- 	.asciz	"SetValue"
- 	.asciz	"Count"
-  	.asciz	"Initialise"
-+	.asciz	"Ticker"
- 	.byte	0
- 	.align
- 
-@@ -183,7 +188,7 @@ module_flags:
- 
- swi_handler:
- 	LDR	r12, [r12]
--	CMP	r11, #5
-+	CMP	r11, #6
- 	ADDCC	pc, pc, r11, LSL#2
- 	B	swi_handler_unknownswi
- 	B	swi_register
-@@ -191,6 +196,7 @@ swi_handler:
- 	B	swi_value
- 	B	swi_count
- 	B	swi_initialise
-+	B	swi_ticker
- swi_handler_unknownswi:
- 	ADR	r0, error_swi
- 	TEQ	pc, pc
-@@ -271,6 +277,97 @@ upcall_handler:
- 					@ handler frees all resources correctly
- 
- 
-+	@ 2026: the thread ticker routines (internal/ticker.s). They are
-+	@ here so they are always paged in: UnixLib's own copy was run
-+	@ while another task was paged in (Warzone 2100 on the Pi).
-+	TICKER_ROUTINES sul_ticker
 +
++	.syntax unified
++	.text
 +
-+	@ SharedUnixLibrary_Ticker (SUL 1.17+): run a UnixLib program's
-+	@ thread ticker from this module.
-+	@
-+	@ Entry
-+	@    R0 = reason:
-+	@         0  start the ticker; R2 = the program's pthread RMA block
-+	@            (struct __pthread_callevery_block)
-+	@         1  stop the ticker (it stays registered)
-+	@         2  stop it and forget the block (before freeing the block)
-+	@         3  read the Wimp filter routines: on exit R1 = pre-filter,
-+	@            R2 = post-filter; register them with R2 = the block
-+	@    R1 = key (from SharedUnixLibrary_Initialise)
-+	@
-+	@ Exit
-+	@    R0 preserved (reasons 0-2 also preserve R1, R2)
-+	@
-+	@ Errors: unknown key, unknown reason. SUL stops the ticker if the
-+	@ program exits without doing so.
-+swi_ticker:
-+	STMFD	sp!, {r3, lr}
++module_start:
++	.word	0				@ Start code
++	.word	init_code - module_start	@ Initialisation
++	.word	final_code - module_start	@ Finalisation
++	.word	0				@ Service call handler
++	.word	title - module_start		@ Title string
++	.word	help - module_start		@ Help string
++	.word	0				@ Command table
++	.word	0				@ SWI chunk
++	.word	0				@ SWI handler
++	.word	0				@ SWI table
++	.word	0				@ SWI decoder
++	.word	0				@ Messages file
++	.word	module_flags - module_start	@ Flags
 +
-+	@ Find the process: R1 must be a key in the client list
-+	MOV	r3, r12
-+swi_ticker_find:
-+	LDR	r3, [r3, #PROC_NEXT]
-+	TEQ	r3, #0
-+	BEQ	swi_ticker_badkey
-+	TEQ	r3, r1
-+	BNE	swi_ticker_find
++	@ The interface table (see above); UnixLib expects it at &34
++interface:
++	.word	0x6B545450			@ "PTTk"
++	.word	1				@ Interface version
++	.word	7				@ Entries
++	.word	pt_handler - module_start
++	.word	pt_start - module_start
++	.word	pt_stop - module_start
++	.word	pt_prefilter - module_start
++	.word	pt_postfilter - module_start
++	.word	pt_attach - module_start
++	.word	pt_detach - module_start
++	.if	interface - module_start - 0x34
++	.error	"The interface table must follow the module header (&34)"
++	.endif
 +
-+	CMP	r0, #4
-+	ADDCC	pc, pc, r0, LSL#2
-+	B	swi_ticker_badreason
-+	B	swi_ticker_start
-+	B	swi_ticker_stop
-+	B	swi_ticker_release
-+	B	swi_ticker_routines
++title:
++	.asciz	"PThreadTicker"
++help:
++	.asciz	"PThreadTicker\t0.01 (27 Sep 2026) riscos-unixlib"
++	.align
++module_flags:
++	.word	1				@ 32-bit compatible
 +
-+swi_ticker_start:
-+	@ Stop a ticker on a different block first
-+	LDR	ip, [r3, #PROC_TICKERBLOCK]
-+	TEQ	ip, #0
-+	TEQNE	ip, r2
-+	BLNE	sul_ticker_stop
-+	STR	r2, [r3, #PROC_TICKERBLOCK]
-+	MOV	ip, r2
-+	BL	sul_ticker_start
-+	LDMFD	sp!, {r3, pc}
++error_inuse:
++	.word	0
++	.asciz	"PThreadTicker is in use by UnixLib programs"
++	.align
 +
-+swi_ticker_stop:
-+	LDR	ip, [r3, #PROC_TICKERBLOCK]
-+	TEQ	ip, #0
-+	BLNE	sul_ticker_stop
-+	LDMFD	sp!, {r3, pc}
++	@ The ticker routines: ip = the program's pthread RMA block
++	TICKER_ROUTINES pt
 +
-+swi_ticker_release:
-+	LDR	ip, [r3, #PROC_TICKERBLOCK]
-+	TEQ	ip, #0
-+	BLNE	sul_ticker_stop
-+	MOV	ip, #0
-+	STR	ip, [r3, #PROC_TICKERBLOCK]
-+	LDMFD	sp!, {r3, pc}
++	@ Count a program using the module. ip = workspace (OS_Module 18's
++	@ R4). Any mode; preserves all registers and flags.
++pt_attach:
++	STMFD	sp!, {a1}
++	LDR	a1, [ip]
++	ADD	a1, a1, #1
++	STR	a1, [ip]
++	LDMFD	sp!, {a1}
++	MOV	pc, lr
 +
-+swi_ticker_routines:
-+	ADR	r1, sul_ticker_prefilter
-+	ADR	r2, sul_ticker_postfilter
-+	LDMFD	sp!, {r3, pc}
++	@ ... and one that has finished with it.
++pt_detach:
++	STMFD	sp!, {a1}
++	LDR	a1, [ip]
++	SUBS	a1, a1, #1
++	MOVMI	a1, #0
++	STR	a1, [ip]
++	LDMFD	sp!, {a1}
++	MOV	pc, lr
 +
-+swi_ticker_badreason:
-+	LDMFD	sp!, {r3, lr}
-+	ADR	r0, error_swi
-+	TEQ	pc, pc
-+	ORRNES	pc, lr, #VFlag			@ Return error (26bit)
++	@ Workspace: one word, the number of programs attached.
++init_code:
++	STMFD	sp!, {lr}
++	LDR	r2, [r12]
++	TEQ	r2, #0			@ Re-initialising: keep it
++	BNE	init_done
++	MOV	r0, #6
++	MOV	r3, #4
++	SWI	XOS_Module
++	BVS	init_fail
++	STR	r2, [r12]
++	MOV	r0, #0
++	STR	r0, [r2]
++init_done:
++	MSR	CPSR_f, #0		@ V clear: no error
++	LDMFD	sp!, {pc}
++init_fail:
++	LDMFD	sp!, {lr}
 +	MSR	CPSR_f, #VFlag
-+	MOV	pc, lr				@ Return error (32bit)
++	MOV	pc, lr
 +
-+swi_ticker_badkey:
-+	LDMFD	sp!, {r3, lr}
-+	ADR	r0, error_unknown
-+	TEQ	pc, pc
-+	ORRNES	pc, lr, #VFlag			@ Return error (26bit)
++	@ Refuse to die while a program uses the routines: its ticker or
++	@ filters would call freed code.
++final_code:
++	STMFD	sp!, {lr}
++	LDR	r2, [r12]
++	TEQ	r2, #0
++	BEQ	final_done
++	LDR	r0, [r2]
++	TEQ	r0, #0
++	BNE	final_inuse
++	MOV	r0, #7
++	SWI	XOS_Module
++	MOV	r0, #0
++	STR	r0, [r12]
++final_done:
++	MSR	CPSR_f, #0		@ V clear: no error
++	LDMFD	sp!, {pc}
++final_inuse:
++	LDMFD	sp!, {lr}
++	ADR	r0, error_inuse
 +	MSR	CPSR_f, #VFlag
-+	MOV	pc, lr				@ Return error (32bit)
++	MOV	pc, lr
 +
-+
- 	@ Deregister a previously registered handler
- 	@
- 	@ Entry
-@@ -649,6 +746,7 @@ alloc_proc:
- 	STR	a1, [v2, #PROC_OLDERRORBUF]
- 	STR	a1, [v2, #PROC_CLI]
- 	STR	a1, [v2, #PROC_PARENTADDR]
-+	STR	a1, [v2, #PROC_TICKERBLOCK]
- 	MOV	a1, #18		@ 022
- 	STR	a1, [v2, #PROC_UMASK]
- 	MOV	a1, #FDSIZE
-@@ -690,6 +788,14 @@ alloc_proc:
- invalidate_handle:
- 	@ v2 = found, or newly allocated, __ul_global.sulproc (struct __sul_process)
- 
-+	@ 2026: a program starting on an exec'd process's structure has no
-+	@ ticker yet. Stop one the previous program left running.
-+	LDR	ip, [v2, #PROC_TICKERBLOCK]
-+	TEQ	ip, #0
-+	BLNE	sul_ticker_stop
-+	MOV	ip, #0
-+	STR	ip, [v2, #PROC_TICKERBLOCK]
-+
- 	@ Invalidate the taskhandle so any children of this process don't
- 	@ pick it up
- 	MOV	a1, #-1
-@@ -811,6 +917,9 @@ sul_fork:
- 
- 	MOV	v2, a3
- 	LDMFD	sp!, {v1, v3-v5}
-+	@ 2026: not copied from the parent; the child has no ticker
-+	MOV	a1, #0
-+	STR	a1, [v2, #PROC_TICKERBLOCK]
- 	@ At this point:
- 	@   v1 = parent's __ul_global.sulproc ptr
- 	@   v2 = ptr new child's struct __sul_process
-@@ -1390,6 +1499,22 @@ sul_exit:
- 	MOV	a2, #0
- 	SWI	XVFPSupport_ChangeContext
- 
-+	@ 2026: stop the thread ticker if the program left it running
-+	@ (SharedUnixLibrary_Ticker). No stack here, so not sul_ticker_stop.
-+	LDR	a2, [v2, #PROC_TICKERBLOCK]
-+	TEQ	a2, #0
-+	BEQ	3f
-+	MOV	a1, #0
-+	STR	a1, [v2, #PROC_TICKERBLOCK]
-+	LDR	a1, [a2, #PTHREAD_CALLEVERY_RMA_TICKER_STARTED]
-+	TEQ	a1, #0
-+	BEQ	3f
-+	ADRL	a1, sul_ticker_handler
-+	SWI	XOS_RemoveTickerEvent
-+	MOV	a1, #0
-+	STR	a1, [a2, #PTHREAD_CALLEVERY_RMA_TICKER_STARTED]
-+3:
-+
- 	LDR	a1, [v2, #PROC_STATUS]
- 
- 	@ If it's not dynamic, then nothing to deregister
++	.end
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s b/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
-index fada843..4b2d519 100644
+index fada843..1dd8b95 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
 @@ -28,251 +28,53 @@
@@ -803,13 +754,13 @@ index fada843..4b2d519 100644
 -	LDMFD	sp!, {a1-a4, pc}
 -	DECLARE_FUNCTION pthread_call_every
 +@ 2026: the ticker routines (starting, stopping, the OS_CallEvery handler
-+@ and the Wimp filters) are in internal/ticker.s. SharedUnixLibrary 1.17+
-+@ runs its own copy (SharedUnixLibrary_Ticker); with an older SUL,
-+@ __pthread_prog_init copies the ones below into the RMA block and runs
-+@ them from there. Either way they are paged in whichever task is: the
-+@ ticker can fire while another task is, and the Filter module can call
-+@ the filters for the wrong task. pthread/ticker.c decides which copy to
-+@ use and manages the filters.
++@ and the Wimp filters) are in internal/ticker.s. The PThreadTicker module
++@ (module/pthticker.s) has its own copy; without it, __pthread_ticker_init
++@ copies the ones below into the RMA block and runs them from there.
++@ Either way they are paged in whichever task is: the ticker can fire while
++@ another task is, and the Filter module can call the filters for the
++@ wrong task. pthread/ticker.c decides which copy to use and manages the
++@ filters.
 +
 +	.global	__pthread_call_every_code
 +	.global	__pthread_call_every_code_end
@@ -994,10 +945,10 @@ index f6fa1f3..641632c 100644
    thread->__policy = policy;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/ticker.c b/gcc4/recipe/files/gcc/libunixlib/pthread/ticker.c
 new file mode 100644
-index 0000000..e8c165e
+index 0000000..17b960c
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/ticker.c
-@@ -0,0 +1,288 @@
+@@ -0,0 +1,310 @@
 +/* Thread ticker: starting and stopping it, the Wimp filters, statistics.
 +   Copyright (c) 2026 UnixLib Developers.
 +
@@ -1007,10 +958,10 @@ index 0000000..e8c165e
 +   With more than one thread, an OS_CallEvery ticker sets a callback every
 +   2 cs to switch threads.  In a Wimp task, Wimp filters stop the ticker
 +   when the program calls Wimp_Poll and start it when Wimp_Poll returns.
-+   The ticker routines themselves (internal/ticker.s) run from
-+   SharedUnixLibrary 1.17+ (SharedUnixLibrary_Ticker) or, with an older
-+   SUL, from a copy in the RMA block: never from the program, which isn't
-+   paged in when the ticker fires in another task.
++   The ticker routines themselves (internal/ticker.s) run from the
++   PThreadTicker module when it is loaded (module/pthticker.s) or from a
++   copy in the RMA block: never from the program, which isn't paged in
++   when the ticker fires in another task.
 +
 +   If the system variable UnixLib$TickerStats names a file, a line of
 +   counters is appended to it when the program exits.  */
@@ -1024,12 +975,13 @@ index 0000000..e8c165e
 +#include <internal/os.h>
 +#include <internal/unix.h>
 +
-+#ifndef SharedUnixLibrary_Ticker
-+#define SharedUnixLibrary_Ticker 0x55c85
-+#endif
-+enum
++/* The PThreadTicker module's interface table, after its header.  */
++#define TICKER_MODULE "PThreadTicker"
++#define TICKER_MAGIC 0x6B545450		/* "PTTk" */
++struct ticker_interface
 +{
-+  TICKER_START, TICKER_STOP, TICKER_RELEASE, TICKER_ROUTINES
++  unsigned magic, version, entries;
++  unsigned handler, start, stop, prefilter, postfilter, attach, detach;
 +};
 +
 +/* _context.s: the routines to copy, where they are in the copy (start,
@@ -1037,8 +989,10 @@ index 0000000..e8c165e
 +extern const unsigned __pthread_ticker_offsets[4];
 +extern void __pthread_ticker_call (void *__block, const void *__routine);
 +
-+static void *sul_key;		/* Our SharedUnixLibrary key.  */
-+static const void *pre_filter, *post_filter;
++/* The routines in use: the module's or the RMA copy's.  */
++static const void *start_routine, *stop_routine, *pre_filter, *post_filter;
++static void *module_ws;		/* The module's workspace, if used.  */
++static const void *detach_routine;
 +static int filters_for;		/* Task the filters are registered for.  */
 +static volatile int busy;	/* In __pthread_start/stop_ticker.  */
 +
@@ -1067,23 +1021,45 @@ index 0000000..e8c165e
 +  return __ul_global.pthread_callevery_rma;
 +}
 +
-+/* Called once by __pthread_prog_init: use SharedUnixLibrary's ticker if
-+   it has one, else copy the routines into the RMA block.  */
++/* The PThreadTicker module's interface, or NULL if it isn't loaded or
++   is not one we know.  */
++static const struct ticker_interface *
++find_module (const char **base, void **ws)
++{
++  const struct ticker_interface *t;
++
++  if (_swix (OS_Module, _INR(0,1) | _OUTR(3,4), 18, TICKER_MODULE, base, ws)
++      || *base == NULL || *ws == NULL)
++    return NULL;
++  t = (const struct ticker_interface *) (*base + 0x34);
++  if (t->magic != TICKER_MAGIC || t->version != 1 || t->entries < 7)
++    return NULL;
++  return t;
++}
++
++/* Called once by __pthread_prog_init: use the PThreadTicker module's
++   routines if it is loaded, else copy them into the RMA block.  */
 +void
 +__pthread_ticker_init (void)
 +{
 +  struct __pthread_callevery_block *b = block ();
-+  const void *pre, *post;
++  const struct ticker_interface *t;
++  const char *base;
++  void *ws;
 +
 +  __pthread_ticker_read_task (&startup_handle, &startup_version);
-+  sul_key = b->sul_upcall_r12;
 +
-+  if (!_swix (SharedUnixLibrary_Ticker, _INR(0,1) | _OUTR(1,2),
-+	      TICKER_ROUTINES, sul_key, &pre, &post))
++  if ((t = find_module (&base, &ws)) != NULL)
 +    {
 +      b->flags |= 1;
-+      pre_filter = pre;
-+      post_filter = post;
++      start_routine = base + t->start;
++      stop_routine = base + t->stop;
++      pre_filter = base + t->prefilter;
++      post_filter = base + t->postfilter;
++      detach_routine = base + t->detach;
++      module_ws = ws;
++      /* The module won't be killed while we're attached.  */
++      __pthread_ticker_call (ws, base + t->attach);
 +    }
 +  else
 +    {
@@ -1092,6 +1068,8 @@ index 0000000..e8c165e
 +
 +      memcpy (code, __pthread_call_every_code, len);
 +      _swix (OS_SynchroniseCodeAreas, _INR(0,2), 1, code, code + len - 1);
++      start_routine = code + __pthread_ticker_offsets[0];
++      stop_routine = code + __pthread_ticker_offsets[1];
 +      pre_filter = code + __pthread_ticker_offsets[2];
 +      post_filter = code + __pthread_ticker_offsets[3];
 +    }
@@ -1100,21 +1078,13 @@ index 0000000..e8c165e
 +static void
 +ticker_on (struct __pthread_callevery_block *b)
 +{
-+  if (b->flags & 1)
-+    _swix (SharedUnixLibrary_Ticker, _INR(0,2), TICKER_START, sul_key, b);
-+  else
-+    __pthread_ticker_call (b, (char *) b->ticker_code
-+			      + __pthread_ticker_offsets[0]);
++  __pthread_ticker_call (b, start_routine);
 +}
 +
 +static void
 +ticker_off (struct __pthread_callevery_block *b)
 +{
-+  if (b->flags & 1)
-+    _swix (SharedUnixLibrary_Ticker, _INR(0,1), TICKER_STOP, sul_key);
-+  else
-+    __pthread_ticker_call (b, (char *) b->ticker_code
-+			      + __pthread_ticker_offsets[1]);
++  __pthread_ticker_call (b, stop_routine);
 +}
 +
 +/* Register the filters for task HANDLE (0: none), removing them from the
@@ -1219,13 +1189,16 @@ index 0000000..e8c165e
 +  set_filters (block (), current_task ());
 +}
 +
-+/* Called by __pthread_prog_fini once the ticker is stopped, before the RMA
-+   block is freed.  */
++/* Called by __pthread_prog_fini once the ticker is stopped and the filters
++   removed, before the RMA block is freed: let the module go.  */
 +void
 +__pthread_ticker_fini (void)
 +{
-+  if (block ()->flags & 1)
-+    _swix (SharedUnixLibrary_Ticker, _INR(0,1), TICKER_RELEASE, sul_key);
++  if (module_ws != NULL)
++    {
++      __pthread_ticker_call (module_ws, detach_routine);
++      module_ws = NULL;
++    }
 +}
 +
 +/* Append one line to the file named by UnixLib$TickerStats.  Called by
@@ -1266,7 +1239,7 @@ index 0000000..e8c165e
 +		__ul_global.taskhandle, handle, version,
 +		first_start_handle == -1 ? 0 : first_start_handle, starts,
 +		filter_moves, filter_errors,
-+		(b->flags & 1) ? "SUL" : "RMA");
++		(b->flags & 1) ? "module" : "RMA");
 +  if (n <= 0)
 +    return;
 +  if (n >= (int) sizeof (line))

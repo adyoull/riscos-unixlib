@@ -51,15 +51,17 @@ where the ticker code lives, and why the filters didn't stop it.
    from there. It works, but running code out of a data block is fragile
    (it assumes RMA is executable, the copy had to fit a fixed space, and a
    stale object once made the copy overrun the block).
-2. **Now:** **SharedUnixLibrary 1.17** has the ticker routines itself and
-   runs them for the program (`SharedUnixLibrary_Ticker`, below). A module
-   is always paged in. With SUL 1.16 or older, UnixLib still copies its own
-   routines into the RMA block and runs the copy, so programs keep working
-   with the old module.
+2. **Now:** a small module, **PThreadTicker** (`module/pthticker.s`),
+   holds the ticker routines, and UnixLib runs them from there when it's
+   loaded. A module is always paged in. Without the module, UnixLib still
+   copies its own routines into the RMA block and runs the copy, so
+   programs work either way. (For a day the routines were in a
+   SharedUnixLibrary "1.17"; that was withdrawn: SUL belongs to GCCSDK,
+   and an unofficial SUL under the official name wasn't a good idea.)
 
 The **filters** were in the program's memory too. FilterManager only calls
 them for the task they were registered for, which is safe if that task is
-really this program. Now they are in SUL (or the RMA copy) as well.
+really this program. Now they are in the module (or the RMA copy) as well.
 
 ### Why the filters didn't stop the ticker
 
@@ -90,7 +92,7 @@ Example (one line):
 tickertest ticks=1003 foreign=12 last_foreign=0x2211a8/0x0 pre=412 post=411
  filters_for=0x4d0c1234 startup=0x4d0c1234/310 cached=0x4d0c1234
  now=0x4d0c1234/310 first_start=0x4d0c1234 starts=1 filter_moves=1
- filter_errors=0 via=SUL
+ filter_errors=0 via=module
 ```
 
 | Field | Meaning |
@@ -98,7 +100,7 @@ tickertest ticks=1003 foreign=12 last_foreign=0x2211a8/0x0 pre=412 post=411
 | (first word) | the program (command line's first word) |
 | `ticks` | ticker calls |
 | `foreign` | ticker calls that found **another task** paged in. Non-zero = the ticker was live while we were paged out. |
-| `last_foreign` | the upcall handler / its R12 at the last foreign tick. SUL's handler with another key = another UnixLib program (e.g. a child); anything else = a non-UnixLib task. |
+| `last_foreign` | the upcall handler / its R12 at the last foreign tick. SharedUnixLibrary's handler with another key = another UnixLib program (e.g. a child); anything else = a non-UnixLib task. |
 | `pre`, `post` | Wimp pre-/post-filter calls. Roughly one each per `Wimp_Poll`. |
 | `filters_for` | the task handle the filters were last registered for |
 | `startup` | `Wimp_ReadSysInfo 5` at start-up: handle / Wimp version (R1) |
@@ -107,7 +109,7 @@ tickertest ticks=1003 foreign=12 last_foreign=0x2211a8/0x0 pre=412 post=411
 | `first_start` | the handle the filters were registered for when the ticker first started (0 = none: H2) |
 | `starts` | times the ticker was started |
 | `filter_moves`, `filter_errors` | filter registrations that worked / failed |
-| `via` | `SUL` (SharedUnixLibrary 1.17 runs the ticker) or `RMA` (the copy) |
+| `via` | `module` (PThreadTicker's routines) or `RMA` (the copy) |
 
 Reading it:
 
@@ -123,53 +125,54 @@ The Pi tests `Ticker`, `TickerEarly` (threads before `Wimp_Initialise`) and
 `TickerStartTask` (a `Wimp_StartTask` child every 5 s) set the variable to
 `<Wimp$ScrapDir>.TickerStats`.
 
-## `SharedUnixLibrary_Ticker` (SWI &55C85, SUL 1.17)
+## The PThreadTicker module
 
-| R0 | Action | Other registers |
-|---|---|---|
-| 0 | start the ticker for the program | R1 = key, R2 = the pthread RMA block |
-| 1 | stop it (the block stays registered) | R1 = key |
-| 2 | stop it and forget the block (call before freeing the block) | R1 = key |
-| 3 | read the filter routines | R1 = key; on exit R1 = pre-filter, R2 = post-filter (register them with R2 = the block) |
+Title `PThreadTicker`, file `PThrTicker` (type Module), 648 bytes, built
+with the library (`build/work/build/pthticker`). No SWIs, commands or
+service calls, so it needs nothing allocated by anyone.
 
-The key is the one `SharedUnixLibrary_Initialise` returned (the process
-structure; UnixLib keeps it in the RMA block as `sul_upcall_r12`).
-Unknown key: error `&81A401`; unknown reason: `&81A400`. If the program
-exits without stopping the ticker, SUL's exit handler removes it.
+UnixLib finds it at start-up with `OS_Module 18` ("PThreadTicker"), which
+gives the module's address and its workspace, and reads the interface
+table that follows the module header:
 
-UnixLib calls reason 3 at start-up; if that fails (SUL 1.16 or older) it
-uses its RMA copy. It asks for the SWI, not the version, so a SUL without
-the SWI always gets the fallback.
+| Offset | Contents |
+|---|---|
+| &34 | `"PTTk"` (&6B545450) |
+| &38 | interface version: 1 |
+| &3C | number of entries that follow: 7 |
+| &40… | offsets from the module start of: handler, start, stop, pre-filter, post-filter (called with R12 = the program's RMA block); attach, detach (R12 = the module's workspace) |
 
-**Interface:** the routines read these offsets in the RMA block, and SUL
-and UnixLib are released separately, so they must never move: 76 upcall
-handler, 80 its R12 (the key), 88 ticker started, 92 thread-switch
-semaphore, 96 callback semaphore, 120–143 the counters. New fields go
-after 148.
+If the module isn't there, or the magic or version doesn't match, UnixLib
+uses its RMA copy.
 
-### Installing SUL 1.17
-
-The module is built with the library (`build/work/build/sul`; on RISC OS
-`SharedULib`, type Module). It goes in `!System.310.Modules` (merge it
-with !System). A running SUL can't be replaced while UnixLib programs are
-running ("There are still SharedUnixLibrary clients active"): quit them,
-or install it and restart.
-
-Program `!Run` files can keep `RMEnsure SharedUnixLibrary 1.16`: 1.17 is
-better, not required.
-
-The SWI number is in SUL's own chunk. Before this goes to GCCSDK, the SWI
-and the version number have to be agreed there, since GCCSDK releases the
-module.
+- **attach/detach:** UnixLib attaches at start-up and detaches at exit,
+  after stopping its ticker and removing its filters. The module refuses
+  to be killed while anything is attached ("PThreadTicker is in use by
+  UnixLib programs"): its code would still be called. A program that dies
+  without reaching `_exit` stays counted, so the module can't be killed
+  until the next restart (its ticker, if left running, is harmless).
+- **Loading:** a program uses the module only if it was loaded before the
+  program started. Put `PThrTicker` in `!System.310.Modules` (or in the
+  application) and load it from `!Run`:
+  `RMEnsure PThreadTicker 0.01 RMLoad System:Modules.PThrTicker`. It is
+  optional: without it programs still work.
+- **Interface:** the routines read these offsets in the RMA block, and the
+  module and UnixLib are released separately, so they must never move: 76
+  upcall handler, 80 its R12 (the SUL key), 88 ticker started, 92
+  thread-switch semaphore, 96 callback semaphore, 120–143 the counters.
+  New fields go after 148. A change to the routines' interface means a new
+  interface version at &38.
+- **Name:** "PThreadTicker" isn't registered with RISC OS Open. Register
+  it (a free allocation, not a code submission) before a wide release.
 
 ## Where the code is
 
 | File | What |
 |---|---|
-| `incl-local/internal/ticker.s` | the routines (handler, start, stop, two filters) as one macro |
-| `module/sul.s` | SUL: `TICKER_ROUTINES sul_ticker`, `swi_ticker`, `PROC_TICKERBLOCK`, clean-up in `sul_exit` |
+| `incl-local/internal/ticker.s` | the routines (handler, start, stop, two filters) as one macro, used by the module and UnixLib |
+| `module/pthticker.s` | the PThreadTicker module: header, interface table, workspace, attach/detach, `TICKER_ROUTINES pt` |
 | `pthread/_context.s` | UnixLib's copy (`__pthread_call_every_code` … `_end`), offsets, `__pthread_ticker_call` |
-| `pthread/ticker.c` | start/stop, the filters, the periodic check, stats |
+| `pthread/ticker.c` | finding the module, start/stop, the filters, the periodic check, stats |
 | `pthread/context.c` | calls `__pthread_ticker_recheck` every 64 switches |
 | `pthread/pthinit.c` | `__pthread_ticker_init` at start-up; stats, stop and release at exit |
 | `tests/host/ticker`, `tests/emu/ticker_test.py` | host test (C, fake SWIs) and emulator test (the built machine code) |

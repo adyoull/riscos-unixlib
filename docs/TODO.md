@@ -87,8 +87,8 @@ port; added in 0.1.1. The scheduler still has no real-time policies:
 ## 8. Thread ticker: confirm the root cause on the Pi
 
 The ticker ran while other tasks were paged in (Warzone 2100). The code is
-now safe wherever it fires (SharedUnixLibrary 1.17 runs it, or an RMA copy
-with older SULs) and the likely causes are fixed; see
+now safe wherever it fires (the PThreadTicker module runs it, or an RMA
+copy without the module) and the likely causes are fixed; see
 [THREAD-TICKER.md](THREAD-TICKER.md). Still to do:
 
 - **Pi run with `UnixLib$TickerStats`** (tests `Ticker`, `TickerEarly`,
@@ -96,8 +96,12 @@ with older SULs) and the likely causes are fixed; see
   suspects (wrong handle, threads before `Wimp_Initialise`, paging outside
   `Wimp_Poll`) actually happens. Also answers what `Wimp_ReadSysInfo 5`
   returns before `Wimp_Initialise`.
-- **SUL 1.17 upstream:** the SWI number and version need agreeing with
-  GCCSDK, which releases the module.
+- **Register the name** "PThreadTicker" with RISC OS Open (an allocation,
+  not a code submission) before a wide release.
+- A program that dies without reaching `_exit` stays attached to the
+  module, which then can't be killed until a restart. A clean-up (e.g. the
+  module dropping blocks whose program has gone) would need a way to tell;
+  not needed so far.
 - Paging outside `Wimp_Poll` (e.g. the program's own `Wimp_StartTask`) will
   still make the ticker fire in other tasks. Harmless now; could be
   avoided by stopping the ticker around `Wimp_StartTask`, but UnixLib
@@ -106,4 +110,4 @@ with older SULs) and the likely causes are fixed; see
   friends) are also OS_CallEvery handlers in application space.
   `setitimer` refuses to run in a Wimp task (ENOSYS), which avoids the
   problem there; a program that sets one before `Wimp_Initialise` would be
-  exposed. SUL could run those too if it ever matters.
+  exposed. The module could run those too if it ever matters.
