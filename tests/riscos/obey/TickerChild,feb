@@ -1,0 +1,3 @@
+| Used by TickerStartTask: busy for 1 s, then quits.
+WimpSlot -min 2000K
+Run <UST$Dir>.tickertest -child

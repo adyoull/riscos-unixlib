@@ -1,0 +1,7 @@
+| As Ticker, and every 5 s the test starts a child task (TickerChild) with
+| Wimp_StartTask: the child runs while this task is paged out, without a
+| Wimp_Poll. Nothing else should crash.
+Set UST$Dir <Obey$Dir>
+Set UnixLib$TickerStats <Wimp$ScrapDir>.TickerStats
+WimpSlot -min 8000K
+Run <UST$Dir>.tickertest -starttask -s 20

@@ -1,5 +1,6 @@
 | As Ticker, but the threads start before Wimp_Initialise, so the ticker
 | stays on while other tasks run (the worst case). Nothing else should crash.
 Set UST$Dir <Obey$Dir>
+Set UnixLib$TickerStats <Wimp$ScrapDir>.TickerStats
 WimpSlot -min 8000K
 Run <UST$Dir>.tickertest -early -s 20
