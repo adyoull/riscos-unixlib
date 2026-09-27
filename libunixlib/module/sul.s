@@ -2,6 +2,7 @@
 @ Copyright (c) 2002-2015 UnixLib Developers
 
 #include "internal/asm_dec.s"
+#include "internal/ticker.s"
 
 #define DEBUG_PROC_MATCHING 0
 
@@ -85,7 +86,10 @@
 	@ Storage for registers to restore on return from a fork/vfork:
 	@   f4, f5, f6, f7
 	@   {v1-v6, sl, fp, ip, lr}
-.set	PROC_SIZE, PROC_FORK_STORAGE + 4*12 + 10*4
+	@ 2026: the program's pthread RMA block while SUL runs its thread
+	@ ticker (SharedUnixLibrary_Ticker), else 0
+.set	PROC_TICKERBLOCK, PROC_FORK_STORAGE + 4*12 + 10*4
+.set	PROC_SIZE, PROC_TICKERBLOCK + 4
 
 
 @ The size of a __unixlib_fd struct
@@ -140,11 +144,11 @@ module_start:
 help:
 	.ascii	"SharedUnixLibrary"
 	.byte	9
-	.ascii	"1.16 (3 Apr 2020) "
+	.ascii	"1.17 (27 Sep 2026) "
 #if DEBUG_PROC_MATCHING
 	.ascii	"(debug) "
 #endif
-	.asciz	"(C) UnixLib Developers, 2001-2020"
+	.asciz	"(C) UnixLib Developers, 2001-2026"
 	.align
 
 title:
@@ -155,6 +159,7 @@ swi_table:
 	.asciz	"SetValue"
 	.asciz	"Count"
  	.asciz	"Initialise"
+	.asciz	"Ticker"
 	.byte	0
 	.align
 
@@ -183,7 +188,7 @@ module_flags:
 
 swi_handler:
 	LDR	r12, [r12]
-	CMP	r11, #5
+	CMP	r11, #6
 	ADDCC	pc, pc, r11, LSL#2
 	B	swi_handler_unknownswi
 	B	swi_register
@@ -191,6 +196,7 @@ swi_handler:
 	B	swi_value
 	B	swi_count
 	B	swi_initialise
+	B	swi_ticker
 swi_handler_unknownswi:
 	ADR	r0, error_swi
 	TEQ	pc, pc
@@ -269,6 +275,97 @@ upcall_handler:
 	MOV	r0, #0			@ Prevent new application from starting
 	MOV	pc, lr			@ This is easier than ensuring the
 					@ handler frees all resources correctly
+
+
+	@ 2026: the thread ticker routines (internal/ticker.s). They are
+	@ here so they are always paged in: UnixLib's own copy was run
+	@ while another task was paged in (Warzone 2100 on the Pi).
+	TICKER_ROUTINES sul_ticker
+
+
+	@ SharedUnixLibrary_Ticker (SUL 1.17+): run a UnixLib program's
+	@ thread ticker from this module.
+	@
+	@ Entry
+	@    R0 = reason:
+	@         0  start the ticker; R2 = the program's pthread RMA block
+	@            (struct __pthread_callevery_block)
+	@         1  stop the ticker (it stays registered)
+	@         2  stop it and forget the block (before freeing the block)
+	@         3  read the Wimp filter routines: on exit R1 = pre-filter,
+	@            R2 = post-filter; register them with R2 = the block
+	@    R1 = key (from SharedUnixLibrary_Initialise)
+	@
+	@ Exit
+	@    R0 preserved (reasons 0-2 also preserve R1, R2)
+	@
+	@ Errors: unknown key, unknown reason. SUL stops the ticker if the
+	@ program exits without doing so.
+swi_ticker:
+	STMFD	sp!, {r3, lr}
+
+	@ Find the process: R1 must be a key in the client list
+	MOV	r3, r12
+swi_ticker_find:
+	LDR	r3, [r3, #PROC_NEXT]
+	TEQ	r3, #0
+	BEQ	swi_ticker_badkey
+	TEQ	r3, r1
+	BNE	swi_ticker_find
+
+	CMP	r0, #4
+	ADDCC	pc, pc, r0, LSL#2
+	B	swi_ticker_badreason
+	B	swi_ticker_start
+	B	swi_ticker_stop
+	B	swi_ticker_release
+	B	swi_ticker_routines
+
+swi_ticker_start:
+	@ Stop a ticker on a different block first
+	LDR	ip, [r3, #PROC_TICKERBLOCK]
+	TEQ	ip, #0
+	TEQNE	ip, r2
+	BLNE	sul_ticker_stop
+	STR	r2, [r3, #PROC_TICKERBLOCK]
+	MOV	ip, r2
+	BL	sul_ticker_start
+	LDMFD	sp!, {r3, pc}
+
+swi_ticker_stop:
+	LDR	ip, [r3, #PROC_TICKERBLOCK]
+	TEQ	ip, #0
+	BLNE	sul_ticker_stop
+	LDMFD	sp!, {r3, pc}
+
+swi_ticker_release:
+	LDR	ip, [r3, #PROC_TICKERBLOCK]
+	TEQ	ip, #0
+	BLNE	sul_ticker_stop
+	MOV	ip, #0
+	STR	ip, [r3, #PROC_TICKERBLOCK]
+	LDMFD	sp!, {r3, pc}
+
+swi_ticker_routines:
+	ADR	r1, sul_ticker_prefilter
+	ADR	r2, sul_ticker_postfilter
+	LDMFD	sp!, {r3, pc}
+
+swi_ticker_badreason:
+	LDMFD	sp!, {r3, lr}
+	ADR	r0, error_swi
+	TEQ	pc, pc
+	ORRNES	pc, lr, #VFlag			@ Return error (26bit)
+	MSR	CPSR_f, #VFlag
+	MOV	pc, lr				@ Return error (32bit)
+
+swi_ticker_badkey:
+	LDMFD	sp!, {r3, lr}
+	ADR	r0, error_unknown
+	TEQ	pc, pc
+	ORRNES	pc, lr, #VFlag			@ Return error (26bit)
+	MSR	CPSR_f, #VFlag
+	MOV	pc, lr				@ Return error (32bit)
 
 
 	@ Deregister a previously registered handler
@@ -649,6 +746,7 @@ alloc_proc:
 	STR	a1, [v2, #PROC_OLDERRORBUF]
 	STR	a1, [v2, #PROC_CLI]
 	STR	a1, [v2, #PROC_PARENTADDR]
+	STR	a1, [v2, #PROC_TICKERBLOCK]
 	MOV	a1, #18		@ 022
 	STR	a1, [v2, #PROC_UMASK]
 	MOV	a1, #FDSIZE
@@ -689,6 +787,14 @@ alloc_proc:
 
 invalidate_handle:
 	@ v2 = found, or newly allocated, __ul_global.sulproc (struct __sul_process)
+
+	@ 2026: a program starting on an exec'd process's structure has no
+	@ ticker yet. Stop one the previous program left running.
+	LDR	ip, [v2, #PROC_TICKERBLOCK]
+	TEQ	ip, #0
+	BLNE	sul_ticker_stop
+	MOV	ip, #0
+	STR	ip, [v2, #PROC_TICKERBLOCK]
 
 	@ Invalidate the taskhandle so any children of this process don't
 	@ pick it up
@@ -811,6 +917,9 @@ sul_fork:
 
 	MOV	v2, a3
 	LDMFD	sp!, {v1, v3-v5}
+	@ 2026: not copied from the parent; the child has no ticker
+	MOV	a1, #0
+	STR	a1, [v2, #PROC_TICKERBLOCK]
 	@ At this point:
 	@   v1 = parent's __ul_global.sulproc ptr
 	@   v2 = ptr new child's struct __sul_process
@@ -1389,6 +1498,22 @@ sul_exit:
 	MOV	a1, #0
 	MOV	a2, #0
 	SWI	XVFPSupport_ChangeContext
+
+	@ 2026: stop the thread ticker if the program left it running
+	@ (SharedUnixLibrary_Ticker). No stack here, so not sul_ticker_stop.
+	LDR	a2, [v2, #PROC_TICKERBLOCK]
+	TEQ	a2, #0
+	BEQ	3f
+	MOV	a1, #0
+	STR	a1, [v2, #PROC_TICKERBLOCK]
+	LDR	a1, [a2, #PTHREAD_CALLEVERY_RMA_TICKER_STARTED]
+	TEQ	a1, #0
+	BEQ	3f
+	ADRL	a1, sul_ticker_handler
+	SWI	XOS_RemoveTickerEvent
+	MOV	a1, #0
+	STR	a1, [a2, #PTHREAD_CALLEVERY_RMA_TICKER_STARTED]
+3:
 
 	LDR	a1, [v2, #PROC_STATUS]
 

@@ -7,6 +7,17 @@ echo "== host tests: /dev/dsp"
 tests/host/dsp/run.sh
 echo "== host tests: /dev/midi"
 tests/host/midi/run.sh
+echo "== host tests: thread ticker"
+tests/host/ticker/run.sh
+
+echo "== emulator: thread ticker machine code (needs a build + unicorn)"
+GCCSDK_ENV=${GCCSDK_ENV:-$HOME/gccsdk/env}
+if [ -f build/work/build/sul ] && [ -x "$GCCSDK_ENV/bin/arm-riscos-gnueabihf-nm" ] &&
+   python3 -c 'import unicorn' 2>/dev/null; then
+  python3 tests/emu/ticker_test.py
+else
+  echo "SKIP (no build/work/build, cross toolchain or python3 unicorn module)"
+fi
 
 echo "== patches match the history"
 tools/make-patches.sh --check
@@ -26,6 +37,6 @@ echo "== scripts parse"
 for s in build/*.sh tests/*.sh tests/host/*/run.sh tests/riscos/build.sh tools/*.sh; do
   sh -n "$s"
 done
-python3 -m py_compile tools/mkrozip.py
-rm -rf tools/__pycache__
+python3 -m py_compile tools/mkrozip.py tests/emu/ticker_test.py
+rm -rf tools/__pycache__ tests/emu/__pycache__
 echo "== all checks passed"

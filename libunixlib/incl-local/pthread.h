@@ -190,7 +190,8 @@ struct __pthread_callevery_block
   unsigned post_calls;		/* Wimp post-filter calls.  */
   int filter_handle;		/* Task the filters are registered for.  */
   unsigned flags;		/* Bit 0: SharedUnixLibrary runs the ticker.  */
-  /* A copy of the ticker routines. OS_CallEvery runs the handler from
+  /* A copy of the ticker routines, used with SharedUnixLibrary 1.16 and
+     earlier (1.17 runs its own).  OS_CallEvery runs the handler from
      here: the ticker can fire while another task is paged in, when the
      application's own copy isn't there.  */
   unsigned ticker_code[80];
@@ -198,10 +199,13 @@ struct __pthread_callevery_block
 
 /* pthread/ticker.c (2026).  */
 extern void __pthread_ticker_read_task (int *__handle, int *__version);
-extern void __pthread_ticker_note_startup (void);
+extern void __pthread_ticker_init (void);
+extern void __pthread_ticker_recheck (void);
+extern void __pthread_ticker_fini (void);
 extern void __pthread_ticker_write_stats (void);
 
-/* The ticker handler in _context.s, copied into ticker_code at start-up.  */
+/* The ticker routines in _context.s (internal/ticker.s), copied into
+   ticker_code at start-up when SharedUnixLibrary can't run them.  */
 extern const char __pthread_call_every_code[], __pthread_call_every_code_end[];
 
 extern pthread_t __pthread_thread_list; /* Linked list of all threads */

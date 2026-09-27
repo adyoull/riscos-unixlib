@@ -93,16 +93,10 @@ __pthread_prog_init (void)
 		     "(pthread RMA block size); rebuild it from clean");
 
   strcpy (gbl->pthread_callevery_rma->filter_name, filter_name);
-  __pthread_ticker_note_startup ();
 
-  /* The ticker runs its handler from the RMA block (see _context.s).  */
-  {
-    char *code = (char *) gbl->pthread_callevery_rma->ticker_code;
-    size_t len = __pthread_call_every_code_end - __pthread_call_every_code;
-
-    memcpy (code, __pthread_call_every_code, len);
-    _swix (OS_SynchroniseCodeAreas, _INR(0,2), 1, code, code + len - 1);
-  }
+  /* The ticker routines run from SharedUnixLibrary or the RMA block
+     (pthread/ticker.c).  */
+  __pthread_ticker_init ();
 
   __pthread_thread_list = __pthread_running_thread;
   gbl->pthread_num_running_threads = 1;
@@ -126,6 +120,7 @@ __pthread_prog_fini (void)
       __pthread_stop_ticker ();
       gbl->pthread_system_running = 0;
     }
+  __pthread_ticker_fini ();
 
   /* Free the RMA block that was allocated in __pthread_prog_init */
   int regs[10];

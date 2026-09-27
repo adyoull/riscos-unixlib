@@ -212,6 +212,8 @@
 @.set	XSharedUnixLibrary_Count, 0x55c83 + X_Bit
 .set	SharedUnixLibrary_Initialise, 0x55c84
 .set	XSharedUnixLibrary_Initialise, 0x55c84 + X_Bit
+.set	SharedUnixLibrary_Ticker, 0x55c85	@ 2026: SUL 1.17+
+.set	XSharedUnixLibrary_Ticker, 0x55c85 + X_Bit
 
 @ A few of these are required to build SUL.
 .set	XARMEABISupport_MemoryOp, 0x59D00 + X_Bit

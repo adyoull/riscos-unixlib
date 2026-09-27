@@ -89,6 +89,15 @@ __pthread_context_switch (void)
   __pthread_running_thread->thread_errno = errno;
 #endif
 
+  /* 2026: every 64 switches (about 1.3 s), check that the Wimp filters
+     are registered for the task we are now (pthread/ticker.c).  */
+  {
+    static unsigned int switches;
+
+    if ((++switches & 63) == 0)
+      __pthread_ticker_recheck ();
+  }
+
   pthread_t next = __pthread_running_thread->next;
 
   /* Loop around the list looking for a thread that is running.  */

@@ -1472,6 +1472,7 @@ nobase_noinst_HEADERS = \
 	incl-local/internal/sigstate.h \
 	incl-local/internal/swiparams.h \
 	incl-local/internal/symlinks.h \
+	incl-local/internal/ticker.s \
 	incl-local/internal/tty.h \
 	incl-local/internal/unix.h \
 	incl-local/locale.h \
@@ -1509,6 +1510,7 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
 unixlib_asm_deps = $(top_srcdir)/incl-local/internal/asm_dec.s \
 	$(top_srcdir)/incl-local/internal/elf-macros.s \
 	$(top_srcdir)/incl-local/internal/scl-macros.s \
+	$(top_srcdir)/incl-local/internal/ticker.s \
 	$(top_srcdir)/incl-local/internal/defines.h \
 	$(top_srcdir)/include/unixlib/buildoptions.h
 unixlib_asm_objs = $(patsubst %.s,%.lo,$(notdir $(filter %.s,$(libunixlib_la_SOURCES))))

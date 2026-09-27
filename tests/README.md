@@ -13,15 +13,27 @@ scripts. GitHub Actions runs it on every push.
 |---|---|---|
 | `host/dsp` | `sound/dsp.c`: SharedSoundBuffer output (formats, partial frames, blocking/non-blocking, latency, fragments, reset, a stalled stream, exit) and the DigitalRenderer path, including the exit bug | 124 |
 | `host/midi` | `sound/midi.c`: MIDISynth module and MIDI module paths, sharing, exit, env overrides | 20 |
+| `host/ticker` | `pthread/ticker.c`: SharedUnixLibrary's ticker or the RMA copy, the Wimp filters following the task handle (and removed with the handle they were registered with), threads before `Wimp_Initialise`, registration failures, the `UnixLib$TickerStats` line. Has its own `fake/` for the few UnixLib internals used | 31 |
 | `host/fake` | The fake RISC OS, shared by both: `swis.h`/`kernel.h` (a variadic `_swix`), `internal/*.h` (the few UnixLib internals used), `DRender.h` (fake DigitalRenderer), `riscos.c`/`riscos.h` (SharedSoundBuffer and StreamManager playing in simulated time, `clock`, `pthread_yield`, `getenv`), `prelude.h` (renames those calls to the fakes) | |
 
-Run one with `host/dsp/run.sh` or `host/midi/run.sh`. The midi test has its
+Run one with `host/dsp/run.sh`, `host/midi/run.sh` or `host/ticker/run.sh`. The midi test has its
 own fake SWIs in `test_midi.c`; it only uses the headers from `fake/`.
 
 Before trusting a new check, break the code it guards and see it fail.
 
 Read the "Traps" section of `docs/MAINTAINING.md` before editing the fakes
 (header order in `prelude.h`, pointers below 4 GB).
+
+## `emu/`: machine code in an ARM emulator
+
+`emu/ticker_test.py` runs the thread ticker routines from a build (the
+SharedUnixLibrary module `build/work/build/sul` and UnixLib's
+`_context.o`) in the Unicorn ARM emulator with faked SWIs: the
+`SharedUnixLibrary_Ticker` SWI, the handler with our task and another task
+paged in, the filters (registers and flags preserved), the clean-up in
+`sul_exit`, and UnixLib's copy run from another address. 84 checks.
+`make check` runs it when there's a build, the cross toolchain and the
+Python `unicorn` module (`pip install unicorn`); otherwise it says SKIP.
 
 ## `riscos/`: programs for the Pi
 

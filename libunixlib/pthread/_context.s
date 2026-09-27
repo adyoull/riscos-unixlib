@@ -28,301 +28,53 @@
 @ Filter_RegisterPostFilter) to enable/disable OS_CallEvery.
 
 #include "internal/asm_dec.s"
+#include "internal/ticker.s"
 
 
 	.syntax unified
 	.text
 
-@
-@ Start a ticker which will set the callback flag every clock tick
-@
-	.global	__pthread_start_ticker
-	NAME	__pthread_start_ticker
-__pthread_start_ticker:
- PICNE "STMFD	sp!, {v1-v2, v5, lr}"
- PICEQ "STMFD	sp!, {v1-v2, v4, v5, lr}"
+@ 2026: the ticker routines (starting, stopping, the OS_CallEvery handler
+@ and the Wimp filters) are in internal/ticker.s. SharedUnixLibrary 1.17+
+@ runs its own copy (SharedUnixLibrary_Ticker); with an older SUL,
+@ __pthread_prog_init copies the ones below into the RMA block and runs
+@ them from there. Either way they are paged in whichever task is: the
+@ ticker can fire while another task is, and the Filter module can call
+@ the filters for the wrong task. pthread/ticker.c decides which copy to
+@ use and manages the filters.
 
-	PIC_LOAD v4
-
-	LDR	v5, .L0			@=__ul_global
- PICEQ "LDR	v5, [v4, v5]"
-
-	@ Don't start until the thread system has been setup
-	LDR	a1, [v5, #GBL_PTH_SYSTEM_RUNNING]
-	TEQ	a1, #0
- PICEQ "LDMFDEQ	sp!, {v1-v2, v4, v5, pc}"
- PICNE "LDMFDEQ	sp!, {v1-v2, v5, pc}"
-
-	@ Don't start if there's only one thread running
-	LDR	a1, [v5, #GBL_PTH_NUM_RUNNING_THREADS]
-	CMP	a1, #1
- PICEQ "LDMFDLE	sp!, {v1-v2, v4, v5, pc}"
- PICNE "LDMFDLE	sp!, {v1-v2, v5, pc}"
-
-	LDR	a3, [v5, #GBL_PTH_CALLEVERY_RMA]
-
-	@ Are we running as WIMP task ?
-	@ If we are then we need a filter switching off our ticker when we're
-	@ swapped out and switching back on after we're swapped in.
-	LDR	a4, [v5, #GBL_TASKHANDLE]
-	TEQ	a4, #0
-	BNE	start_ticker_install_filters
-
-	@ Application may have called Wimp_Initialise since we last checked
-	@ Code similar to __get_taskhandle.
-	MOV	a1, #3				@ In desktop?
-	SWI	XWimp_ReadSysInfo
-	MOVVS	a1, #0
-	TEQ	a1, #0
-	MOVNE	a1, #5				@ Read taskhandle, iff in desktop
-	SWINE	XWimp_ReadSysInfo
-	MOVVS	a1, #0
-
-	MOVS	a4, a1
-	BEQ	start_ticker_test_running
- 
-	STR	a4, [v5, #GBL_TASKHANDLE]	@ __ul_global.taskhandle
- 
-	@ a4 = current taskhandle
-start_ticker_install_filters:
-	@ Install the filter routines (a4 = WIMP taskhandle) :
-	LDR	v2, .L0+4		@=filter_installed
- PICEQ "LDR	v2, [v4, v2]"
-	LDR	a1, [v2]
-	STR	v2, [v2]
-	TEQ	a1, #0
-	BNE	start_ticker_test_running
-
-	@ 2026: note which task the filters were last registered for
-	@ (UnixLib$TickerStats)
-	STR	a4, [a3, #PTHREAD_CALLEVERY_RMA_FILTER_HANDLE]
-	@ get filter name RMA pointer
-	ADD	a1, a3, #PTHREAD_CALLEVERY_RMA_FILTER_NAME
-	ADR	a2, pre_filter
-	@ a3 is still the address of the RMA block allocated and populated above.
-	@ a4 is still equal to taskhandle
-	SWI	XFilter_RegisterPreFilter
-	ADRVC	a2, post_filter
-	@ a3 is still the RMA block
-	@ a4 is still equal to taskhandle
-	MOVVC	v1, #0
-	SWIVC	XFilter_RegisterPostFilter
-	ADDVS	a1, a1, #4
-	BVS	__pthread_fatal_error
-
-start_ticker_test_running:
-	@ start_call_every may be called as a filter routine, in which case
-	@ it expects a pointer to the RMA data block in r12. Make sure that's
-	@ the case when called directly.
-	MOV	r12, a3
-	BL	start_call_every
- PICEQ "LDMFD	sp!, {v1-v2, v4, v5, pc}"
- PICNE "LDMFD	sp!, {v1-v2, v5, pc}"
-.L0:
-	WORD	__ul_global
-	WORD	filter_installed
-	DECLARE_FUNCTION __pthread_start_ticker
-
-	@ 2026: the Wimp filters count their calls (UnixLib$TickerStats),
-	@ then stop or start the ticker. R12 = the RMA block; flags and all
-	@ registers are preserved.
-	NAME	pre_filter
-pre_filter:
-	STMFD	sp!, {a1}
-	LDR	a1, [r12, #PTHREAD_CALLEVERY_RMA_PRE_CALLS]
-	ADD	a1, a1, #1
-	STR	a1, [r12, #PTHREAD_CALLEVERY_RMA_PRE_CALLS]
-	LDMFD	sp!, {a1}
-	B	stop_call_every
-	DECLARE_FUNCTION pre_filter
-
-	NAME	post_filter
-post_filter:
-	STMFD	sp!, {a1}
-	LDR	a1, [r12, #PTHREAD_CALLEVERY_RMA_POST_CALLS]
-	ADD	a1, a1, #1
-	STR	a1, [r12, #PTHREAD_CALLEVERY_RMA_POST_CALLS]
-	LDMFD	sp!, {a1}
-	B	start_call_every
-	DECLARE_FUNCTION post_filter
-
-	@ Start the RISC OS CallEvery ticker
-	@ This may be called as a Wimp post filter, so preserve all registers,
-	@ all processor flags and don't return any errors.
-	@ R12 is our private word and contains the address of an RMA data block.
-	NAME	start_call_every
-start_call_every:
-	STMFD	sp!, {a1-v1, lr}
-	MRS	v1, CPSR
-	LDR	a1, [r12, #PTHREAD_CALLEVERY_RMA_TICKER_STARTED]
-	TEQ	a1, #0
-	BNE	start_call_every_end
-
-	MOV	a1, #1
-	ADD	a2, r12, #PTHREAD_CALLEVERY_RMA_TICKER_CODE	@ the RMA copy
-	MOV	a3, r12
-	SWI	XOS_CallEvery
-
-	MOVVC	a1, #1
-	STRVC	a1, [r12, #PTHREAD_CALLEVERY_RMA_TICKER_STARTED]
-start_call_every_end:
-	MSR	CPSR_f, v1
-	LDMFD	sp!, {a1-v1, pc}
-	DECLARE_FUNCTION start_call_every
-
-	@ Stop the RISC OS CallEvery ticker
-	@ This may be called as a Wimp pre filter, so preserve all registers,
-	@ all processor flags and don't return any errors.
-	@ R12 is our private word and contains the address of an RMA data block.
-	NAME	stop_call_every
-stop_call_every:
-	STMFD	sp!, {a1-a3, lr}
-	MRS	a3, CPSR
-	LDR	a2, [r12, #PTHREAD_CALLEVERY_RMA_TICKER_STARTED]
-	SUBS	a2, a2, #1
-	STREQ	a2, [r12, #PTHREAD_CALLEVERY_RMA_TICKER_STARTED]
-	ADDEQ	a1, r12, #PTHREAD_CALLEVERY_RMA_TICKER_CODE
-	MOVEQ	a2, r12
-	SWIEQ	XOS_RemoveTickerEvent
-	MSR	CPSR_f, a3
-	LDMFD	sp!, {a1-a3, pc}
-	DECLARE_FUNCTION stop_call_every
-
-@
-@ Stop the ticker running
-@
-	.global	__pthread_stop_ticker
-	NAME	__pthread_stop_ticker
-__pthread_stop_ticker:
- PICNE "STMFD	sp!, {v1-v3, lr}"
- PICEQ "STMFD	sp!, {v1-v3, v4, lr}"
-
-	PIC_LOAD v4
-
-	@ Don't bother if thread system is not running
-	LDR	a2, .L1+0		@=__ul_global
- PICEQ "LDR	a2, [v4, a2]"
-	LDR	a1, [a2, #GBL_PTH_SYSTEM_RUNNING]
-	TEQ	a1, #0
- PICEQ "LDMFDEQ	sp!, {v1-v3, v4, pc}"
- PICNE "LDMFDEQ	sp!, {v1-v3, pc}"
-
-	LDR	a3, [a2, #GBL_PTH_CALLEVERY_RMA]
-
-	@ Need to remove the filters ?
-	LDR	a4, [a2, #GBL_TASKHANDLE]
-	TEQ	a4, #0
-	BEQ	stop_ticker_core
-
-	@ Remove the filter routines (a4 = WIMP taskhandle) :
-	@ Ignore any errors.
-	LDR	v2, .L1+4		@=filter_installed
- PICEQ "LDR	v2, [v4, v2]"
-	LDR	a1, [v2]
-	TEQ	a1, #0
-	BEQ	stop_ticker_core
-
-	ADD	a1, a3, #PTHREAD_CALLEVERY_RMA_FILTER_NAME
-	ADR	a2, pre_filter
-	@ a3 is the address of the RMA block.
-	@ a4 is still equal to taskhandle
-	SWI	XFilter_DeRegisterPreFilter
-	ADD	a1, a3, #PTHREAD_CALLEVERY_RMA_FILTER_NAME	@ a1 can be corrupted, so re-init
-	ADR	a2, post_filter
-	@ a3 is the address of the RMA block.
-	@ a4 is still equal to taskhandle
-	MOV	v1, #0
-	SWI	XFilter_DeRegisterPostFilter
-
-	STR	v1, [v2]		@ Mark we no longer have filter installed
-
-stop_ticker_core:
-	@ stop_call_every may be called as a filter routine, in which case
-	@ it expects a pointer to the RMA data block in r12. Make sure that's
-	@ the case when called directly.
-	MOV	r12, a3
-	BL	stop_call_every
-
- PICEQ "LDMFD	sp!, {v1-v3, v4, pc}"
- PICNE "LDMFD	sp!, {v1-v3, pc}"
-.L1:
-	WORD	__ul_global
-	WORD	filter_installed
-	DECLARE_FUNCTION __pthread_stop_ticker
-
-@ The ticker calls this every clock tick, note that it is every *two*
-@ centiseconds.
-@ Called in SVC mode with IRQs disabled, all registers must be preserved.
-@ r12 contains a pointer to a block of RMA memory which stores the address
-@ of the SUL upcall handler and the SUL key (and the UnixLib GOT pointer
-@ for the shared library). We can't be certain the application is paged in
-@ (despite the filters), so we dare not attempt to access its address space,
-@ which is why these are in RMA.
-@ For the same reason the ticker runs a copy of this code in that RMA block
-@ (__pthread_prog_init copies it): the ticker can fire while another task
-@ is paged in, and then this address isn't ours ("abort on instruction
-@ fetch" in the other task). So it must stay position independent, use
-@ nothing but ip and SWIs, and fit in PTHREAD_CALLEVERY_RMA_TICKER_CODE.
 	.global	__pthread_call_every_code
 	.global	__pthread_call_every_code_end
-	NAME	pthread_call_every
+	.global	__pthread_ticker_offsets
 __pthread_call_every_code:
-pthread_call_every:
-	STMFD	sp!, {a1-a4, lr}
-	LDR	a1, [ip, #PTHREAD_CALLEVERY_RMA_TICKS]	@ 2026: count calls
-	ADD	a1, a1, #1
-	STR	a1, [ip, #PTHREAD_CALLEVERY_RMA_TICKS]
-
-	@ First check that our upcall handler is paged in. If it is not
-	@ then it is likely that the taskwindow module is in the process
-	@ of paging us out/in so setting a callback would be a bad idea.
-	@ As the upcall handler is within SUL then we know nothing else
-	@ can have a handler at the same address except other UnixLib
-	@ programs. We can distinguish between these with the SUL key.
-	MOV	a1, #16
-	MOV	a2, #0
-	MOV	a3, #0
-	MOV	a4, #0
-	SWI	XOS_ChangeEnvironment
-	LDMFDVS	sp!, {a1-a4, pc}
-
-	@ We need to check the SUL upcall handler and key before we attempt
-	@ to access any data within application space.
-
-	@ If it is not a SUL upcall handler, don't set callback
-	LDR	a1, [ip, #PTHREAD_CALLEVERY_RMA_UPCALL_ADDR]
-	TEQ	a1, a2
-	@ If it is not our SUL key, don't set callback
-	LDREQ	a1, [ip, #PTHREAD_CALLEVERY_RMA_UPCALL_R12]
-	TEQEQ	a1, a3
-	BNE	1f
-
-	@ Okay, we can access application space now to make further checks.
-
-	@ If we are in the middle of a context-switch callback,
-	@ don't set the callback.
-	LDREQ	a1, [ip, #PTHREAD_CALLEVERY_RMA_CALLBACK_SEMAPHORE]
-	TEQEQ	a1, #0
-	@ If we are in a critical section, don't set the callback
-	LDREQ	a1, [ip, #PTHREAD_CALLEVERY_RMA_WORKSEMAPHORE]
-	TEQEQ	a1, #0
-	SWIEQ	XOS_SetCallBack
-0:
-	LDMFD	sp!, {a1-a4, pc}
-
-	@ 2026: another task is paged in; count it and note whose handler
-	@ (UnixLib$TickerStats)
-1:	LDR	a1, [ip, #PTHREAD_CALLEVERY_RMA_FOREIGN_TICKS]
-	ADD	a1, a1, #1
-	STR	a1, [ip, #PTHREAD_CALLEVERY_RMA_FOREIGN_TICKS]
-	STR	a2, [ip, #PTHREAD_CALLEVERY_RMA_FOREIGN_HANDLER]
-	STR	a3, [ip, #PTHREAD_CALLEVERY_RMA_FOREIGN_R12]
-	LDMFD	sp!, {a1-a4, pc}
+	TICKER_ROUTINES ul_ticker
 __pthread_call_every_code_end:
 	.if	__pthread_call_every_code_end - __pthread_call_every_code > 320
-	.error	"pthread_call_every doesn't fit in PTHREAD_CALLEVERY_RMA_TICKER_CODE"
+	.error	"The ticker routines don't fit in PTHREAD_CALLEVERY_RMA_TICKER_CODE"
 	.endif
-	DECLARE_FUNCTION pthread_call_every
+	.if	ul_ticker_handler - __pthread_call_every_code
+	.error	"The ticker handler must come first"
+	.endif
+
+	@ Where the routines are in the copy: start, stop, pre-filter,
+	@ post-filter.
+__pthread_ticker_offsets:
+	.word	ul_ticker_start - ul_ticker_handler
+	.word	ul_ticker_stop - ul_ticker_handler
+	.word	ul_ticker_prefilter - ul_ticker_handler
+	.word	ul_ticker_postfilter - ul_ticker_handler
+
+@ void __pthread_ticker_call (void *block, const void *routine)
+@ Call one of the copied routines with ip = the RMA block.
+	.global	__pthread_ticker_call
+	NAME	__pthread_ticker_call
+__pthread_ticker_call:
+	STMFD	sp!, {a1, lr}
+	MOV	ip, a1
+	MOV	lr, pc
+	MOV	pc, a2
+	LDMFD	sp!, {a1, pc}
+	DECLARE_FUNCTION __pthread_ticker_call
 
 @ This is called from _signal.s::__h_cback and pthread_yield.
 @ Entered in SVC or IRQ mode with IRQs disabled.
@@ -555,12 +307,5 @@ __pthread_init_save_area:
 	WORD	__ul_global
 	DECLARE_FUNCTION __pthread_init_save_area
 
-
-	.data
-
-	@ Have we installed Filter ?
-filter_installed:
-	.word	0
-	DECLARE_OBJECT filter_installed
 
 	.end
