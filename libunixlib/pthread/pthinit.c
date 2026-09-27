@@ -17,11 +17,14 @@ static struct __pthread_thread mainthread;
 /* 2026: the RMA block's layout is also in incl-local/internal/asm_dec.s
    (PTHREAD_CALLEVERY_RMA_*); the ticker code copy must be where the
    assembler expects it.  */
-_Static_assert (__builtin_offsetof (struct __pthread_callevery_block,
-				    ticker_code) == 120,
+#define OFFSET(f) __builtin_offsetof (struct __pthread_callevery_block, f)
+_Static_assert (OFFSET (ticks) == 120, "ticks: keep in step with asm_dec.s");
+_Static_assert (OFFSET (flags) == 148, "flags: keep in step with asm_dec.s");
+_Static_assert (OFFSET (ticker_code) == 152,
 		"ticker_code: keep in step with asm_dec.s");
-_Static_assert (sizeof (struct __pthread_callevery_block) == 248,
+_Static_assert (sizeof (struct __pthread_callevery_block) == 472,
 		"__pthread_callevery_block: keep in step with asm_dec.s");
+#undef OFFSET
 
 static const char filter_name[] = "UnixLib pthread";
 
@@ -90,6 +93,7 @@ __pthread_prog_init (void)
 		     "(pthread RMA block size); rebuild it from clean");
 
   strcpy (gbl->pthread_callevery_rma->filter_name, filter_name);
+  __pthread_ticker_note_startup ();
 
   /* The ticker runs its handler from the RMA block (see _context.s).  */
   {
@@ -112,6 +116,9 @@ __pthread_prog_fini (void)
 #ifdef PTHREAD_DEBUG
   debug_printf ("-- __pthread_prog_fini: Program finalisation\n");
 #endif
+
+  /* 2026: before the ticker is stopped (UnixLib$TickerStats).  */
+  __pthread_ticker_write_stats ();
 
   /* pthread timers must be stopped */
   if (gbl->pthread_system_running)

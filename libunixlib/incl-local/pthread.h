@@ -180,11 +180,26 @@ struct __pthread_callevery_block
   volatile int pthread_callback_semaphore; /* Prevent a callback being set
     whilst servicing another callback.  */
   char filter_name[20];
-  /* A copy of pthread_call_every, the ticker handler. OS_CallEvery runs
-     it from here: the ticker can fire while another task is paged in,
-     when the application's own copy isn't there.  */
-  unsigned ticker_code[32];
+  /* 2026: counters, written by the ticker routines, reported at exit when
+     UnixLib$TickerStats is set (docs/THREAD-TICKER.md).  */
+  unsigned ticks;		/* Ticker calls.  */
+  unsigned foreign_ticks;	/* ... that found another task paged in.  */
+  void *foreign_handler;	/* Upcall handler and R12 seen at the last  */
+  void *foreign_r12;		/* foreign tick.  */
+  unsigned pre_calls;		/* Wimp pre-filter calls.  */
+  unsigned post_calls;		/* Wimp post-filter calls.  */
+  int filter_handle;		/* Task the filters are registered for.  */
+  unsigned flags;		/* Bit 0: SharedUnixLibrary runs the ticker.  */
+  /* A copy of the ticker routines. OS_CallEvery runs the handler from
+     here: the ticker can fire while another task is paged in, when the
+     application's own copy isn't there.  */
+  unsigned ticker_code[80];
 };
+
+/* pthread/ticker.c (2026).  */
+extern void __pthread_ticker_read_task (int *__handle, int *__version);
+extern void __pthread_ticker_note_startup (void);
+extern void __pthread_ticker_write_stats (void);
 
 /* The ticker handler in _context.s, copied into ticker_code at start-up.  */
 extern const char __pthread_call_every_code[], __pthread_call_every_code_end[];

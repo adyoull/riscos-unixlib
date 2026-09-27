@@ -130,6 +130,7 @@ VERSION {
      __pthread_call_every_code;
      __pthread_call_every_code_end;
      __pthread_callevery_block_size;
+     __pthread_ticker_*;
      __pthread_init;
      __pthread_fatal_error;
      __pthread_new_node;

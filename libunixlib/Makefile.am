@@ -676,6 +676,7 @@ pthread_src = \
 	pthread/self.c \
 	pthread/sem.c \
 	pthread/testcancel.c \
+	pthread/ticker.c \
 	pthread/_context.s \
 	pthread/_exit.s \
 	pthread/_ints.s \

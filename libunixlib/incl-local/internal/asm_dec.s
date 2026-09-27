@@ -389,8 +389,22 @@ PTHREAD_CALLEVERY_RMA_TICKER_STARTED:		.skip 4
 PTHREAD_CALLEVERY_RMA_WORKSEMAPHORE:		.skip 4
 PTHREAD_CALLEVERY_RMA_CALLBACK_SEMAPHORE:	.skip 4
 PTHREAD_CALLEVERY_RMA_FILTER_NAME:		.skip 20
-	@ A copy of pthread_call_every, the ticker handler (see _context.s)
-PTHREAD_CALLEVERY_RMA_TICKER_CODE:		.skip 128
+	@ 2026: counters for UnixLib$TickerStats (see docs/THREAD-TICKER.md)
+	@ Ticker calls, and those that found another task paged in
+PTHREAD_CALLEVERY_RMA_TICKS:			.skip 4
+PTHREAD_CALLEVERY_RMA_FOREIGN_TICKS:		.skip 4
+	@ The upcall handler and its R12 seen at the last foreign tick
+PTHREAD_CALLEVERY_RMA_FOREIGN_HANDLER:		.skip 4
+PTHREAD_CALLEVERY_RMA_FOREIGN_R12:		.skip 4
+	@ Wimp pre-filter and post-filter calls
+PTHREAD_CALLEVERY_RMA_PRE_CALLS:		.skip 4
+PTHREAD_CALLEVERY_RMA_POST_CALLS:		.skip 4
+	@ Task handle the filters are registered for, 0 if none
+PTHREAD_CALLEVERY_RMA_FILTER_HANDLE:		.skip 4
+	@ Bit 0 set: SharedUnixLibrary runs the ticker (else the copy below)
+PTHREAD_CALLEVERY_RMA_FLAGS:			.skip 4
+	@ A copy of the ticker routines (see _context.s)
+PTHREAD_CALLEVERY_RMA_TICKER_CODE:		.skip 320
 PTHREAD_CALLEVERY_STRUCT_SIZE:
 
 	.text

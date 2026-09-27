@@ -93,13 +93,16 @@ start_ticker_install_filters:
 	TEQ	a1, #0
 	BNE	start_ticker_test_running
 
+	@ 2026: note which task the filters were last registered for
+	@ (UnixLib$TickerStats)
+	STR	a4, [a3, #PTHREAD_CALLEVERY_RMA_FILTER_HANDLE]
 	@ get filter name RMA pointer
 	ADD	a1, a3, #PTHREAD_CALLEVERY_RMA_FILTER_NAME
-	ADR	a2, stop_call_every
+	ADR	a2, pre_filter
 	@ a3 is still the address of the RMA block allocated and populated above.
 	@ a4 is still equal to taskhandle
 	SWI	XFilter_RegisterPreFilter
-	ADRVC	a2, start_call_every
+	ADRVC	a2, post_filter
 	@ a3 is still the RMA block
 	@ a4 is still equal to taskhandle
 	MOVVC	v1, #0
@@ -119,6 +122,29 @@ start_ticker_test_running:
 	WORD	__ul_global
 	WORD	filter_installed
 	DECLARE_FUNCTION __pthread_start_ticker
+
+	@ 2026: the Wimp filters count their calls (UnixLib$TickerStats),
+	@ then stop or start the ticker. R12 = the RMA block; flags and all
+	@ registers are preserved.
+	NAME	pre_filter
+pre_filter:
+	STMFD	sp!, {a1}
+	LDR	a1, [r12, #PTHREAD_CALLEVERY_RMA_PRE_CALLS]
+	ADD	a1, a1, #1
+	STR	a1, [r12, #PTHREAD_CALLEVERY_RMA_PRE_CALLS]
+	LDMFD	sp!, {a1}
+	B	stop_call_every
+	DECLARE_FUNCTION pre_filter
+
+	NAME	post_filter
+post_filter:
+	STMFD	sp!, {a1}
+	LDR	a1, [r12, #PTHREAD_CALLEVERY_RMA_POST_CALLS]
+	ADD	a1, a1, #1
+	STR	a1, [r12, #PTHREAD_CALLEVERY_RMA_POST_CALLS]
+	LDMFD	sp!, {a1}
+	B	start_call_every
+	DECLARE_FUNCTION post_filter
 
 	@ Start the RISC OS CallEvery ticker
 	@ This may be called as a Wimp post filter, so preserve all registers,
@@ -197,12 +223,12 @@ __pthread_stop_ticker:
 	BEQ	stop_ticker_core
 
 	ADD	a1, a3, #PTHREAD_CALLEVERY_RMA_FILTER_NAME
-	ADR	a2, stop_call_every
+	ADR	a2, pre_filter
 	@ a3 is the address of the RMA block.
 	@ a4 is still equal to taskhandle
 	SWI	XFilter_DeRegisterPreFilter
 	ADD	a1, a3, #PTHREAD_CALLEVERY_RMA_FILTER_NAME	@ a1 can be corrupted, so re-init
-	ADR	a2, start_call_every
+	ADR	a2, post_filter
 	@ a3 is the address of the RMA block.
 	@ a4 is still equal to taskhandle
 	MOV	v1, #0
@@ -243,6 +269,9 @@ stop_ticker_core:
 __pthread_call_every_code:
 pthread_call_every:
 	STMFD	sp!, {a1-a4, lr}
+	LDR	a1, [ip, #PTHREAD_CALLEVERY_RMA_TICKS]	@ 2026: count calls
+	ADD	a1, a1, #1
+	STR	a1, [ip, #PTHREAD_CALLEVERY_RMA_TICKS]
 
 	@ First check that our upcall handler is paged in. If it is not
 	@ then it is likely that the taskwindow module is in the process
@@ -266,7 +295,7 @@ pthread_call_every:
 	@ If it is not our SUL key, don't set callback
 	LDREQ	a1, [ip, #PTHREAD_CALLEVERY_RMA_UPCALL_R12]
 	TEQEQ	a1, a3
-	LDMFDNE sp!, {a1-a4, pc}
+	BNE	1f
 
 	@ Okay, we can access application space now to make further checks.
 
@@ -280,8 +309,17 @@ pthread_call_every:
 	SWIEQ	XOS_SetCallBack
 0:
 	LDMFD	sp!, {a1-a4, pc}
+
+	@ 2026: another task is paged in; count it and note whose handler
+	@ (UnixLib$TickerStats)
+1:	LDR	a1, [ip, #PTHREAD_CALLEVERY_RMA_FOREIGN_TICKS]
+	ADD	a1, a1, #1
+	STR	a1, [ip, #PTHREAD_CALLEVERY_RMA_FOREIGN_TICKS]
+	STR	a2, [ip, #PTHREAD_CALLEVERY_RMA_FOREIGN_HANDLER]
+	STR	a3, [ip, #PTHREAD_CALLEVERY_RMA_FOREIGN_R12]
+	LDMFD	sp!, {a1-a4, pc}
 __pthread_call_every_code_end:
-	.if	__pthread_call_every_code_end - __pthread_call_every_code > 128
+	.if	__pthread_call_every_code_end - __pthread_call_every_code > 320
 	.error	"pthread_call_every doesn't fit in PTHREAD_CALLEVERY_RMA_TICKER_CODE"
 	.endif
 	DECLARE_FUNCTION pthread_call_every
