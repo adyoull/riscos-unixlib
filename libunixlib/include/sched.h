@@ -16,6 +16,11 @@ __BEGIN_DECLS
 
 extern int sched_yield (void);
 
+/* The range of priorities for POLICY.  UnixLib's scheduler ignores
+   priorities, so both are 0 for every policy.  */
+extern int sched_get_priority_min (int __policy) __THROW;
+extern int sched_get_priority_max (int __policy) __THROW;
+
 __END_DECLS
 
 #endif /* __SCHED_H */

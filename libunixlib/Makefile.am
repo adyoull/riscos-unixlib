@@ -771,6 +771,7 @@ if UNIXLIB_BUILDING_SCL
 sched_src =
 else
 sched_src = \
+	sched/sched_prio.c \
 	sched/syield.c
 endif
 
