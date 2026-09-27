@@ -2,7 +2,13 @@
 
 Versions are git tags `vX.Y.Z`. How to release: docs/MAINTAINING.md.
 
-## Unreleased (0.1.1)
+## Unreleased
+
+## 0.1.1-rc1 (2026-09-27, pre-release, tag v0.1.1-rc1)
+
+**Not yet tested on RISC OS.** Becomes 0.1.1 once the Pi tests
+(UnixLibTests.zip) pass. Release files also include
+`PThreadTicker-0.01.zip` for RISC OS users.
 
 ### Library
 
