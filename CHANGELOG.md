@@ -18,8 +18,20 @@ Versions are git tags `vX.Y.Z`. How to release: docs/MAINTAINING.md.
   keep the C and assembler descriptions of the RMA block in step.
   **Needs the Pi tests `Ticker` / `TickerEarly`.** Every threaded program
   (OpenTTD, anything using SDL threads) should be relinked with it.
+- **Mixed old and new objects can't happen silently any more.** The ticker
+  change grew the pthread RMA block in `asm_dec.s`, and UnixLib's makefile
+  didn't rebuild assembler files when it changed: Warzone's incremental
+  build kept an old `_syslib.o` claiming 120 bytes, the handler was copied
+  past the end, and the Pi hung hard. Now assembler files depend on the
+  shared assembler definitions, `__pthread_prog_init` stops with a clear
+  error if the claimed size doesn't match, and `tools/check-lib.sh` checks
+  a library or program (run by every build here). Warzone riscos16/17, built
+  consistently, run on a Pi 4 with the ticker active and no aborts in other
+  tasks.
 
 ### Repo (nothing changes in the library)
+
+- `tools/check-lib.sh` / `make check-lib FILES=...` (see above).
 
 - `build/fetch-sources.sh` fetches and checks GCCSDK and the GCC source
   (pins in `build/sources.conf`); `build-unixlib.sh` uses them by default.

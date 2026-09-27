@@ -153,6 +153,13 @@ and the patch scripts diff against it.
   upcall/key check. The RMA block's layout is written twice, in
   `incl-local/pthread.h` and `incl-local/internal/asm_dec.s`; `pthinit.c`
   checks at compile time that they agree.
+- **Incremental builds and assembler files.** Automake doesn't track what
+  `.s` files include. `Makefile.am` now makes every assembler object depend
+  on `asm_dec.s`, the macro files and the two headers they include; if you
+  add another shared include, add it to `unixlib_asm_deps`. A mix of old
+  and new objects once overran the pthread RMA block and hung a Pi.
+  `tools/check-lib.sh` (run by every build) and a start-up check in
+  `pthinit.c` now catch that. When in doubt: `make clean; make lib`.
 - **`PTHREAD_UNSAFE`** blocks thread switches until the function returns
   and keeps one global return address; don't call code that may wait for
   another thread inside it (that was the atexit abort).
