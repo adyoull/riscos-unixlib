@@ -7,8 +7,8 @@
 # so they apply to a GCCSDK checkout with `patch -p1`.
 cd "$(dirname "$0")/.."
 
-# The first commit is the unchanged import of GCCSDK's UnixLib.
-IMPORT=$(git rev-list --max-parents=0 HEAD)
+# The unchanged import of GCCSDK's UnixLib (see tools/import-commit.sh).
+IMPORT=$(tools/import-commit.sh)
 # The sound work on its own (for offering to GCCSDK): from the commit
 # before it to the last sound commit.
 SOUND_FROM=5f334f8

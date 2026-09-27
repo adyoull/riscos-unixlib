@@ -14,7 +14,7 @@ tools/make-patches.sh --check
 echo "== patches apply to unchanged GCCSDK UnixLib"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-IMPORT=$(git rev-list --max-parents=0 HEAD)
+IMPORT=$(tools/import-commit.sh)
 mkdir -p "$tmp/gcc4/recipe/files/gcc"
 git archive "$IMPORT" libunixlib | tar x -C "$tmp/gcc4/recipe/files/gcc"
 for p in patches/unixlib-riscos.diff patches/unixlib-sound.diff; do

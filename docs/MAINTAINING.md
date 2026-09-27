@@ -82,6 +82,40 @@ commit, then `git tag vX.Y.Z` and push the tag. Attach
 `build/work/build/.libs/libunixlib.a`, `patches/*.diff` and
 `UnixLibTests.zip` to the GitHub release.
 
+## Moving to a newer GCCSDK
+
+Our changes are commits on top of one import commit, so moving to a newer
+UnixLib is "import it, then replay ours".
+
+```sh
+make sources GCCSDK_COMMIT=<new commit>     # or edit build/sources.conf
+OLD=$(tools/import-commit.sh)               # the current import commit
+git checkout -b gccsdk-<short> $OLD
+rm -rf libunixlib
+cp -r build/src/riscos-gccsdk/gcc4/recipe/files/gcc/libunixlib libunixlib
+git add -A libunixlib
+git commit -m "Update UnixLib to GCCSDK <short>"
+git rebase --onto HEAD $OLD main
+```
+
+The import commit's message must start `Import UnixLib` or
+`Update UnixLib`: `tools/import-commit.sh` finds the newest such commit,
+and the patch scripts diff against it.
+
+(`make sources` only checks out the parts it needs; add
+`gcc4/recipe/files/gcc/libunixlib` with
+`git -C build/src/riscos-gccsdk sparse-checkout add gcc4/recipe/files/gcc/libunixlib`.)
+
+- Resolve conflicts one commit at a time; each of our commits says what it
+  fixes, so you can tell whether GCCSDK has fixed it too (then drop ours).
+- Update `GCCSDK_COMMIT` in `build/sources.conf`, the "Base" line in
+  `README.md` and a CHANGELOG entry. `tools/make-patches.sh` finds the new
+  import commit itself; check `SOUND_FROM`/`SOUND_TO` there (they are
+  hashes, which the rebase changes).
+- `make patches`, `make check`, `make lib`, then the Pi tests.
+- Rewriting history like this breaks existing clones: push the result as a
+  new branch, or a new major version, and say so in the release notes.
+
 ## Traps found so far
 
 - **Use `patch -p1`, not `git apply`,** to apply `patches/*.diff` to a
@@ -110,6 +144,15 @@ commit, then `git tag vX.Y.Z` and push the tag. Attach
 - **UnixLib code runs in every program.** Anything at exit (`_exit` in
   `unix/unix.c`) must only undo what *this* program did: the old
   `__dsp_exit` switched off everybody's sound.
+- **The thread ticker's handler runs from RMA,** not from the program:
+  `pthread_call_every` in `pthread/_context.s` is copied into the RMA block
+  at start-up, because the ticker can fire while another task is paged in.
+  Keep it position independent (only `ip`-relative loads and SWIs, no
+  literal pools, no branches out of it), under 128 bytes (the assembler
+  checks), and never let it touch application space before the SUL
+  upcall/key check. The RMA block's layout is written twice, in
+  `incl-local/pthread.h` and `incl-local/internal/asm_dec.s`; `pthinit.c`
+  checks at compile time that they agree.
 - **`PTHREAD_UNSAFE`** blocks thread switches until the function returns
   and keeps one global return address; don't call code that may wait for
   another thread inside it (that was the atexit abort).

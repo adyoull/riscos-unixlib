@@ -3,3 +3,6 @@ CLAUDE.md
 /build/work/
 /out/
 /build/src/
+/tools/elf2aif/elf2aif
+/tools/elf2aif/elf2aif-elf
+/tools/elf2aif/elf2aif,ff8
