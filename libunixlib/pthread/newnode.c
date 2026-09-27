@@ -71,6 +71,10 @@ __pthread_new_node (pthread_t node)
   node->keys = NULL;
   node->cleanupfns = NULL;
   node->state = STATE_RUNNING;
+  /* 2026: these were left uninitialised, so pthread_getschedparam
+     returned whatever malloc left there.  */
+  node->__policy = SCHED_OTHER;
+  node->__param.sched_priority = 0;
   node->cancelstate = PTHREAD_CANCEL_ENABLE;
   node->canceltype = PTHREAD_CANCEL_DEFERRED;
   node->cancelpending = 0;
