@@ -166,6 +166,11 @@ and the patch scripts diff against it.
 
 ## Keeping in step with other projects
 
+Requests to and from the other ports travel as "handoff" notes. They live
+beside the repo (`RiscOS/UnixLib/handoffs/`), not in it: `.gitignore`
+excludes `handoffs/` and any `*handoff*.md`. Anything in one that the repo
+needs goes into a commit message, `CHANGELOG.md` or `docs/`.
+
 - riscos-openttd and riscos-warzone2100 carry a copy of the UnixLib patch
   (`patches/unixlib/*.diff`); after a change, send them the new
   `patches/unixlib-riscos.diff`.

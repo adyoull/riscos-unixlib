@@ -1,5 +1,8 @@
 CLAUDE.md
 *START-HERE*.md
+# Notes passed between the port projects: kept beside the repo, not in it
+handoffs/
+*handoff*.md
 /build/work/
 /out/
 /build/src/
