@@ -1,0 +1,4 @@
+| sched_get_priority_min/max and pthread_setschedparam
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.schedtest
