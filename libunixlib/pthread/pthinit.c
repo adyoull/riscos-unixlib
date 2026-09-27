@@ -70,6 +70,15 @@ __pthread_prog_init (void)
 
   strcpy (gbl->pthread_callevery_rma->filter_name, filter_name);
 
+  /* The ticker runs its handler from the RMA block (see _context.s).  */
+  {
+    char *code = (char *) gbl->pthread_callevery_rma->ticker_code;
+    size_t len = __pthread_call_every_code_end - __pthread_call_every_code;
+
+    memcpy (code, __pthread_call_every_code, len);
+    _swix (OS_SynchroniseCodeAreas, _INR(0,2), 1, code, code + len - 1);
+  }
+
   __pthread_thread_list = __pthread_running_thread;
   gbl->pthread_num_running_threads = 1;
 }

@@ -180,7 +180,14 @@ struct __pthread_callevery_block
   volatile int pthread_callback_semaphore; /* Prevent a callback being set
     whilst servicing another callback.  */
   char filter_name[20];
+  /* A copy of pthread_call_every, the ticker handler. OS_CallEvery runs
+     it from here: the ticker can fire while another task is paged in,
+     when the application's own copy isn't there.  */
+  unsigned ticker_code[32];
 };
+
+/* The ticker handler in _context.s, copied into ticker_code at start-up.  */
+extern const char __pthread_call_every_code[], __pthread_call_every_code_end[];
 
 extern pthread_t __pthread_thread_list; /* Linked list of all threads */
 

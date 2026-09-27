@@ -133,7 +133,7 @@ start_call_every:
 	BNE	start_call_every_end
 
 	MOV	a1, #1
-	ADR	a2, pthread_call_every
+	ADD	a2, r12, #PTHREAD_CALLEVERY_RMA_TICKER_CODE	@ the RMA copy
 	MOV	a3, r12
 	SWI	XOS_CallEvery
 
@@ -155,7 +155,7 @@ stop_call_every:
 	LDR	a2, [r12, #PTHREAD_CALLEVERY_RMA_TICKER_STARTED]
 	SUBS	a2, a2, #1
 	STREQ	a2, [r12, #PTHREAD_CALLEVERY_RMA_TICKER_STARTED]
-	ADREQ	a1, pthread_call_every
+	ADDEQ	a1, r12, #PTHREAD_CALLEVERY_RMA_TICKER_CODE
 	MOVEQ	a2, r12
 	SWIEQ	XOS_RemoveTickerEvent
 	MSR	CPSR_f, a3
@@ -232,7 +232,15 @@ stop_ticker_core:
 @ for the shared library). We can't be certain the application is paged in
 @ (despite the filters), so we dare not attempt to access its address space,
 @ which is why these are in RMA.
+@ For the same reason the ticker runs a copy of this code in that RMA block
+@ (__pthread_prog_init copies it): the ticker can fire while another task
+@ is paged in, and then this address isn't ours ("abort on instruction
+@ fetch" in the other task). So it must stay position independent, use
+@ nothing but ip and SWIs, and fit in PTHREAD_CALLEVERY_RMA_TICKER_CODE.
+	.global	__pthread_call_every_code
+	.global	__pthread_call_every_code_end
 	NAME	pthread_call_every
+__pthread_call_every_code:
 pthread_call_every:
 	STMFD	sp!, {a1-a4, lr}
 
@@ -272,6 +280,10 @@ pthread_call_every:
 	SWIEQ	XOS_SetCallBack
 0:
 	LDMFD	sp!, {a1-a4, pc}
+__pthread_call_every_code_end:
+	.if	__pthread_call_every_code_end - __pthread_call_every_code > 128
+	.error	"pthread_call_every doesn't fit in PTHREAD_CALLEVERY_RMA_TICKER_CODE"
+	.endif
 	DECLARE_FUNCTION pthread_call_every
 
 @ This is called from _signal.s::__h_cback and pthread_yield.
