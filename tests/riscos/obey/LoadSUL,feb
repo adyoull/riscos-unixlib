@@ -1,5 +1,0 @@
-| Load SharedUnixLibrary 1.17 from here (it runs the thread ticker).
-| Quit every UnixLib program first: a loaded SUL with clients can't be
-| replaced. *Help SharedUnixLibrary shows the version.
-RMLoad <Obey$Dir>.SharedULib
-Help SharedUnixLibrary

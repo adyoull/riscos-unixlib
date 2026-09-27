@@ -189,9 +189,9 @@ struct __pthread_callevery_block
   unsigned pre_calls;		/* Wimp pre-filter calls.  */
   unsigned post_calls;		/* Wimp post-filter calls.  */
   int filter_handle;		/* Task the filters are registered for.  */
-  unsigned flags;		/* Bit 0: SharedUnixLibrary runs the ticker.  */
-  /* A copy of the ticker routines, used with SharedUnixLibrary 1.16 and
-     earlier (1.17 runs its own).  OS_CallEvery runs the handler from
+  unsigned flags;		/* Bit 0: the PThreadTicker module's routines.  */
+  /* A copy of the ticker routines, used when the PThreadTicker module
+     isn't loaded.  OS_CallEvery runs the handler from
      here: the ticker can fire while another task is paged in, when the
      application's own copy isn't there.  */
   unsigned ticker_code[80];

@@ -1514,7 +1514,7 @@ unixlib_asm_deps = $(top_srcdir)/incl-local/internal/asm_dec.s \
 	$(top_srcdir)/incl-local/internal/defines.h \
 	$(top_srcdir)/include/unixlib/buildoptions.h
 unixlib_asm_objs = $(patsubst %.s,%.lo,$(notdir $(filter %.s,$(libunixlib_la_SOURCES))))
-$(unixlib_asm_objs) crt0.o gcrt0.o sul.o: $(unixlib_asm_deps)
+$(unixlib_asm_objs) crt0.o gcrt0.o sul.o pthticker.o: $(unixlib_asm_deps)
 
 libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 5:0:0 -Wl,--version-script -Wl,$(top_srcdir)/vscript
 
@@ -1570,7 +1570,7 @@ gcrt0.o: crt/gcrt0.s
 # SUL module ----------------
 
 # Build the SharedUnixLibrary module
-bin_PROGRAMS = sul
+bin_PROGRAMS = sul pthticker
 
 sul.o: module/sul.s
 	$(CCASCOMPILE) -o sul.o -c `test -f 'module/sul.s' || echo '$(srcdir)/'`module/sul.s
@@ -1580,6 +1580,14 @@ sul.o: module/sul.s
 # a raw binary
 sul$(EXEEXT): sul.o
 	$(STRIP) -O binary -o sul$(EXEEXT) sul.o
+
+# 2026: the PThreadTicker module (runs the thread ticker; see
+# docs/THREAD-TICKER.md).  Not part of SharedUnixLibrary.
+pthticker.o: module/pthticker.s
+	$(CCASCOMPILE) -o pthticker.o -c `test -f 'module/pthticker.s' || echo '$(srcdir)/'`module/pthticker.s
+
+pthticker$(EXEEXT): pthticker.o
+	$(STRIP) -O binary -o pthticker$(EXEEXT) pthticker.o
 
 install-data-local: install-headers
 

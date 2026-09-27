@@ -1,4 +1,4 @@
-@ Thread ticker routines, shared by SharedUnixLibrary and UnixLib
+@ Thread ticker routines, shared by the PThreadTicker module and UnixLib
 @ Copyright (c) 2026 UnixLib Developers
 @
 @ TICKER_ROUTINES p assembles five routines, all called with ip (r12) =
@@ -11,21 +11,22 @@
 @   p_prefilter  Wimp pre-filter: count, then p_stop
 @   p_postfilter Wimp post-filter: count, then p_start
 @
-@ SharedUnixLibrary 1.17+ assembles them into the module (module/sul.s),
-@ so they are always paged in. With an older SUL, UnixLib copies them
-@ into the RMA block at start-up and runs the copy (pthread/_context.s).
+@ The PThreadTicker module (module/pthticker.s) assembles them, so they
+@ are always paged in. Without that module, UnixLib copies them into the
+@ RMA block at start-up and runs the copy (pthread/_context.s).
 @ Either way they must not depend on where they are: only ip-relative
 @ data, ADR within this block, SWIs; no literal pools, no branches out.
 @ The block offsets they use (76, 80, 88, 92, 96 and 120-143) are an
-@ interface between UnixLib and SharedUnixLibrary: don't move them.
+@ interface between UnixLib and the module, which are released
+@ separately: don't move them.
 @
 @ Only the handler may run while another task is paged in. It checks that
 @ the upcall handler and its R12 are the program's (from SUL) before it
 @ touches anything but the RMA block, so a tick that finds another task
 @ paged in does nothing but count.
 @
-@ Syntax: valid in both divided (sul.s) and unified (_context.s) syntax,
-@ so no conditional LDM/STM.
+@ Syntax: keep it valid in both divided and unified syntax (no
+@ conditional LDM/STM), so any module source can use it.
 
 .macro	TICKER_ROUTINES p
 

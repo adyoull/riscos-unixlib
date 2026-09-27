@@ -35,13 +35,13 @@
 	.text
 
 @ 2026: the ticker routines (starting, stopping, the OS_CallEvery handler
-@ and the Wimp filters) are in internal/ticker.s. SharedUnixLibrary 1.17+
-@ runs its own copy (SharedUnixLibrary_Ticker); with an older SUL,
-@ __pthread_prog_init copies the ones below into the RMA block and runs
-@ them from there. Either way they are paged in whichever task is: the
-@ ticker can fire while another task is, and the Filter module can call
-@ the filters for the wrong task. pthread/ticker.c decides which copy to
-@ use and manages the filters.
+@ and the Wimp filters) are in internal/ticker.s. The PThreadTicker module
+@ (module/pthticker.s) has its own copy; without it, __pthread_ticker_init
+@ copies the ones below into the RMA block and runs them from there.
+@ Either way they are paged in whichever task is: the ticker can fire while
+@ another task is, and the Filter module can call the filters for the
+@ wrong task. pthread/ticker.c decides which copy to use and manages the
+@ filters.
 
 	.global	__pthread_call_every_code
 	.global	__pthread_call_every_code_end

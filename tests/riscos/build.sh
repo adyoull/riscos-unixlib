@@ -17,8 +17,8 @@ for p in dsptest miditest nosound exitjoin fsyncro tickertest schedtest; do
   "$ELF2AIF" -e out/$p.elf $O/$p,ff8
 done
 cp obey/*,feb $O/
-# SharedUnixLibrary built with the library (1.17: runs the thread ticker)
-cp ../../build/work/build/sul $O/SharedULib,ffa
+# The PThreadTicker module built with the library (runs the thread ticker)
+cp ../../build/work/build/pthticker $O/PThrTicker,ffa
 cp ReadMe $O/ReadMe,fff
 python3 ../../tools/mkrozip.py out/UnixLibTests.zip $O
 ls -l out/UnixLibTests.zip

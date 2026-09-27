@@ -7,10 +7,10 @@
    With more than one thread, an OS_CallEvery ticker sets a callback every
    2 cs to switch threads.  In a Wimp task, Wimp filters stop the ticker
    when the program calls Wimp_Poll and start it when Wimp_Poll returns.
-   The ticker routines themselves (internal/ticker.s) run from
-   SharedUnixLibrary 1.17+ (SharedUnixLibrary_Ticker) or, with an older
-   SUL, from a copy in the RMA block: never from the program, which isn't
-   paged in when the ticker fires in another task.
+   The ticker routines themselves (internal/ticker.s) run from the
+   PThreadTicker module when it is loaded (module/pthticker.s) or from a
+   copy in the RMA block: never from the program, which isn't paged in
+   when the ticker fires in another task.
 
    If the system variable UnixLib$TickerStats names a file, a line of
    counters is appended to it when the program exits.  */
@@ -24,12 +24,13 @@
 #include <internal/os.h>
 #include <internal/unix.h>
 
-#ifndef SharedUnixLibrary_Ticker
-#define SharedUnixLibrary_Ticker 0x55c85
-#endif
-enum
+/* The PThreadTicker module's interface table, after its header.  */
+#define TICKER_MODULE "PThreadTicker"
+#define TICKER_MAGIC 0x6B545450		/* "PTTk" */
+struct ticker_interface
 {
-  TICKER_START, TICKER_STOP, TICKER_RELEASE, TICKER_ROUTINES
+  unsigned magic, version, entries;
+  unsigned handler, start, stop, prefilter, postfilter, attach, detach;
 };
 
 /* _context.s: the routines to copy, where they are in the copy (start,
@@ -37,8 +38,10 @@ enum
 extern const unsigned __pthread_ticker_offsets[4];
 extern void __pthread_ticker_call (void *__block, const void *__routine);
 
-static void *sul_key;		/* Our SharedUnixLibrary key.  */
-static const void *pre_filter, *post_filter;
+/* The routines in use: the module's or the RMA copy's.  */
+static const void *start_routine, *stop_routine, *pre_filter, *post_filter;
+static void *module_ws;		/* The module's workspace, if used.  */
+static const void *detach_routine;
 static int filters_for;		/* Task the filters are registered for.  */
 static volatile int busy;	/* In __pthread_start/stop_ticker.  */
 
@@ -67,23 +70,45 @@ block (void)
   return __ul_global.pthread_callevery_rma;
 }
 
-/* Called once by __pthread_prog_init: use SharedUnixLibrary's ticker if
-   it has one, else copy the routines into the RMA block.  */
+/* The PThreadTicker module's interface, or NULL if it isn't loaded or
+   is not one we know.  */
+static const struct ticker_interface *
+find_module (const char **base, void **ws)
+{
+  const struct ticker_interface *t;
+
+  if (_swix (OS_Module, _INR(0,1) | _OUTR(3,4), 18, TICKER_MODULE, base, ws)
+      || *base == NULL || *ws == NULL)
+    return NULL;
+  t = (const struct ticker_interface *) (*base + 0x34);
+  if (t->magic != TICKER_MAGIC || t->version != 1 || t->entries < 7)
+    return NULL;
+  return t;
+}
+
+/* Called once by __pthread_prog_init: use the PThreadTicker module's
+   routines if it is loaded, else copy them into the RMA block.  */
 void
 __pthread_ticker_init (void)
 {
   struct __pthread_callevery_block *b = block ();
-  const void *pre, *post;
+  const struct ticker_interface *t;
+  const char *base;
+  void *ws;
 
   __pthread_ticker_read_task (&startup_handle, &startup_version);
-  sul_key = b->sul_upcall_r12;
 
-  if (!_swix (SharedUnixLibrary_Ticker, _INR(0,1) | _OUTR(1,2),
-	      TICKER_ROUTINES, sul_key, &pre, &post))
+  if ((t = find_module (&base, &ws)) != NULL)
     {
       b->flags |= 1;
-      pre_filter = pre;
-      post_filter = post;
+      start_routine = base + t->start;
+      stop_routine = base + t->stop;
+      pre_filter = base + t->prefilter;
+      post_filter = base + t->postfilter;
+      detach_routine = base + t->detach;
+      module_ws = ws;
+      /* The module won't be killed while we're attached.  */
+      __pthread_ticker_call (ws, base + t->attach);
     }
   else
     {
@@ -92,6 +117,8 @@ __pthread_ticker_init (void)
 
       memcpy (code, __pthread_call_every_code, len);
       _swix (OS_SynchroniseCodeAreas, _INR(0,2), 1, code, code + len - 1);
+      start_routine = code + __pthread_ticker_offsets[0];
+      stop_routine = code + __pthread_ticker_offsets[1];
       pre_filter = code + __pthread_ticker_offsets[2];
       post_filter = code + __pthread_ticker_offsets[3];
     }
@@ -100,21 +127,13 @@ __pthread_ticker_init (void)
 static void
 ticker_on (struct __pthread_callevery_block *b)
 {
-  if (b->flags & 1)
-    _swix (SharedUnixLibrary_Ticker, _INR(0,2), TICKER_START, sul_key, b);
-  else
-    __pthread_ticker_call (b, (char *) b->ticker_code
-			      + __pthread_ticker_offsets[0]);
+  __pthread_ticker_call (b, start_routine);
 }
 
 static void
 ticker_off (struct __pthread_callevery_block *b)
 {
-  if (b->flags & 1)
-    _swix (SharedUnixLibrary_Ticker, _INR(0,1), TICKER_STOP, sul_key);
-  else
-    __pthread_ticker_call (b, (char *) b->ticker_code
-			      + __pthread_ticker_offsets[1]);
+  __pthread_ticker_call (b, stop_routine);
 }
 
 /* Register the filters for task HANDLE (0: none), removing them from the
@@ -219,13 +238,16 @@ __pthread_ticker_recheck (void)
   set_filters (block (), current_task ());
 }
 
-/* Called by __pthread_prog_fini once the ticker is stopped, before the RMA
-   block is freed.  */
+/* Called by __pthread_prog_fini once the ticker is stopped and the filters
+   removed, before the RMA block is freed: let the module go.  */
 void
 __pthread_ticker_fini (void)
 {
-  if (block ()->flags & 1)
-    _swix (SharedUnixLibrary_Ticker, _INR(0,1), TICKER_RELEASE, sul_key);
+  if (module_ws != NULL)
+    {
+      __pthread_ticker_call (module_ws, detach_routine);
+      module_ws = NULL;
+    }
 }
 
 /* Append one line to the file named by UnixLib$TickerStats.  Called by
@@ -266,7 +288,7 @@ __pthread_ticker_write_stats (void)
 		__ul_global.taskhandle, handle, version,
 		first_start_handle == -1 ? 0 : first_start_handle, starts,
 		filter_moves, filter_errors,
-		(b->flags & 1) ? "SUL" : "RMA");
+		(b->flags & 1) ? "module" : "RMA");
   if (n <= 0)
     return;
   if (n >= (int) sizeof (line))

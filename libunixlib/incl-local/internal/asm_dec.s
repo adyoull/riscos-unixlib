@@ -212,8 +212,6 @@
 @.set	XSharedUnixLibrary_Count, 0x55c83 + X_Bit
 .set	SharedUnixLibrary_Initialise, 0x55c84
 .set	XSharedUnixLibrary_Initialise, 0x55c84 + X_Bit
-.set	SharedUnixLibrary_Ticker, 0x55c85	@ 2026: SUL 1.17+
-.set	XSharedUnixLibrary_Ticker, 0x55c85 + X_Bit
 
 @ A few of these are required to build SUL.
 .set	XARMEABISupport_MemoryOp, 0x59D00 + X_Bit
@@ -403,7 +401,7 @@ PTHREAD_CALLEVERY_RMA_PRE_CALLS:		.skip 4
 PTHREAD_CALLEVERY_RMA_POST_CALLS:		.skip 4
 	@ Task handle the filters are registered for, 0 if none
 PTHREAD_CALLEVERY_RMA_FILTER_HANDLE:		.skip 4
-	@ Bit 0 set: SharedUnixLibrary runs the ticker (else the copy below)
+	@ Bit 0 set: the PThreadTicker module's routines (else the copy below)
 PTHREAD_CALLEVERY_RMA_FLAGS:			.skip 4
 	@ A copy of the ticker routines (see _context.s)
 PTHREAD_CALLEVERY_RMA_TICKER_CODE:		.skip 320

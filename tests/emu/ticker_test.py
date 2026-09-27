@@ -2,11 +2,11 @@
 """Run the thread ticker routines in an ARM emulator (Unicorn).
 
 Checks the real machine code from a build, with the RISC OS SWIs faked:
-  - SharedUnixLibrary 1.17's SharedUnixLibrary_Ticker SWI, its copy of the
-    ticker routines (internal/ticker.s), the zeroing of the new process
-    field and the clean-up in sul_exit;
+  - the PThreadTicker module (module/pthticker.s): its header, interface
+    table, workspace, attach/detach and refusing to die while in use, and
+    its copy of the ticker routines (internal/ticker.s);
   - UnixLib's copy of the same routines (pthread/_context.s), run from a
-    different address, as __pthread_prog_init does with an older SUL.
+    different address, as UnixLib does when the module isn't loaded.
 
   tests/emu/ticker_test.py [build dir]   (default build/work/build)
 
@@ -21,7 +21,7 @@ import tempfile
 from unicorn import Uc, UcError, UC_ARCH_ARM, UC_MODE_ARM, UC_HOOK_INTR
 from unicorn.arm_const import (UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2,
                                UC_ARM_REG_R3, UC_ARM_REG_R4, UC_ARM_REG_R5,
-                               UC_ARM_REG_R11, UC_ARM_REG_R12, UC_ARM_REG_SP,
+                               UC_ARM_REG_R10, UC_ARM_REG_R11, UC_ARM_REG_R12, UC_ARM_REG_SP,
                                UC_ARM_REG_LR, UC_ARM_REG_PC, UC_ARM_REG_CPSR)
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,13 +29,11 @@ BUILD = sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, "build/work/bui
 ENV = os.environ.get("GCCSDK_ENV", os.path.expanduser("~/gccsdk/env"))
 TOOL = os.path.join(ENV, "bin/arm-riscos-gnueabihf-")
 
-# Offsets in the pthread RMA block (asm_dec.s) and the SUL process struct
+# Offsets in the pthread RMA block (asm_dec.s)
 STARTED, WORKSEM, CBSEM = 88, 92, 96
 UPCALL_ADDR, UPCALL_R12 = 76, 80
 TICKS, FOREIGN, F_HANDLER, F_R12, PRE, POST = 120, 124, 128, 132, 136, 140
 TICKER_CODE, BLOCK_SIZE = 152, 472
-PROC_NEXT, PROC_STATUS, PROC_PPID, PROC_PRIVATEWORD = 0, 96, 24, 128 + 56
-PROC_TICKERBLOCK, PROC_SIZE = 276, 280
 
 VFLAG, CFLAG, ZFLAG = 1 << 28, 1 << 29, 1 << 30
 X = 0x20000
@@ -43,7 +41,7 @@ OS_CallEvery, OS_RemoveTickerEvent, OS_SetCallBack = 0x3C, 0x3D, 0x1B
 OS_ChangeEnvironment, OS_Module, OS_Exit = 0x40, 0x1E, 0x11
 
 RET = 0xFFF0          # "return address": emulation stops there
-MODBASE = 0x10000     # where the SUL module is loaded
+MODBASE = 0x10000     # where the module is loaded
 RAM = 0x40000         # fake RMA
 STACK = 0x80000
 
@@ -211,85 +209,56 @@ def test_routines(m, name, handler, start, stop, pre, post, block):
           name + ": post-filter preserves R0 and flags")
 
 
-def swi(m, sul, number, regs):
-    """Call SUL's SWI handler as the kernel would: r11 = SWI offset,
-    r12 = private word pointer."""
-    regs = dict(regs)
-    regs[UC_ARM_REG_R11] = number
-    regs[UC_ARM_REG_R12] = PRIVWORD
-    return m.call(MODBASE + sul["swi_handler"], regs)
+PRIVWORD = RAM          # the module's private word
 
 
-PRIVWORD = RAM          # module private word -> list head word
-HEAD = RAM + 0x10
-
-
-def test_sul(build):
-    sul = symbols(os.path.join(build, "sul.o"))
-    code = open(os.path.join(build, "sul"), "rb").read()
+def test_module(build):
+    syms = symbols(os.path.join(build, "pthticker.o"))
+    code = open(os.path.join(build, "pthticker"), "rb").read()
     m = Machine()
     m.mu.mem_write(MODBASE, code)
-    help_ = code[code.index(b"SharedUnixLibrary\t"):][:40]
-    check(b"1.17" in help_, "SUL help string says 1.17: %r" % help_)
+    a = lambda s: MODBASE + syms[s]
+    word = lambda off: int.from_bytes(code[off:off + 4], "little")
 
-    proc = RAM + 0x100
-    m.mu.mem_write(proc, b"\0" * PROC_SIZE)
-    m.w(PRIVWORD, HEAD)
-    m.w(HEAD, proc)
-    block = new_block(m, RAM + 0x1000, proc)
-    a = lambda s: MODBASE + sul[s]
+    # Header: no SWIs, 32-bit flag; the interface table at &34
+    check(word(4) == syms["init_code"] and word(8) == syms["final_code"],
+          "header: init and final entries")
+    check(all(word(o) == 0 for o in (0x1C, 0x20, 0x24, 0x28)), "header: no SWIs")
+    check(word(word(0x30)) & 1, "header: 32-bit compatible")
+    title = code[word(0x10):code.index(b"\0", word(0x10))]
+    check(title == b"PThreadTicker", "title %r" % title)
+    check(word(0x34) == 0x6B545450 and word(0x38) == 1 and word(0x3C) == 7,
+          "interface table: PTTk, version 1, 7 entries")
+    names = ["pt_handler", "pt_start", "pt_stop", "pt_prefilter",
+             "pt_postfilter", "pt_attach", "pt_detach"]
+    offs = [word(0x40 + 4 * i) for i in range(7)]
+    check(offs == [syms[n] for n in names], "interface table offsets")
 
-    out, cpsr = swi(m, sul, 5, {UC_ARM_REG_R0: 3, UC_ARM_REG_R1: proc})
-    check(not cpsr & VFLAG, "Ticker 3: no error")
-    check(out[1:3] == [a("sul_ticker_prefilter"), a("sul_ticker_postfilter")],
-          "Ticker 3 returns the filter routines")
-    out, cpsr = swi(m, sul, 5, {UC_ARM_REG_R0: 3, UC_ARM_REG_R1: proc + 4})
-    check(cpsr & VFLAG and m.r(out[0]) == 0x81A401, "Ticker: unknown key -> error")
-    out, cpsr = swi(m, sul, 5, {UC_ARM_REG_R0: 4, UC_ARM_REG_R1: proc})
-    check(cpsr & VFLAG and m.r(out[0]) == 0x81A400, "Ticker: bad reason -> error")
-    out, cpsr = swi(m, sul, 6, {})
-    check(cpsr & VFLAG, "SWI 6 is unknown")
+    # Initialisation claims a zeroed workspace word
+    m.w(PRIVWORD, 0)
+    _, cpsr = m.call(a("init_code"), {UC_ARM_REG_R12: PRIVWORD})
+    ws = m.r(PRIVWORD)
+    check(not cpsr & VFLAG and ws and m.r(ws) == 0, "init: workspace, count 0")
 
-    out, cpsr = swi(m, sul, 5, {UC_ARM_REG_R0: 0, UC_ARM_REG_R1: proc,
-                                UC_ARM_REG_R2: block})
-    check(not cpsr & VFLAG and out[:3] == [0, proc, block],
-          "Ticker 0: no error, R0-R2 preserved")
-    check(m.r(proc + PROC_TICKERBLOCK) == block and m.r(block + STARTED) == 1
-          and m.called(OS_CallEvery)[0][:3] == [1, a("sul_ticker_handler"), block],
-          "Ticker 0 starts SUL's handler on the block")
-    swi(m, sul, 5, {UC_ARM_REG_R0: 1, UC_ARM_REG_R1: proc})
-    check(m.r(block + STARTED) == 0 and m.r(proc + PROC_TICKERBLOCK) == block,
-          "Ticker 1 stops, keeps the block")
-    swi(m, sul, 5, {UC_ARM_REG_R0: 0, UC_ARM_REG_R1: proc, UC_ARM_REG_R2: block})
-    block2 = new_block(m, RAM + 0x2000, proc)
-    swi(m, sul, 5, {UC_ARM_REG_R0: 0, UC_ARM_REG_R1: proc, UC_ARM_REG_R2: block2})
-    check(m.called(OS_RemoveTickerEvent)[0][:2] == [a("sul_ticker_handler"), block]
-          and m.r(block2 + STARTED) == 1, "Ticker 0 with a new block stops the old one")
-    swi(m, sul, 5, {UC_ARM_REG_R0: 2, UC_ARM_REG_R1: proc})
-    check(m.r(block2 + STARTED) == 0 and m.r(proc + PROC_TICKERBLOCK) == 0,
-          "Ticker 2 stops and forgets the block")
+    # attach/detach count; finalisation refuses while in use
+    for _ in range(2):
+        out, cpsr = m.call(MODBASE + offs[5], {UC_ARM_REG_R12: ws,
+                                               UC_ARM_REG_R0: 99}, ZFLAG)
+    check(m.r(ws) == 2 and out[0] == 99 and cpsr & ZFLAG, "attach counts, preserves")
+    out, cpsr = m.call(a("final_code"), {UC_ARM_REG_R12: PRIVWORD, UC_ARM_REG_R10: 0})
+    check(cpsr & VFLAG and b"in use" in bytes(m.mu.mem_read(out[0] + 4, 60)),
+          "final refuses while attached")
+    check(m.r(PRIVWORD) == ws, "workspace kept")
+    for _ in range(3):
+        m.call(MODBASE + offs[6], {UC_ARM_REG_R12: ws})
+    check(m.r(ws) == 0, "detach counts down, not below 0")
+    out, cpsr = m.call(a("final_code"), {UC_ARM_REG_R12: PRIVWORD, UC_ARM_REG_R10: 0})
+    check(not cpsr & VFLAG and m.r(PRIVWORD) == 0
+          and m.called(OS_Module) and m.called(OS_Module)[0][:1] == [7],
+          "final frees the workspace when nobody is attached")
 
-    test_routines(m, "SUL", a("sul_ticker_handler"), a("sul_ticker_start"),
-                  a("sul_ticker_stop"), a("sul_ticker_prefilter"),
-                  a("sul_ticker_postfilter"), new_block(m, RAM + 0x3000, proc))
-
-    # sul_exit stops a ticker the program left running
-    m.w(proc + PROC_PPID, 1)
-    m.w(proc + PROC_PRIVATEWORD, PRIVWORD)
-    block3 = new_block(m, RAM + 0x4000, proc)
-    swi(m, sul, 5, {UC_ARM_REG_R0: 0, UC_ARM_REG_R1: proc, UC_ARM_REG_R2: block3})
-    m.call(a("sul_exit"), {UC_ARM_REG_R0: proc >> 2, UC_ARM_REG_R1: 0})
-    check(m.called(OS_Exit), "sul_exit reaches OS_Exit")
-    rt = m.called(OS_RemoveTickerEvent)
-    check(rt and rt[0][:2] == [a("sul_ticker_handler"), block3]
-          and m.r(block3 + STARTED) == 0 and m.r(proc + PROC_TICKERBLOCK) == 0,
-          "sul_exit removes the ticker")
-
-    # SharedUnixLibrary_Initialise: a new process has no ticker block
-    m.w(HEAD, 0)
-    out, cpsr = swi(m, sul, 4, {UC_ARM_REG_R0: 117})
-    check(not cpsr & VFLAG, "Initialise: no error")
-    check(m.r(out[0] + PROC_TICKERBLOCK) == 0, "Initialise zeroes the ticker block")
+    test_routines(m, "module", *[MODBASE + o for o in offs[:5]],
+                  new_block(m, RAM + 0x3000, 0x4000))
 
 
 def test_copy(build):
@@ -308,12 +277,12 @@ def test_copy(build):
 
 
 def main():
-    for f in ("sul", "sul.o", "_context.o"):
+    for f in ("pthticker", "pthticker.o", "_context.o"):
         if not os.path.exists(os.path.join(BUILD, f)):
             print("ticker_test: no %s in %s (build UnixLib first)" % (f, BUILD))
             return 2
     try:
-        test_sul(BUILD)
+        test_module(BUILD)
         test_copy(BUILD)
     except UcError as e:
         print("FAIL: emulator:", e)

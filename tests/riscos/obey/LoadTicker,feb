@@ -1,0 +1,5 @@
+| Load the PThreadTicker module from here: UnixLib programs started
+| after this run their thread ticker from it (TickerStats lines end
+| via=module). Programs already running keep their own copy.
+RMLoad <Obey$Dir>.PThrTicker
+Help PThreadTicker
