@@ -14,7 +14,8 @@ so far. Read this before changing anything.
 | `tests/host/` | Host (PC) tests with a fake RISC OS; see `tests/README.md`. |
 | `tests/emu/` | Built machine code run in an ARM emulator (Unicorn). |
 | `tests/riscos/` | Test programs for the Pi, zipped as `UnixLibTests.zip`. |
-| `tools/` | `elf2aif` (large-image fix), `mkrozip.py` (zips with RISC OS filetypes), `make-patches.sh`. |
+| `tools/` | `elf2aif` (large-image fix), `mkrozip.py` (zips with RISC OS filetypes), `make-patches.sh`, `make-release.sh`. |
+| `release/` | ReadMe and licence for the PThreadTicker zip. |
 | `docs/` | `SOUND.md`, `MIDISYNTH-MODULE.md`, `THREAD-TICKER.md`, `TODO.md` (known problems), this file. |
 
 ## Making a change
@@ -77,11 +78,24 @@ all 894 objects).
 
 Version numbers follow `CHANGELOG.md` (`0.MINOR.PATCH` until it has had wide
 use; `v0.1.0` is commit `22511f2`). A PATCH release is fixes and repo
-housekeeping; a MINOR one adds features (new devices, new functions). To
-release: move "Unreleased" to a version heading with the date,
-commit, then `git tag vX.Y.Z` and push the tag. Attach
-`build/work/build/.libs/libunixlib.a`, `patches/*.diff` and
-`UnixLibTests.zip` to the GitHub release.
+housekeeping; a MINOR one adds features (new devices, new functions).
+Anything not yet run on RISC OS is released as a **pre-release**
+(`vX.Y.Z-rcN`, marked "pre-release" on GitHub) and re-released without
+the suffix after the Pi tests pass.
+
+1. Move "Unreleased" to a version heading with the date; commit.
+2. `git tag -a vX.Y.Z -m "riscos-unixlib X.Y.Z"`.
+3. `make release TAG=vX.Y.Z`: builds from clean, runs `make check`, and
+   puts the release files in `out/release/vX.Y.Z/`: `libunixlib.a`,
+   `patches/*.diff`, `UnixLibTests.zip`, `PThreadTicker-<version>.zip`
+   (for RISC OS users: a !System to merge, ReadMe, Licence; text in
+   `release/`) and `SHA256SUMS`.
+4. Push the commit and the tag; create the GitHub release from the tag
+   with those files (`gh release create vX.Y.Z out/release/vX.Y.Z/*
+   --notes-file ...`, plus `--prerelease` for an rc).
+
+The module's own version is in its help string (`module/pthticker.s`);
+bump it when the module changes.
 
 ## Moving to a newer GCCSDK
 

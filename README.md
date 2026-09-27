@@ -96,7 +96,9 @@ new `!SharedLibs` UnixLib release.
 ### Prebuilt
 
 Releases carry `libunixlib.a` (static, `arm-riscos-gnueabihf`, built as
-above). Drop it into `<env>/arm-riscos-gnueabihf/lib/` and relink.
+above; drop it into `<env>/arm-riscos-gnueabihf/lib/` and relink), the
+patches, the RISC OS test programs, and `PThreadTicker-<version>.zip`, the
+module for RISC OS users (see its ReadMe).
 
 ## Porting notes (UnixLib behaviour ported programs trip over)
 

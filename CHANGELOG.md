@@ -61,6 +61,9 @@ Versions are git tags `vX.Y.Z`. How to release: docs/MAINTAINING.md.
 
 ### Repo (nothing changes in the library)
 
+- `tools/make-release.sh` / `make release TAG=...`: clean build, all
+  checks, and the release files (library, patches, tests, the module zip
+  with a ReadMe and licence, SHA256SUMS) in `out/release/<tag>/`.
 - `tools/check-lib.sh` / `make check-lib FILES=...` (see above). The
   pthread RMA block is now 472 bytes.
 - Tests: `tests/host/ticker` (C, fake SWIs) and `tests/emu/ticker_test.py`

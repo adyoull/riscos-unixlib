@@ -4,7 +4,7 @@
 GCCSDK_ENV ?= $(HOME)/gccsdk/env
 export GCCSDK_ENV
 
-.PHONY: help check check-lib sources lib install patches riscos-tests elf2aif clean
+.PHONY: help check check-lib sources lib install patches riscos-tests elf2aif release clean
 
 help:
 	@echo "make check         host tests + patch checks (no cross compiler needed)"
@@ -14,6 +14,7 @@ help:
 	@echo "make check-lib     check a built library/program for mismatched objects"
 	@echo "make patches       regenerate patches/*.diff from the history"
 	@echo "make riscos-tests  build tests/riscos/out/UnixLibTests.zip"
+	@echo "make release TAG=vX.Y.Z  clean build + checks + release files in out/release"
 	@echo "make clean         remove build output (keeps build/src)"
 
 check:
@@ -39,6 +40,9 @@ elf2aif:
 
 riscos-tests: elf2aif
 	tests/riscos/build.sh
+
+release: elf2aif
+	tools/make-release.sh $(TAG)
 
 clean:
 	rm -rf build/work tests/host/*/out tests/riscos/out
