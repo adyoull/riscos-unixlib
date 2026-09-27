@@ -1500,6 +1500,18 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
 	$(stdio_src) $(stdlib_src) $(string_src) $(sys_src) \
 	$(termios_src) $(time_src) $(unistd_src) $(unix_src) $(wchar_src)
 
+# 2026: the assembler sources are .s, and automake doesn't track what they
+# include.  Rebuild them all when the shared assembler definitions change:
+# a stale _syslib.lo once kept an old PTHREAD_CALLEVERY_STRUCT_SIZE and the
+# pthread RMA block was overrun.
+unixlib_asm_deps = $(top_srcdir)/incl-local/internal/asm_dec.s \
+	$(top_srcdir)/incl-local/internal/elf-macros.s \
+	$(top_srcdir)/incl-local/internal/scl-macros.s \
+	$(top_srcdir)/incl-local/internal/defines.h \
+	$(top_srcdir)/include/unixlib/buildoptions.h
+unixlib_asm_objs = $(patsubst %.s,%.lo,$(notdir $(filter %.s,$(libunixlib_la_SOURCES))))
+$(unixlib_asm_objs) crt0.o gcrt0.o sul.o: $(unixlib_asm_deps)
+
 libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 5:0:0 -Wl,--version-script -Wl,$(top_srcdir)/vscript
 
 libm_la_SOURCES = libm-support/libm.c

@@ -25,6 +25,9 @@ _Static_assert (sizeof (struct __pthread_callevery_block) == 248,
 
 static const char filter_name[] = "UnixLib pthread";
 
+/* The block size sys/_syslib.s claimed from the RMA (see there).  */
+extern const unsigned int __pthread_callevery_block_size;
+
 static void
 __get_main_stack (struct __pthread_thread *thread)
 {
@@ -76,6 +79,15 @@ __pthread_prog_init (void)
 
   mainthread.magic = PTHREAD_MAGIC;
   __get_main_stack (&mainthread);
+
+  /* 2026: _syslib.s claims the RMA block with the assembler's idea of its
+     size.  An incremental build once kept an old _syslib.o (assembler files
+     had no dependency on asm_dec.s), the block was too small and copying
+     the ticker code below overran it.  */
+  if (__pthread_callevery_block_size
+      != sizeof (struct __pthread_callevery_block))
+    __unixlib_fatal ("UnixLib was built from mismatched objects "
+		     "(pthread RMA block size); rebuild it from clean");
 
   strcpy (gbl->pthread_callevery_rma->filter_name, filter_name);
 

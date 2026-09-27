@@ -1537,3 +1537,12 @@ __ul_memory:
 	.word	0			@ appspace_limit	offset = 44
 	.word	0			@ old_himem		offset = 48
 	DECLARE_OBJECT __ul_memory
+
+	@ 2026: the size of the pthread RMA block this file claims (OS_Module 6
+	@ above). __pthread_prog_init checks it against the C structure, so a
+	@ library built from old and new objects stops with a clear error
+	@ instead of overrunning the block.
+	.global	__pthread_callevery_block_size
+__pthread_callevery_block_size:
+	.word	PTHREAD_CALLEVERY_STRUCT_SIZE
+	DECLARE_OBJECT __pthread_callevery_block_size
