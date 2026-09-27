@@ -12,9 +12,10 @@ so far. Read this before changing anything.
 | `build/` | `fetch-sources.sh`, `sources.conf` (pinned sources), `build-unixlib.sh`. `build/src` and `build/work` are not in git. |
 | `tests/check.sh` | Everything checkable without RISC OS. `make check` runs it; so does GitHub Actions. |
 | `tests/host/` | Host (PC) tests with a fake RISC OS; see `tests/README.md`. |
+| `tests/emu/` | Built machine code run in an ARM emulator (Unicorn). |
 | `tests/riscos/` | Test programs for the Pi, zipped as `UnixLibTests.zip`. |
 | `tools/` | `elf2aif` (large-image fix), `mkrozip.py` (zips with RISC OS filetypes), `make-patches.sh`. |
-| `docs/` | `SOUND.md`, `MIDISYNTH-MODULE.md`, `TODO.md` (known problems), this file. |
+| `docs/` | `SOUND.md`, `MIDISYNTH-MODULE.md`, `THREAD-TICKER.md`, `TODO.md` (known problems), this file. |
 
 ## Making a change
 
@@ -144,15 +145,26 @@ and the patch scripts diff against it.
 - **UnixLib code runs in every program.** Anything at exit (`_exit` in
   `unix/unix.c`) must only undo what *this* program did: the old
   `__dsp_exit` switched off everybody's sound.
-- **The thread ticker's handler runs from RMA,** not from the program:
-  `pthread_call_every` in `pthread/_context.s` is copied into the RMA block
-  at start-up, because the ticker can fire while another task is paged in.
-  Keep it position independent (only `ip`-relative loads and SWIs, no
-  literal pools, no branches out of it), under 128 bytes (the assembler
-  checks), and never let it touch application space before the SUL
-  upcall/key check. The RMA block's layout is written twice, in
-  `incl-local/pthread.h` and `incl-local/internal/asm_dec.s`; `pthinit.c`
-  checks at compile time that they agree.
+- **The thread ticker's routines run from SharedUnixLibrary or RMA,** never
+  from the program: the ticker fires whichever task is paged in. They are
+  one macro, `incl-local/internal/ticker.s`, assembled into SUL
+  (`module/sul.s`) and into UnixLib (`pthread/_context.s`, copied into the
+  RMA block when SUL is older than 1.17). Keep them position independent
+  (only `ip`-relative data, `ADR` within the macro, SWIs; no literal pools,
+  no branches out), valid in both divided and unified syntax, under 320
+  bytes (the assembler checks), and never let the handler touch
+  application space before the upcall/key check. The RMA block offsets
+  they use are an interface between UnixLib and SUL, which are released
+  separately: don't move them (docs/THREAD-TICKER.md). The layout is
+  written twice, in `incl-local/pthread.h` and `asm_dec.s`; `pthinit.c`
+  checks at compile time that they agree. `make check` runs the built
+  code in an emulator (`tests/emu`).
+- **SharedUnixLibrary changes** (`module/sul.s`): fields in the process
+  structure after `PROC_SULONLY` are SUL's own, but must be set wherever a
+  structure is created (`alloc_proc`, `sul_fork`); `sul_exit` may have no
+  stack. A new SUL can't replace a running one while UnixLib programs run.
+  SWIs and version numbers belong to GCCSDK: agree them there before a
+  release.
 - **Incremental builds and assembler files.** Automake doesn't track what
   `.s` files include. `Makefile.am` now makes every assembler object depend
   on `asm_dec.s`, the macro files and the two headers they include; if you

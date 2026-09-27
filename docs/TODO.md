@@ -84,38 +84,26 @@ port; added in 0.1.1. The scheduler still has no real-time policies:
 - The keyboard: SDL's key-up detection polls `OS_Byte 121`; not a UnixLib
   issue, listed in the SDL notes.
 
-## 8. Thread ticker: why the Wimp filters sometimes don't stop it
+## 8. Thread ticker: confirm the root cause on the Pi
 
-The crash this caused (another task running our ticker handler from its
-own memory) is fixed: the handler now runs from RMA (0.1.1). What's left is
-understanding the gap, since while it exists the ticker still fires 50
-times a second while other tasks run (cheap now, but not intended).
+The ticker ran while other tasks were paged in (Warzone 2100). The code is
+now safe wherever it fires (SharedUnixLibrary 1.17 runs it, or an RMA copy
+with older SULs) and the likely causes are fixed; see
+[THREAD-TICKER.md](THREAD-TICKER.md). Still to do:
 
-- **Threads started before `Wimp_Initialise`** (for example an SDL audio or
-  timer thread created before the window): `__pthread_start_ticker` finds
-  task handle 0, starts the ticker and registers **no** filters. They are
-  only registered at the next `pthread_create`, which may never come.
-  `TickerEarly` in the Pi tests does exactly this. Possible fix: register
-  the filters later, e.g. check once per context switch (in USR mode, not
-  in the callback) whether the program has become a Wimp task.
-- **The cached task handle** (`_syslib.s` reads `Wimp_ReadSysInfo 5` at
-  start-up, before `Wimp_Initialise`, and `__pthread_start_ticker` only
-  re-reads it when it's 0). If that value isn't the program's final task
-  handle, the filters are registered for another task. `Ticker` logs both
-  values; check on the Pi.
-- **Task switches that don't go through our `Wimp_Poll`,** e.g. our own
-  `Wimp_StartTask` (Warzone starts URIdispatch for web links): the child
-  runs with us paged out and no pre-filter call.
-- If a program dies without reaching `_exit` (so `__pthread_prog_fini`
-  never removes the ticker), the handler and its RMA block now stay behind:
-  harmless (it only checks the upcall handler and returns) but a leak of
-  248 bytes and a 2 cs ticker until reset. Before, it jumped into whatever
-  was loaded at that address.
-- The fix assumes RMA is executable (true on RISC OS 5 today). If that ever
-  changes, the handler would have to live in SharedUnixLibrary.
+- **Pi run with `UnixLib$TickerStats`** (tests `Ticker`, `TickerEarly`,
+  `TickerStartTask`, and Warzone), old library and new, to see which of the
+  suspects (wrong handle, threads before `Wimp_Initialise`, paging outside
+  `Wimp_Poll`) actually happens. Also answers what `Wimp_ReadSysInfo 5`
+  returns before `Wimp_Initialise`.
+- **SUL 1.17 upstream:** the SWI number and version need agreeing with
+  GCCSDK, which releases the module.
+- Paging outside `Wimp_Poll` (e.g. the program's own `Wimp_StartTask`) will
+  still make the ticker fire in other tasks. Harmless now; could be
+  avoided by stopping the ticker around `Wimp_StartTask`, but UnixLib
+  doesn't see that call.
 - The interval-timer handlers in `signal/_signal.s` (`__h_sigalrm_init` and
   friends) are also OS_CallEvery handlers in application space.
   `setitimer` refuses to run in a Wimp task (ENOSYS), which avoids the
   problem there; a program that sets one before `Wimp_Initialise` would be
-  exposed. Same RMA treatment if it ever matters.
-
+  exposed. SUL could run those too if it ever matters.

@@ -6,6 +6,24 @@ Versions are git tags `vX.Y.Z`. How to release: docs/MAINTAINING.md.
 
 ### Library
 
+- **Thread ticker runs from SharedUnixLibrary 1.17** (`module/sul.s`,
+  `incl-local/internal/ticker.s`, new `pthread/ticker.c`), from Warzone
+  2100's request to find the root cause and stop running code out of an
+  RMA data block. SUL 1.17 has a new SWI, `SharedUnixLibrary_Ticker`
+  (&55C85), and runs the ticker handler and the Wimp filters from the
+  module, so they are paged in whichever task is. With SUL 1.16 or older
+  UnixLib runs its own copy from the RMA block, as below. The filters now
+  follow the task handle: read afresh when the ticker starts and every
+  ~1.3 s while it runs (threads created before `Wimp_Initialise`, like
+  SDL's, left the ticker unfiltered for good), and removed with the handle
+  they were registered for. SUL removes a ticker a program leaves running
+  at exit. Details, the SWI and the suspects: docs/THREAD-TICKER.md.
+  **Needs the Pi tests** `Ticker`, `TickerEarly`, `TickerStartTask`, with
+  and without SUL 1.17.
+- **`UnixLib$TickerStats`**: set it to a file name and every UnixLib
+  program appends a line of thread ticker counters to it at exit (ticks,
+  ticks that found another task paged in, filter calls, task handles), to
+  find out on a real machine why the ticker ran in other tasks.
 - **Thread ticker handler runs from RMA** (`pthread/_context.s`,
   `pthinit.c`, `incl-local/pthread.h`, `asm_dec.s`), from the Warzone 2100
   port (riscos14). A program with more than one thread installs an
@@ -41,7 +59,12 @@ Versions are git tags `vX.Y.Z`. How to release: docs/MAINTAINING.md.
 
 ### Repo (nothing changes in the library)
 
-- `tools/check-lib.sh` / `make check-lib FILES=...` (see above).
+- `tools/check-lib.sh` / `make check-lib FILES=...` (see above). The
+  pthread RMA block is now 472 bytes.
+- Tests: `tests/host/ticker` (C, fake SWIs) and `tests/emu/ticker_test.py`
+  (the built SUL module and UnixLib's ticker code in the Unicorn ARM
+  emulator; skipped without a build or `pip install unicorn`). Pi test
+  `TickerStartTask`; the Ticker tests set `UnixLib$TickerStats`.
 
 - `build/fetch-sources.sh` fetches and checks GCCSDK and the GCC source
   (pins in `build/sources.conf`); `build-unixlib.sh` uses them by default.
