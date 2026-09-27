@@ -4,7 +4,22 @@ Versions are git tags `vX.Y.Z`. How to release: docs/MAINTAINING.md.
 
 ## Unreleased (0.1.1)
 
-For people working on the repo; nothing changes in the library.
+### Library
+
+- **Thread ticker handler runs from RMA** (`pthread/_context.s`,
+  `pthinit.c`, `incl-local/pthread.h`, `asm_dec.s`), from the Warzone 2100
+  port (riscos14). A program with more than one thread installs an
+  OS_CallEvery handler to switch threads. It lived in the program's memory,
+  so when the ticker fired while another task was paged in, *that* task
+  crashed ("Internal error: abort on instruction fetch" in Organizer, while
+  Warzone was running). The handler only ever used its RMA block and SWIs,
+  so it is now copied there at start-up and runs from there; in another
+  task it sees that task's upcall handler and returns. Compile-time checks
+  keep the C and assembler descriptions of the RMA block in step.
+  **Needs the Pi tests `Ticker` / `TickerEarly`.** Every threaded program
+  (OpenTTD, anything using SDL threads) should be relinked with it.
+
+### Repo (nothing changes in the library)
 
 - `build/fetch-sources.sh` fetches and checks GCCSDK and the GCC source
   (pins in `build/sources.conf`); `build-unixlib.sh` uses them by default.

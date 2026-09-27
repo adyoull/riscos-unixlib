@@ -22,6 +22,19 @@ index d7a6a30..da15f81 100644
  	/* Terminal type device file.  */
  	mode |= S_IFCHR;
  	break;
+diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
+index 7f01c57..0025608 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
++++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
+@@ -389,6 +389,8 @@ PTHREAD_CALLEVERY_RMA_TICKER_STARTED:		.skip 4
+ PTHREAD_CALLEVERY_RMA_WORKSEMAPHORE:		.skip 4
+ PTHREAD_CALLEVERY_RMA_CALLBACK_SEMAPHORE:	.skip 4
+ PTHREAD_CALLEVERY_RMA_FILTER_NAME:		.skip 20
++	@ A copy of pthread_call_every, the ticker handler (see _context.s)
++PTHREAD_CALLEVERY_RMA_TICKER_CODE:		.skip 128
+ PTHREAD_CALLEVERY_STRUCT_SIZE:
+ 
+ 	.text
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h
 index e45417e..86e7c5a 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h
@@ -50,6 +63,26 @@ index e45417e..86e7c5a 100644
  /* /dev/custom support */
  extern void *__customopen (struct __unixlib_fd *__fd, const char *file, int __mode);
  extern int __customclose (struct __unixlib_fd *__fd);
+diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
+index eed3e61..bc83847 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
++++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
+@@ -180,8 +180,15 @@ struct __pthread_callevery_block
+   volatile int pthread_callback_semaphore; /* Prevent a callback being set
+     whilst servicing another callback.  */
+   char filter_name[20];
++  /* A copy of pthread_call_every, the ticker handler. OS_CallEvery runs
++     it from here: the ticker can fire while another task is paged in,
++     when the application's own copy isn't there.  */
++  unsigned ticker_code[32];
+ };
+ 
++/* The ticker handler in _context.s, copied into ticker_code at start-up.  */
++extern const char __pthread_call_every_code[], __pthread_call_every_code_end[];
++
+ extern pthread_t __pthread_thread_list; /* Linked list of all threads */
+ 
+ /* Called once early in program initialisation */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/unistd.h b/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
 index be382ba..e7893a6 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
@@ -65,6 +98,91 @@ index be382ba..e7893a6 100644
  /* Truncate FILE to LENGTH bytes.  */
  extern int truncate (const char *__file, __off_t __length) __THROW;
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s b/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
+index fada843..17079f1 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
+@@ -133,7 +133,7 @@ start_call_every:
+ 	BNE	start_call_every_end
+ 
+ 	MOV	a1, #1
+-	ADR	a2, pthread_call_every
++	ADD	a2, r12, #PTHREAD_CALLEVERY_RMA_TICKER_CODE	@ the RMA copy
+ 	MOV	a3, r12
+ 	SWI	XOS_CallEvery
+ 
+@@ -155,7 +155,7 @@ stop_call_every:
+ 	LDR	a2, [r12, #PTHREAD_CALLEVERY_RMA_TICKER_STARTED]
+ 	SUBS	a2, a2, #1
+ 	STREQ	a2, [r12, #PTHREAD_CALLEVERY_RMA_TICKER_STARTED]
+-	ADREQ	a1, pthread_call_every
++	ADDEQ	a1, r12, #PTHREAD_CALLEVERY_RMA_TICKER_CODE
+ 	MOVEQ	a2, r12
+ 	SWIEQ	XOS_RemoveTickerEvent
+ 	MSR	CPSR_f, a3
+@@ -232,7 +232,15 @@ stop_ticker_core:
+ @ for the shared library). We can't be certain the application is paged in
+ @ (despite the filters), so we dare not attempt to access its address space,
+ @ which is why these are in RMA.
++@ For the same reason the ticker runs a copy of this code in that RMA block
++@ (__pthread_prog_init copies it): the ticker can fire while another task
++@ is paged in, and then this address isn't ours ("abort on instruction
++@ fetch" in the other task). So it must stay position independent, use
++@ nothing but ip and SWIs, and fit in PTHREAD_CALLEVERY_RMA_TICKER_CODE.
++	.global	__pthread_call_every_code
++	.global	__pthread_call_every_code_end
+ 	NAME	pthread_call_every
++__pthread_call_every_code:
+ pthread_call_every:
+ 	STMFD	sp!, {a1-a4, lr}
+ 
+@@ -272,6 +280,10 @@ pthread_call_every:
+ 	SWIEQ	XOS_SetCallBack
+ 0:
+ 	LDMFD	sp!, {a1-a4, pc}
++__pthread_call_every_code_end:
++	.if	__pthread_call_every_code_end - __pthread_call_every_code > 128
++	.error	"pthread_call_every doesn't fit in PTHREAD_CALLEVERY_RMA_TICKER_CODE"
++	.endif
+ 	DECLARE_FUNCTION pthread_call_every
+ 
+ @ This is called from _signal.s::__h_cback and pthread_yield.
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c b/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
+index 9457494..0265d1c 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
+@@ -14,6 +14,15 @@
+ 
+ static struct __pthread_thread mainthread;
+ 
++/* 2026: the RMA block's layout is also in incl-local/internal/asm_dec.s
++   (PTHREAD_CALLEVERY_RMA_*); the ticker code copy must be where the
++   assembler expects it.  */
++_Static_assert (__builtin_offsetof (struct __pthread_callevery_block,
++				    ticker_code) == 120,
++		"ticker_code: keep in step with asm_dec.s");
++_Static_assert (sizeof (struct __pthread_callevery_block) == 248,
++		"__pthread_callevery_block: keep in step with asm_dec.s");
++
+ static const char filter_name[] = "UnixLib pthread";
+ 
+ static void
+@@ -70,6 +79,15 @@ __pthread_prog_init (void)
+ 
+   strcpy (gbl->pthread_callevery_rma->filter_name, filter_name);
+ 
++  /* The ticker runs its handler from the RMA block (see _context.s).  */
++  {
++    char *code = (char *) gbl->pthread_callevery_rma->ticker_code;
++    size_t len = __pthread_call_every_code_end - __pthread_call_every_code;
++
++    memcpy (code, __pthread_call_every_code, len);
++    _swix (OS_SynchroniseCodeAreas, _INR(0,2), 1, code, code + len - 1);
++  }
++
+   __pthread_thread_list = __pthread_running_thread;
+   gbl->pthread_num_running_threads = 1;
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c b/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c
 index d9221ef..c1e3828 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c

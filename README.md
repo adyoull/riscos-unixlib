@@ -23,6 +23,7 @@ after it is a separate commit.
 | Sound: default format | `sound/dsp.c` | The default format was A-law by mistake (16-bit was intended). |
 | fsync | `unix/sync.c` | `fsync()` on a read-only file returns 0 instead of `EBADF` (PhysFS never closed such files); new `fdatasync()`. |
 | Exit | `stdlib/atexit.c` | atexit handlers and C++ destructors run with thread switching allowed, so joining a thread in one (SDL_WaitThread) no longer aborts the program as it quits. |
+| Threads | `pthread/_context.s`, `pthinit.c` | The thread-switching ticker's handler runs from RMA, so it can't crash another task that happens to be paged in when it fires (seen with Warzone 2100 and Organizer). |
 | MIDI | `sound/midi.c` | New **`/dev/midi`**: raw MIDI bytes go to a MIDISynth module (proposed, see [docs/MIDISYNTH-MODULE.md](docs/MIDISYNTH-MODULE.md)) or the RISC OS MIDI module. |
 
 Details and reasons: [CHANGELOG.md](CHANGELOG.md). Sound details:
