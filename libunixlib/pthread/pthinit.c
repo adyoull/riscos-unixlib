@@ -14,6 +14,15 @@
 
 static struct __pthread_thread mainthread;
 
+/* 2026: the RMA block's layout is also in incl-local/internal/asm_dec.s
+   (PTHREAD_CALLEVERY_RMA_*); the ticker code copy must be where the
+   assembler expects it.  */
+_Static_assert (__builtin_offsetof (struct __pthread_callevery_block,
+				    ticker_code) == 120,
+		"ticker_code: keep in step with asm_dec.s");
+_Static_assert (sizeof (struct __pthread_callevery_block) == 248,
+		"__pthread_callevery_block: keep in step with asm_dec.s");
+
 static const char filter_name[] = "UnixLib pthread";
 
 static void
