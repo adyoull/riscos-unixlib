@@ -483,6 +483,44 @@ __fslseek (struct __unixlib_fd * file_desc, __off_t lpos, int whence)
   return !err ? lpos : __ul_seterr (err, EOPSYS);
 }
 
+/* 2026: RISC OS file pointers and extents are unsigned 32-bit values, so
+   files can be up to 4GB-1 bytes.  __fslseek works with a signed 32-bit
+   __off_t (2GB-1) and is unchanged for existing programs; this is the
+   64-bit version for lseek64 (_FILE_OFFSET_BITS=64).  */
+__off64_t
+__fslseek64 (struct __unixlib_fd *file_desc, __off64_t lpos, int whence)
+{
+  if (file_desc->dflag & FILE_ISDIR)
+    return 0; /* As __fslseek.  */
+
+  const _kernel_oserror *err = NULL;
+  int handle = (int) file_desc->devicehandle->handle;
+  __off_t base32 = 0;
+
+  if (whence == SEEK_CUR)
+    err = SWI_OS_Args_GetFilePtr (handle, &base32);
+  else if (whence == SEEK_END)
+    err = SWI_OS_Args_GetExtent (handle, &base32);
+  else if (whence != SEEK_SET)
+    return __set_errno (EINVAL);
+  if (err)
+    return __ul_seterr (err, EOPSYS);
+
+  __off64_t pos = (__off64_t) (unsigned long) base32 + lpos;
+  if (pos < 0)
+    return __set_errno (EINVAL);
+  if (pos > 0xFFFFFFFFLL)
+    return __set_errno (EOVERFLOW);
+
+  if (whence != SEEK_CUR || lpos != 0)
+    {
+      err = SWI_OS_Args_SetFilePtr (handle, (__off_t) (unsigned long) pos);
+      if (err)
+	return __ul_seterr (err, EOPSYS);
+    }
+  return pos;
+}
+
 int
 __fsstat (const char *ux_filename, struct stat *buf)
 {

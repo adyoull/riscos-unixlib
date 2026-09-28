@@ -24,13 +24,15 @@ ftello (FILE *stream)
   return pos;
 }
 
-#if __UNIXLIB_LFS64_SUPPORT
-#  error "64-bit LFS support missing."
-#else
+/* 2026: RISC OS file positions go up to 4GB-1 (unsigned 32-bit); the
+   stream keeps them in a 32-bit __off_t, so read them back as unsigned.  */
 __off64_t
 ftello64 (FILE *stream)
 {
-  return ftello (stream);
+  __off64_t pos;
+  if (fgetpos64 (stream, &pos) == -1)
+    return (__off64_t)-1;
+
+  return pos;
 }
-#endif
 

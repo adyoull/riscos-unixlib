@@ -27,17 +27,24 @@ lseek (int fd, __off_t offset, int whence)
 		      (file_desc, offset, whence));
 }
 
+/* 2026: RISC OS files can be up to 4GB-1 bytes (unsigned 32-bit file
+   pointers), so lseek64 reaches that far on RISC OS files.  Before, it
+   stopped at 2GB-1 like lseek.  lseek is unchanged.  */
 __off64_t
 lseek64 (int fd, __off64_t offset, int whence)
 {
-#if __UNIXLIB_LFS64_SUPPORT
-#  error "64-bit LFS support missing."
-#else
-  /* Check if the __off64_t offset fits in a __off_t one.  Further
-     checking will be done in lseek itself.  */
+  PTHREAD_UNSAFE
+
+  if (BADF (fd))
+    return __set_errno (EBADF);
+
+  struct __unixlib_fd *file_desc = getfd (fd);
+
+  if (file_desc->devicehandle->type == DEV_RISCOS)
+    return __fslseek64 (file_desc, offset, whence);
+
+  /* Other devices: as before.  */
   if (offset != (__off64_t)(__off_t)offset)
     return __set_errno (EOVERFLOW);
-#endif
-
   return lseek (fd, (__off_t) offset, whence);
 }

@@ -67,17 +67,19 @@ fgetpos (FILE *stream, __off_t *pos)
 
   return 0;
 }
-#if __UNIXLIB_LFS64_SUPPORT
-#  error "64-bit LFS support missing."
-#else
+/* 2026: RISC OS file positions are unsigned 32-bit values (files up to
+   4GB-1 bytes).  The stream keeps its position in a 32-bit __off_t, where
+   positions of 2GB and over look negative; fgetpos works out the same bits
+   (the arithmetic wraps), so read the result back as unsigned.  */
 int
 fgetpos64 (FILE *stream, __off64_t *pos)
 {
   __off_t pos32;
+  if (pos == NULL)
+    return __set_errno (EINVAL);
   if (fgetpos (stream, &pos32) == -1)
     return -1;
-  *pos = pos32;
+  *pos = (unsigned long) pos32;
   return 0;
 }
-#endif
 

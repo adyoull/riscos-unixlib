@@ -75,6 +75,9 @@ extern int __fsclose (struct __unixlib_fd *__fd);
 extern int __fsread (struct __unixlib_fd *__fd, void *__data, int __nbyte);
 extern int __fswrite (struct __unixlib_fd *__fd, const void *__data, int __nbyte);
 extern __off_t __fslseek (struct __unixlib_fd *__fd, __off_t __lpos, int __whence);
+/* 2026: lseek64 for RISC OS files, positions 0 to 4GB-1.  */
+extern __off64_t __fslseek64 (struct __unixlib_fd *__fd, __off64_t __lpos,
+			      int __whence);
 extern int __fsstat (const char *__filename, struct stat *__buf);
 extern int __fsfstat (int __fd, struct stat *__buf);
 extern int __fslstat (const char *__filename, struct stat *__buf);

@@ -50,16 +50,13 @@ fsetpos (FILE *stream, const __off_t *pos)
 
   return 0;
 }
-#if __UNIXLIB_LFS64_SUPPORT
-#  error "64-bit LFS support missing."
-#else
+/* 2026: positions up to 4GB-1 (fseeko64).  The old version converted
+   the pointer POS, not the position, so it moved to a meaningless place.  */
 int
 fsetpos64 (FILE *stream, const __off64_t *pos)
 {
-  if (pos != NULL && *pos >= -1U)
-    return __set_errno (EOVERFLOW);
-  __off_t pos32 = (__off_t)pos;
-  return fsetpos (stream, &pos32);
+  if (pos == NULL)
+    return __set_errno (EINVAL);
+  return fseeko64 (stream, *pos, SEEK_SET);
 }
-#endif
 

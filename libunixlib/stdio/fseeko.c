@@ -67,15 +67,52 @@ fseeko (FILE *stream, __off_t offset, int w)
 
   return 0;
 }
-#if __UNIXLIB_LFS64_SUPPORT
-#  error "64-bit LFS support missing."
-#else
+/* 2026: as fseeko, with 64-bit offsets and lseek64, so a RISC OS file can
+   be positioned anywhere up to 4GB-1.  Before, this stopped at 2GB-1.  */
 int
 fseeko64 (FILE *stream, __off64_t offset, int w)
 {
-  if (offset >= -1U && (__off_t)(offset >> 32) != -1U)
-    return __set_errno (EOVERFLOW);
-  return fseeko (stream, (__off_t)offset, w);
+  PTHREAD_UNSAFE
+
+  if (!__validfp (stream))
+    return __set_errno (EINVAL);
+
+  __off64_t new_offset;
+  int new_w;
+  if (w == SEEK_CUR)
+    {
+      if (fgetpos64 (stream, &new_offset) == -1)
+	return -1;
+      new_offset += offset;
+      new_w = SEEK_SET;
+    }
+  else if (w == SEEK_SET || w == SEEK_END)
+    {
+      new_offset = offset;
+      new_w = w;
+    }
+  else
+    return __set_errno (EINVAL);
+
+  /* Write out any pending data.  */
+  if (stream->__mode.__bits.__write && __flsbuf (EOF, stream) == EOF)
+    return -1;
+
+  __off64_t cur_offset = lseek64 (fileno (stream), new_offset, new_w);
+  if (cur_offset == (__off64_t)-1)
+    {
+      stream->__error = 1;
+      return -1;
+    }
+
+  /* Up to 4GB-1, kept in the 32-bit field (see fgetpos64).  */
+  stream->__offset = (__off_t) (unsigned long) cur_offset;
+
+  /* As fseeko.  */
+  stream->i_cnt = 0;
+  stream->__pushedback = 0;
+  stream->__eof = 0;
+
+  return 0;
 }
-#endif
 
