@@ -11,9 +11,9 @@ PATH=$GCCSDK_ENV/bin:$PATH
 L=../../build/work/build/.libs
 O=out/UnixLibTests
 rm -rf out; mkdir -p $O
-for p in dsptest miditest nosound exitjoin fsyncro tickertest schedtest largefile; do
+for p in dsptest miditest nosound ejtest fsrotest tickertest schedtest lfstest; do
   flags=
-  [ $p = largefile ] && flags=-D_FILE_OFFSET_BITS=64
+  [ $p = lfstest ] && flags=-D_FILE_OFFSET_BITS=64
   arm-riscos-gnueabihf-gcc -O2 -static -fstack-clash-protection $flags -isystem ../../libunixlib/include -L$L $p.c -o out/$p.elf -lm
   GCCSDK_ENV="$GCCSDK_ENV" ../../tools/check-lib.sh out/$p.elf >/dev/null
   "$ELF2AIF" -e out/$p.elf $O/$p,ff8
@@ -22,5 +22,9 @@ cp obey/*,feb $O/
 # The PThreadTicker module built with the library (runs the thread ticker)
 cp ../../build/work/build/pthticker $O/PThrTicker,ffa
 cp ReadMe $O/ReadMe,fff
+# RISC OS filenames aren't case-sensitive: two names differing only in case
+# overwrite each other when unzipped (LargeFile vs largefile did).
+dups=$(ls $O | sed 's/,[0-9a-f][0-9a-f][0-9a-f]$//' | tr A-Z a-z | sort | uniq -d)
+[ -z "$dups" ] || { echo "names clash on RISC OS: $dups" >&2; exit 1; }
 python3 ../../tools/mkrozip.py out/UnixLibTests.zip $O
 ls -l out/UnixLibTests.zip

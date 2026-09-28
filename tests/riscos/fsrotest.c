@@ -1,4 +1,4 @@
-/* fsyncro: fsync()/fdatasync() on a read-only file must succeed, and the
+/* fsrotest: fsync()/fdatasync() on a read-only file must succeed, and the
    file must then close (before the fix fsync failed with EBADF). */
 #include <errno.h>
 #include <fcntl.h>
@@ -8,7 +8,7 @@
 
 int main (int argc, char **argv)
 {
-  const char *f = argc > 1 ? argv[1] : "/<Wimp$ScrapDir>/fsyncro";
+  const char *f = argc > 1 ? argv[1] : "/<Wimp$ScrapDir>/fsrotest";
   FILE *w = fopen (f, "w");
   if (!w) { perror (f); return 1; }
   fputs ("test\n", w); fclose (w);

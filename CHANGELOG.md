@@ -7,6 +7,13 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- Pi tests: the programs `largefile`, `exitjoin` and `fsyncro` had the same
+  names as their Obey files apart from case, which is the same name on RISC
+  OS, so unzipping overwrote one with the other (the LargeFile test crashed
+  with "undefined instruction at &8034"). Renamed `lfstest`, `ejtest` and
+  `fsrotest`; `tests/riscos/build.sh` now stops on such clashes. Only
+  UnixLibTests.zip changes, not the library.
+
 ## 5.0.2 (2026-09-28, pre-release, tag v5.0.2-rc1)
 
 Not yet run on RISC OS: the `LargeFile` test in UnixLibTests.zip. Once it

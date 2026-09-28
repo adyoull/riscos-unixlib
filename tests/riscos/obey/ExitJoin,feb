@@ -1,4 +1,4 @@
 | a thread joined from an atexit() handler (Warzone 2100's quit abort)
 Set UST$Dir <Obey$Dir>
 WimpSlot -min 8000K
-Run <UST$Dir>.exitjoin
+Run <UST$Dir>.ejtest

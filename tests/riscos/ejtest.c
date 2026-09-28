@@ -1,4 +1,4 @@
-/* exitjoin: join a thread from an atexit() handler (as SDL_WaitThread in a
+/* ejtest: join a thread from an atexit() handler (as SDL_WaitThread in a
    shutdown function does).  Before the fix UnixLib aborted with
    "Fatal signal received: Aborted" when the program quit. */
 #include <pthread.h>

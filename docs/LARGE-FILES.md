@@ -78,4 +78,4 @@ links with the toolchain's libstdc++.
 | `stdio/fseeko.c`, `ftello.c`, `fgetpos.c`, `fsetpos.c` | the stdio 64-bit calls |
 | `unix/truncate.c`, `include/unistd.h` | `truncate64`, `ftruncate64` |
 | `sys/mmap64.c`, `include/sys/mman.h` | `mmap64` |
-| `tests/abi/`, `tests/riscos/largefile.c` | ABI check, Pi test (`LargeFile`) |
+| `tests/abi/`, `tests/riscos/lfstest.c` | ABI check, Pi test (`LargeFile`) |

@@ -1,11 +1,11 @@
-/* largefile: files over 2GB with the 64-bit file interface.
+/* lfstest: files over 2GB with the 64-bit file interface.
 
    RISC OS file pointers are unsigned 32-bit, so files can be up to 4GB-1
    bytes (FileCore on RISC OS 5, DOSFS/FAT32).  Built with
    -D_FILE_OFFSET_BITS=64, off_t is 64-bit and lseek, fstat, fseeko... reach
    past 2GB.  Programs built without it are unchanged.
 
-     largefile [-mb N] [file]
+     lfstest [-mb N] [file]
    Creates FILE (default LargeTest in the current directory) of N MB
    (default 3072 = 3GB), checks seeking, sizes and data past 2GB with the
    POSIX and stdio calls, then deletes it.  Needs that much free space on a
@@ -62,7 +62,7 @@ main (int argc, char **argv)
   const off_t mark1 = ((off_t) 2 << 30) + 12345;	/* just past 2GB */
   const off_t mark2 = size - 8;				/* the last bytes */
 
-  printf ("largefile: %s, %ld MB (sizeof (off_t) = %d)\n", name, mb,
+  printf ("lfstest: %s, %ld MB (sizeof (off_t) = %d)\n", name, mb,
 	  (int) sizeof (off_t));
   if (size <= mark1 || size > 0xFFFFFFFFLL)
     {
