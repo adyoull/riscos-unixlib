@@ -1073,6 +1073,8 @@ else
 sys_src += \
 	sys/mman.c
 endif
+sys_src += \
+	sys/mmap64.c
 endif
 sys_src += \
 	sys/errlist.c
