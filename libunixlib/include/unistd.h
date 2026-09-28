@@ -613,10 +613,34 @@ extern int fsync (int __fd);
 extern int fdatasync (int __fildes);
 
 /* Truncate FILE to LENGTH bytes.  */
+#ifndef __USE_FILE_OFFSET64
 extern int truncate (const char *__file, __off_t __length) __THROW;
+#else
+# ifdef __REDIRECT_NTH
+extern int __REDIRECT_NTH (truncate, (const char *__file, __off64_t __length),
+			   truncate64);
+# else
+#  define truncate truncate64
+# endif
+#endif
 
 /* Truncate the file FD is open on to LENGTH bytes.  */
+#ifndef __USE_FILE_OFFSET64
 extern int ftruncate (int __fd, __off_t __length) __THROW;
+#else
+# ifdef __REDIRECT_NTH
+extern int __REDIRECT_NTH (ftruncate, (int __fd, __off64_t __length),
+			   ftruncate64);
+# else
+#  define ftruncate ftruncate64
+# endif
+#endif
+
+#if defined __USE_LARGEFILE64 || defined __USE_FILE_OFFSET64
+/* 2026: the same with a 64-bit length (RISC OS files: up to 4GB-1).  */
+extern int truncate64 (const char *__file, __off64_t __length) __THROW;
+extern int ftruncate64 (int __fd, __off64_t __length) __THROW;
+#endif
 
 /* Return the number of bytes in a page.  This is the system's page size,
    which is not necessarily the same as the hardware page size.  */

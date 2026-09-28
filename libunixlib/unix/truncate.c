@@ -73,3 +73,26 @@ truncate (const char *ux_file, off_t length)
 
   return 0;
 }
+
+/* 2026: 64-bit lengths.  RISC OS extents are unsigned 32-bit values, so a
+   file can be up to 4GB-1 bytes; ftruncate and truncate pass their 32-bit
+   length straight to OS_Args 3, so give them the same bits.  */
+int
+ftruncate64 (int fd, __off64_t length)
+{
+  if (length < 0)
+    return __set_errno (EINVAL);
+  if (length > 0xFFFFFFFFLL)
+    return __set_errno (EFBIG);
+  return ftruncate (fd, (__off_t) (unsigned long) length);
+}
+
+int
+truncate64 (const char *ux_file, __off64_t length)
+{
+  if (length < 0)
+    return __set_errno (EINVAL);
+  if (length > 0xFFFFFFFFLL)
+    return __set_errno (EFBIG);
+  return truncate (ux_file, (__off_t) (unsigned long) length);
+}
