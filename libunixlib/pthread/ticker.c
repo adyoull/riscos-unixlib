@@ -60,8 +60,9 @@ __pthread_ticker_read_task (int *handle, int *version)
   *handle = *version = 0;
   if (_swix (Wimp_ReadSysInfo, _IN(0) | _OUT(0), 3, &desktop) || !desktop)
     return;
-  if (_swix (Wimp_ReadSysInfo, _IN(0) | _OUTR(0,1), 5, handle, version))
-    *handle = *version = 0;
+  if (_swix (Wimp_ReadSysInfo, _IN(0) | _OUTR(0,1), 5, handle, version)
+      || *handle == 0)
+    *handle = *version = 0;	/* R1 is undefined when not a task.  */
 }
 
 static inline struct __pthread_callevery_block *
@@ -267,12 +268,18 @@ __pthread_ticker_write_stats (void)
   if (b == NULL || file == NULL || file[0] == '\0')
     return;
 
-  /* The program name: the first word of the command line.  */
+  /* The program name: the leaf of the first word of the command line
+     (the whole path was cut short: "...!Warzone2100.warzone210").  */
   prog[0] = '\0';
   if (!_swix (OS_GetEnv, _OUT(0), &cmd) && cmd != NULL)
     {
-      for (i = 0; i < (int) sizeof (prog) - 1 && cmd[i] > ' '; i++)
-	prog[i] = cmd[i];
+      const char *leaf = cmd;
+
+      for (i = 0; cmd[i] > ' '; i++)
+	if (cmd[i] == '.' || cmd[i] == ':')
+	  leaf = cmd + i + 1;
+      for (i = 0; i < (int) sizeof (prog) - 1 && leaf[i] > ' '; i++)
+	prog[i] = leaf[i];
       prog[i] = '\0';
     }
 

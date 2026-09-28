@@ -115,7 +115,7 @@ _swix (int swi, unsigned mask, ...)
     case OS_SynchroniseCodeAreas:
       return NULL;
     case OS_GetEnv:
-      *out[0] = (int) (long) "tickprog -early";
+      *out[0] = (int) (long) "SDFS::ePic.$.Apps.Games.!Warzone2100.tickprog -early";
       return NULL;
     case OS_Find:
       if (in[0] == 0)
@@ -286,6 +286,13 @@ main (void)
   __pthread_ticker_write_stats ();
   CHECK (strstr (strchr (file, '\n') + 1, "tickprog ticks=500") && file_type == 0,
 	 "second line appended");
+  /* Not a task any more: R1 is garbage then, and must not be printed.  */
+  handle = 0, version = -1073741823;
+  file[0] = '\0', file_exists = 0;
+  __pthread_ticker_write_stats ();
+  CHECK (strncmp (file, "tickprog ", 9) == 0 && strstr (file, " now=0/0 "),
+	 "leaf name, no version without a task: %s", file);
+  version = 310;
   env_stats = NULL;
   nlog = 0;
   __pthread_ticker_write_stats ();

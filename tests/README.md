@@ -13,7 +13,7 @@ scripts. GitHub Actions runs it on every push.
 |---|---|---|
 | `host/dsp` | `sound/dsp.c`: SharedSoundBuffer output (formats, partial frames, blocking/non-blocking, latency, fragments, reset, a stalled stream, exit) and the DigitalRenderer path, including the exit bug | 124 |
 | `host/midi` | `sound/midi.c`: MIDISynth module and MIDI module paths, sharing, exit, env overrides | 20 |
-| `host/ticker` | `pthread/ticker.c`: the PThreadTicker module's routines (found by name, attach/detach, a wrong magic ignored) or the RMA copy, the Wimp filters following the task handle (and removed with the handle they were registered with), threads before `Wimp_Initialise`, registration failures, the `UnixLib$TickerStats` line. Has its own `fake/` for the few UnixLib internals used | 33 |
+| `host/ticker` | `pthread/ticker.c`: the PThreadTicker module's routines (found by name, attach/detach, a wrong magic ignored) or the RMA copy, the Wimp filters following the task handle (and removed with the handle they were registered with), threads before `Wimp_Initialise`, registration failures, the `UnixLib$TickerStats` line. Has its own `fake/` for the few UnixLib internals used | 34 |
 | `host/fake` | The fake RISC OS, shared by both: `swis.h`/`kernel.h` (a variadic `_swix`), `internal/*.h` (the few UnixLib internals used), `DRender.h` (fake DigitalRenderer), `riscos.c`/`riscos.h` (SharedSoundBuffer and StreamManager playing in simulated time, `clock`, `pthread_yield`, `getenv`), `prelude.h` (renames those calls to the fakes) | |
 
 Run one with `host/dsp/run.sh`, `host/midi/run.sh` or `host/ticker/run.sh`. The midi test has its
