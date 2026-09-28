@@ -76,15 +76,19 @@ all 894 objects).
 
 ## Releases
 
-Version numbers follow `CHANGELOG.md` (`0.MINOR.PATCH` until it has had wide
-use; `v0.1.0` is commit `22511f2`). A PATCH release is fixes and repo
-housekeeping; a MINOR one adds features (new devices, new functions).
+Version numbers are **UnixLib versions**, continuing from the GCCSDK
+UnixLib the repo is based on (5.0; `AC_INIT` in `libunixlib/configure.ac`
+and `libunixlib/doc/UnixLib/Help` carry the number, change both). A PATCH
+release (5.0.1, 5.0.2...) is fixes and small additions; bigger additions
+(new devices, many new functions) make a MINOR one (5.1). If we move to a
+newer GCCSDK UnixLib, continue from its number. The first releases were
+numbered 0.1.x (`v0.1.0` = `22511f2`, `v0.1.1-rc1`).
 Anything not yet run on RISC OS is released as a **pre-release**
 (`vX.Y.Z-rcN`, marked "pre-release" on GitHub) and re-released without
 the suffix after the Pi tests pass.
 
 1. Move "Unreleased" to a version heading with the date; commit.
-2. `git tag -a vX.Y.Z -m "riscos-unixlib X.Y.Z"`.
+2. Set the version in `configure.ac` and `doc/UnixLib/Help`; `git tag -a vX.Y.Z -m "UnixLib X.Y.Z (riscos-unixlib)"`.
 3. `make release TAG=vX.Y.Z`: builds from clean, runs `make check`, and
    puts the release files in `out/release/vX.Y.Z/`: `libunixlib.a`,
    `patches/*.diff`, `UnixLibTests.zip`, `PThreadTicker-<version>.zip`

@@ -1,10 +1,10 @@
 PThreadTicker
 =============
 
-Version VERSION, from riscos-unixlib TAG.
+Version VERSION, from UnixLib TAG (riscos-unixlib).
 
 A small module that makes threaded UnixLib programs (built with GCCSDK
-GCC 10 and riscos-unixlib 0.1.1 or later: Warzone 2100, OpenTTD, SDL
+GCC 10 and UnixLib 5.0.1 or later: Warzone 2100, OpenTTD, SDL
 programs...) safer in the desktop.
 
 STATUS

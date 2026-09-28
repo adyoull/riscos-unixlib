@@ -1,10 +1,13 @@
 # Changelog
 
-Versions are git tags `vX.Y.Z`. How to release: docs/MAINTAINING.md.
+Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
+(the base, see README); git tags are `vX.Y.Z`. The first releases of this
+repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
+How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
-## 0.1.1 (2026-09-28, tag v0.1.1)
+## 5.0.1 (2026-09-28, tag v5.0.1)
 
 Release files also include `PThreadTicker-0.01.zip` for RISC OS users.
 
@@ -17,13 +20,15 @@ module (the RMA copy; the same code Warzone riscos16/17 ran), refusing
 
 ### Since 0.1.1-rc1
 
+- Numbered as UnixLib 5.0.1 (`configure.ac`, `doc/UnixLib/Help`).
+
 - The `UnixLib$TickerStats` line gives the program's leaf name (it was
   the full path cut to 47 characters) and a Wimp version of 0 when there
   is no task (it printed whatever was in R1).
 
 ## 0.1.1-rc1 (2026-09-27, pre-release, tag v0.1.1-rc1)
 
-Pre-release, not tested on RISC OS; everything below is in 0.1.1.
+Pre-release of 5.0.1, not tested on RISC OS; everything below is in 5.0.1.
 
 ### Library
 

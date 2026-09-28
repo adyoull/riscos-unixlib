@@ -47,7 +47,7 @@ where the ticker code lives, and why the filters didn't stop it.
 
 ### Where the code lives (fixed)
 
-1. **0.1.1 (first fix):** the handler was copied into the RMA block and run
+1. **First fix (in 0.1.1-rc1):** the handler was copied into the RMA block and run
    from there. It works, but running code out of a data block is fragile
    (it assumes RMA is executable, the copy had to fit a fixed space, and a
    stale object once made the copy overrun the block).
