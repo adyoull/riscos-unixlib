@@ -7,6 +7,10 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- Docs: where to get SharedSoundBuffer and StreamManager (README,
+  docs/SOUND.md, the test ReadMe): `ssb.zip` from Andrew Sellors' RDPClient
+  page, and John Duffell's own site on the Internet Archive for details.
+
 ## 5.0.1 (2026-09-28, tag v5.0.1)
 
 Release files also include `PThreadTicker-0.01.zip` for RISC OS users.

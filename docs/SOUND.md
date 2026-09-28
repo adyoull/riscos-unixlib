@@ -11,9 +11,14 @@ SharedSoundBuffer 0.07+ are loaded, UnixLib plays through
 SharedSoundBuffer: the sound is mixed with every other program's, any
 sample rate is resampled, and quitting one program doesn't affect the
 others. Otherwise it uses DigitalRenderer as before (one program at a
-time). SharedSound is in RISC OS 5; StreamManager and SharedSoundBuffer are
-John Duffell's freeware, which can't be bundled: get `ssb.zip` from the
-!RDPClient page (orac.co.uk) and merge its `!System`. Load them with:
+time). SharedSound is part of RISC OS; SharedSoundBuffer and StreamManager
+are John Duffell's freeware, which can't be bundled. Download `ssb.zip` from
+Andrew Sellors' RDPClient page,
+<https://orac.co.uk/software/rdpclient/rdpclient.html>, and merge its
+`!System` into yours. John Duffell's own site (now on the Internet Archive)
+has more details:
+<https://web.archive.org/web/20110920080106/http://www.duffell.riscos.me.uk/>.
+Load them with:
 
     RMEnsure SharedSound 1.07 RMLoad System:Modules.SSound
     RMEnsure StreamManager 0.03 RMLoad System:Modules.StreamMan

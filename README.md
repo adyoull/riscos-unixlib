@@ -127,7 +127,13 @@ module for RISC OS users (see its ReadMe).
   Wimp_Poll, so the desktop freezes for the whole sleep (see TODO).
 - Sound: open `/dev/dsp` and write; with SharedSoundBuffer loaded several
   programs can play at once. `UnixLib$DSP` = `DigitalRenderer` forces the
-  old output. MIDI: write raw bytes to `/dev/midi`.
+  old output. MIDI: write raw bytes to `/dev/midi`. SharedSound is part of
+  RISC OS; SharedSoundBuffer and StreamManager come from `ssb.zip`:
+  download it from Andrew Sellors' RDPClient page,
+  <https://orac.co.uk/software/rdpclient/rdpclient.html> (merge its
+  `!System` into yours). John Duffell's own site (now on the Internet
+  Archive) has more details:
+  <https://web.archive.org/web/20110920080106/http://www.duffell.riscos.me.uk/>.
 
 ## Licence
 

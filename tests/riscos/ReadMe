@@ -5,8 +5,14 @@ Programs built with the new UnixLib, to check /dev/dsp, /dev/midi and
 two fixes from the Warzone 2100 port.
 Double-click the Obey files. The programs are Absolute (AIF) files, so the
 ELF loader is not needed. The modules for SharedSoundBuffer output
-(SharedSound, StreamManager, SharedSoundBuffer) must be loaded; see
-!MIDISynth's LoadSound or OpenTTD's !Run, or run:
+(SharedSound, StreamManager, SharedSoundBuffer) must be loaded.
+SharedSound is part of RISC OS; SharedSoundBuffer and StreamManager come
+from ssb.zip: download it from Andrew Sellors' RDPClient page,
+  https://orac.co.uk/software/rdpclient/rdpclient.html
+and merge its !System into yours. John Duffell's own site (now on the
+Internet Archive) has more details:
+  https://web.archive.org/web/20110920080106/http://www.duffell.riscos.me.uk/
+Then see !MIDISynth's LoadSound or OpenTTD's !Run, or run:
   RMEnsure SharedSound 1.07 RMLoad System:Modules.SSound
   RMEnsure StreamManager 0.03 RMLoad System:Modules.StreamMan
   RMEnsure SharedSoundBuffer 0.07 RMLoad System:Modules.SSBuffer
