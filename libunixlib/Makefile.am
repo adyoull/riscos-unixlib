@@ -1223,6 +1223,7 @@ unix_src = \
 	unix/ul_select.c \
 	unix/ul_setenv.c \
 	unix/stat.c \
+	unix/stat64.c \
 	unix/statfs.c \
 	unix/sync.c \
 	unix/sysconf.c \

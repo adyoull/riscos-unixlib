@@ -35,9 +35,12 @@ lstat (const char *filename, struct stat *buf)
   return dev_funcall (buf->st_dev, lstat, (filename, buf));
 }
 
+/* 2026: the symbol lstat64 keeps the pre-5.0.2 layout (see stat.c).  */
+int __lstat64_compat (const char *filename, struct stat *buf)
+  __asm__ ("lstat64");
+
 int
-lstat64 (const char *filename, struct stat64 *buf)
+__lstat64_compat (const char *filename, struct stat *buf)
 {
-  /* struct stat64 is currently the same as struct stat.  */
-  return lstat (filename, (struct stat *)buf);
+  return lstat (filename, buf);
 }

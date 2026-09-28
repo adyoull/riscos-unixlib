@@ -35,9 +35,15 @@ stat (const char *filename, struct stat *buf)
 }
 
 
+/* 2026: the symbol stat64 keeps the pre-5.0.2 layout (a 32-bit st_size,
+   the same as struct stat) for objects compiled with older headers, such
+   as libstdc++.  New code calls __unixlib_stat64 (unix/stat64.c).  */
+int __stat64_compat (const char *filename, struct stat *buf)
+  __asm__ ("stat64");
+
 int
-stat64 (const char *filename, struct stat64 *buf)
+__stat64_compat (const char *filename, struct stat *buf)
 {
-  return stat(filename, (struct stat *)buf);
+  return stat (filename, buf);
 }
 

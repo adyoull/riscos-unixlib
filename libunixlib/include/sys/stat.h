@@ -78,7 +78,13 @@ typedef __blksize_t blksize_t;
 
 __BEGIN_DECLS
 
-/* Currently struct stat/stat64 are the same.  */
+/* 2026: struct stat64 has a 64-bit st_size (RISC OS files can be up to
+   4GB-1 bytes).  struct stat is unchanged unless _FILE_OFFSET_BITS=64, when
+   it is the same as struct stat64.  Up to UnixLib 5.0.1 both had a 32-bit
+   st_size; the functions for that layout are still in the library under
+   their old names (stat64, fstat64, lstat64), so objects and libraries
+   compiled with the old headers (libstdc++, for one) keep working.  New
+   code uses __unixlib_stat64 & co. through the declarations below.  */
 #if defined __USE_MISC || defined __USE_XOPEN2K8
 # define __UNIXLIB_STAT_TIME \
     struct timespec st_atim; \
@@ -96,7 +102,7 @@ __BEGIN_DECLS
     __time_t	st_ctime;		/* Time of last status change.  */ \
     unsigned long int st_ctimensec;
 #endif
-#define __DEFINE_STAT(stattype) \
+#define __DEFINE_STAT(stattype, offtype) \
   struct stattype \
   { \
     __dev_t 	st_dev;			/* Device containing the file.  */ \
@@ -106,7 +112,7 @@ __BEGIN_DECLS
     __uid_t	st_uid;			/* User ID of the file's owner.  */ \
     __gid_t	st_gid;			/* Group ID of the file's group. */ \
     __dev_t 	st_rdev;		/* Device number, if device.  */ \
-    __off_t 	st_size;		/* Size of file, in bytes.  */ \
+    offtype 	st_size;		/* Size of file, in bytes.  */ \
     __UNIXLIB_STAT_TIME \
     __blksize_t	st_blksize;		/* Optimal block size for I/O.  */ \
   /*  unsigned long int st_nblocks; / * Number of 512-byte blocks allocated.  */ \
@@ -114,8 +120,12 @@ __BEGIN_DECLS
   }
 #define _STATBUF_ST_BLKSIZE /* Tell code we have this stat member. */
 
-__DEFINE_STAT(stat);
-__DEFINE_STAT(stat64);
+#ifndef __USE_FILE_OFFSET64
+__DEFINE_STAT(stat, __off_t);
+#else
+__DEFINE_STAT(stat, __off64_t);
+#endif
+__DEFINE_STAT(stat64, __off64_t);
 
 /* Bit masks.  */
 
@@ -200,22 +210,37 @@ extern int fstat (int __fd, struct stat *__buf)
 #else
 # ifdef __REDIRECT_NTH
 extern int __REDIRECT_NTH (stat, (__const char *__restrict __file,
-                                  struct stat *__restrict __buf), stat64)
+                                  struct stat *__restrict __buf),
+			   __unixlib_stat64)
      __nonnull ((1, 2));
-extern int __REDIRECT_NTH (fstat, (int __fd, struct stat *__buf), fstat64)
+extern int __REDIRECT_NTH (fstat, (int __fd, struct stat *__buf),
+			   __unixlib_fstat64)
      __nonnull ((2));
 # else
-#  define stat stat64
-#  define fstat fstat64
+#  define stat __unixlib_stat64
+#  define fstat __unixlib_fstat64
 # endif
 #endif
 #ifdef __USE_LARGEFILE64
-extern int stat64 (const char *__restrict __filename,
-		   struct stat64 *__restrict __buf)
-     __THROW __nonnull ((1, 2));
-extern int fstat64 (int __fd, struct stat64 *__buf)
-     __THROW __nonnull ((2));
+# ifdef __REDIRECT_NTH
+extern int __REDIRECT_NTH (stat64, (__const char *__restrict __file,
+				    struct stat64 *__restrict __buf),
+			   __unixlib_stat64)
+     __nonnull ((1, 2));
+extern int __REDIRECT_NTH (fstat64, (int __fd, struct stat64 *__buf),
+			   __unixlib_fstat64)
+     __nonnull ((2));
+# else
+#  define stat64 __unixlib_stat64
+#  define fstat64 __unixlib_fstat64
+# endif
 #endif
+/* The 64-bit stat functions under their own names (see struct stat64).  */
+extern int __unixlib_stat64 (const char *__restrict __filename,
+			     struct stat64 *__restrict __buf)
+     __THROW __nonnull ((1, 2));
+extern int __unixlib_fstat64 (int __fd, struct stat64 *__buf)
+     __THROW __nonnull ((2));
 
 #if defined __USE_BSD || defined __USE_XOPEN_EXTENDED
 # ifndef __USE_FILE_OFFSET64
@@ -225,16 +250,24 @@ extern int lstat (const char *__filename, struct stat *__buf)
 #  ifdef __REDIRECT_NTH
 extern int __REDIRECT_NTH (lstat,
                            (__const char *__restrict __file,
-                            struct stat *__restrict __buf), lstat64)
+                            struct stat *__restrict __buf), __unixlib_lstat64)
      __nonnull ((1, 2));
 #  else
-#   define lstat lstat64
+#   define lstat __unixlib_lstat64
 #  endif
 # endif
 # ifdef __USE_LARGEFILE64
-extern int lstat64 (const char *__filename,
-		    struct stat64 *__buf) __THROW __nonnull ((1, 2));
+#  ifdef __REDIRECT_NTH
+extern int __REDIRECT_NTH (lstat64, (__const char *__restrict __file,
+				     struct stat64 *__restrict __buf),
+			   __unixlib_lstat64)
+     __nonnull ((1, 2));
+#  else
+#   define lstat64 __unixlib_lstat64
+#  endif
 # endif
+extern int __unixlib_lstat64 (const char *__filename,
+			      struct stat64 *__buf) __THROW __nonnull ((1, 2));
 #endif
 
 /* Set file access permissions for file to mode.  */
