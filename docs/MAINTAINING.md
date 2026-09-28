@@ -13,10 +13,11 @@ so far. Read this before changing anything.
 | `tests/check.sh` | Everything checkable without RISC OS. `make check` runs it; so does GitHub Actions. |
 | `tests/host/` | Host (PC) tests with a fake RISC OS; see `tests/README.md`. |
 | `tests/emu/` | Built machine code run in an ARM emulator (Unicorn). |
+| `tests/abi/` | Struct layouts and symbol names that compiled code depends on. |
 | `tests/riscos/` | Test programs for the Pi, zipped as `UnixLibTests.zip`. |
 | `tools/` | `elf2aif` (large-image fix), `mkrozip.py` (zips with RISC OS filetypes), `make-patches.sh`, `make-release.sh`. |
 | `release/` | ReadMe and licence for the PThreadTicker zip. |
-| `docs/` | `SOUND.md`, `MIDISYNTH-MODULE.md`, `THREAD-TICKER.md`, `TODO.md` (known problems), this file. |
+| `docs/` | `SOUND.md`, `MIDISYNTH-MODULE.md`, `THREAD-TICKER.md`, `LARGE-FILES.md`, `TODO.md` (known problems), this file. |
 
 ## Making a change
 
@@ -182,6 +183,15 @@ and the patch scripts diff against it.
   belong to GCCSDK, and a changed module under the same name and version
   would be confusing on users' machines. Things that need a module go in
   our own (like PThreadTicker).
+- **Don't change what compiled code depends on.** Programs, static
+  libraries (libstdc++ in the toolchain, devkits) and objects built with
+  older headers get linked with new UnixLib. Never change a public struct
+  layout or a function's arguments under an existing symbol name: give the
+  new version a new name and map to it in the header (as `struct stat64`
+  and `__unixlib_stat64`, docs/LARGE-FILES.md), and keep the old symbol.
+  `tests/abi/check.sh` checks the layouts and symbols; if it fails,
+  update `expected-*.txt` only for new modes or new names, never for the
+  default mode.
 - **Incremental builds and assembler files.** Automake doesn't track what
   `.s` files include. `Makefile.am` now makes every assembler object depend
   on `asm_dec.s`, the macro files and the two headers they include; if you

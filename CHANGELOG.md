@@ -7,6 +7,18 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **Files over 2GB** (up to 4GB-1, the RISC OS limit) for programs built
+  with `-D_FILE_OFFSET_BITS=64` or using the `*64` calls: `struct stat64`
+  has a 64-bit `st_size` (new functions `__unixlib_stat64`/`fstat64`/
+  `lstat64`; the old `stat64` symbols keep the old layout for libraries
+  built with older headers, such as libstdc++), `lseek64` and the stdio
+  64-bit calls reach 4GB-1, new `truncate64`/`ftruncate64` and `mmap64`,
+  and `fsetpos64` works (it used the pointer instead of the position).
+  Nothing changes for programs built without `_FILE_OFFSET_BITS=64`.
+  docs/LARGE-FILES.md. Checks: `tests/abi/check.sh` (layouts and
+  symbols, in `make check`), Pi test `LargeFile`. **Not yet run on RISC
+  OS.**
+
 - Docs: where to get SharedSoundBuffer and StreamManager (README,
   docs/SOUND.md, the test ReadMe): `ssb.zip` from Andrew Sellors' RDPClient
   page, and John Duffell's own site on the Internet Archive for details.

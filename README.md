@@ -24,6 +24,7 @@ after it is a separate commit.
 | fsync | `unix/sync.c` | `fsync()` on a read-only file returns 0 instead of `EBADF` (PhysFS never closed such files); new `fdatasync()`. |
 | Exit | `stdlib/atexit.c` | atexit handlers and C++ destructors run with thread switching allowed, so joining a thread in one (SDL_WaitThread) no longer aborts the program as it quits. |
 | Threads | `pthread/ticker.c`, `internal/ticker.s`, `module/pthticker.s` | The thread-switching ticker runs from the new **PThreadTicker** module when it's loaded, or from RMA without it, so it can't crash another task that happens to be paged in when it fires (seen with Warzone 2100 and Organizer). Its Wimp filters follow the task handle, including threads started before `Wimp_Initialise`. `UnixLib$TickerStats` logs what it did. See [docs/THREAD-TICKER.md](docs/THREAD-TICKER.md). |
+| Large files | `sys/stat.h`, `unix/stat64.c`, `unix/ul_lseek.c`, `stdio/fseeko.c`… | With `-D_FILE_OFFSET_BITS=64`, files up to 4GB-1 (the RISC OS limit): 64-bit `st_size`, `lseek`/`fseeko`/`ftello` past 2GB, `ftruncate64`, `mmap64`. Programs built without it are unchanged, and libraries built with older headers keep working. See [docs/LARGE-FILES.md](docs/LARGE-FILES.md). |
 | MIDI | `sound/midi.c` | New **`/dev/midi`**: raw MIDI bytes go to a MIDISynth module (proposed, see [docs/MIDISYNTH-MODULE.md](docs/MIDISYNTH-MODULE.md)) or the RISC OS MIDI module. |
 
 Details and reasons: [CHANGELOG.md](CHANGELOG.md). Sound details:
@@ -114,6 +115,8 @@ module for RISC OS users (see its ReadMe).
   x")` gives "File 'which' not found". Avoid them in ports.
 - `getenv("Name$Var")` reads RISC OS system variables.
 - `fsync()` before `close()` is fine now, and `fdatasync()` exists.
+- Files over 2GB: build with `-D_FILE_OFFSET_BITS=64` and use `fseeko`/
+  `ftello`; files can then be up to 4GB-1 (docs/LARGE-FILES.md).
 - Thread priorities and real-time policies aren't supported:
   `sched_get_priority_min`/`max` return 0 and `pthread_setschedparam` refuses
   SCHED_FIFO/SCHED_RR with ENOTSUP.

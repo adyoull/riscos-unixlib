@@ -36,6 +36,16 @@ from another address. 77 checks.
 `make check` runs it when there's a build, the cross toolchain and the
 Python `unicorn` module (`pip install unicorn`); otherwise it says SKIP.
 
+## `abi/`: what compiled code depends on
+
+`abi/check.sh` compiles small files with the repo's headers and checks
+struct layouts in the default and large-file modes
+(`expected-layout.txt`; the default mode must stay as UnixLib 5.0.1),
+which symbols stat/seek/truncate/mmap calls go to (`expected-calls.txt`),
+that the library still exports the old `stat64`/`fstat64`/`lstat64`, and
+that a C++ program links with the toolchain's libstdc++. `make check` runs
+it when there's a build and the cross compiler.
+
 ## `riscos/`: programs for the Pi
 
 `riscos/build.sh` (or `make riscos-tests`) builds them against this repo's

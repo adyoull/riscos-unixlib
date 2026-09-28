@@ -1,5 +1,5 @@
 diff --git a/gcc4/recipe/files/gcc/libunixlib/Makefile.am b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-index e887b17..742b85e 100644
+index e887b17..173cb04 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 +++ b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 @@ -676,6 +676,7 @@ pthread_src = \
@@ -26,7 +26,24 @@ index e887b17..742b85e 100644
  	sound/DRender.s
  endif
  
-@@ -1469,6 +1472,7 @@ nobase_noinst_HEADERS = \
+@@ -1070,6 +1073,8 @@ else
+ sys_src += \
+ 	sys/mman.c
+ endif
++sys_src += \
++	sys/mmap64.c
+ endif
+ sys_src += \
+ 	sys/errlist.c
+@@ -1220,6 +1225,7 @@ unix_src = \
+ 	unix/ul_select.c \
+ 	unix/ul_setenv.c \
+ 	unix/stat.c \
++	unix/stat64.c \
+ 	unix/statfs.c \
+ 	unix/sync.c \
+ 	unix/sysconf.c \
+@@ -1469,6 +1475,7 @@ nobase_noinst_HEADERS = \
  	incl-local/internal/sigstate.h \
  	incl-local/internal/swiparams.h \
  	incl-local/internal/symlinks.h \
@@ -34,7 +51,7 @@ index e887b17..742b85e 100644
  	incl-local/internal/tty.h \
  	incl-local/internal/unix.h \
  	incl-local/locale.h \
-@@ -1499,6 +1503,19 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
+@@ -1499,6 +1506,19 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
  	$(stdio_src) $(stdlib_src) $(string_src) $(sys_src) \
  	$(termios_src) $(time_src) $(unistd_src) $(unix_src) $(wchar_src)
  
@@ -54,7 +71,7 @@ index e887b17..742b85e 100644
  libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 5:0:0 -Wl,--version-script -Wl,$(top_srcdir)/vscript
  
  libm_la_SOURCES = libm-support/libm.c
-@@ -1553,7 +1570,7 @@ gcrt0.o: crt/gcrt0.s
+@@ -1553,7 +1573,7 @@ gcrt0.o: crt/gcrt0.s
  # SUL module ----------------
  
  # Build the SharedUnixLibrary module
@@ -63,7 +80,7 @@ index e887b17..742b85e 100644
  
  sul.o: module/sul.s
  	$(CCASCOMPILE) -o sul.o -c `test -f 'module/sul.s' || echo '$(srcdir)/'`module/sul.s
-@@ -1564,6 +1581,14 @@ sul.o: module/sul.s
+@@ -1564,6 +1584,14 @@ sul.o: module/sul.s
  sul$(EXEEXT): sul.o
  	$(STRIP) -O binary -o sul$(EXEEXT) sul.o
  
@@ -141,7 +158,7 @@ index 7f01c57..4aff7fc 100644
  
  	.text
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h
-index e45417e..86e7c5a 100644
+index e45417e..fd02f5c 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h
 @@ -38,8 +38,9 @@ __BEGIN_DECLS
@@ -155,7 +172,17 @@ index e45417e..86e7c5a 100644
  
  /* Call a device function, ensuring we don't refer to an invalid device */
  #define dev_funcall(type, func, args) __funcall ((*(__dev[(type) < NDEV ? (type) : DEV_NULL].func)), args)
-@@ -126,6 +127,12 @@ extern int __dspwrite (struct __unixlib_fd *__fd, const void *__data, int __nbyt
+@@ -74,6 +75,9 @@ extern int __fsclose (struct __unixlib_fd *__fd);
+ extern int __fsread (struct __unixlib_fd *__fd, void *__data, int __nbyte);
+ extern int __fswrite (struct __unixlib_fd *__fd, const void *__data, int __nbyte);
+ extern __off_t __fslseek (struct __unixlib_fd *__fd, __off_t __lpos, int __whence);
++/* 2026: lseek64 for RISC OS files, positions 0 to 4GB-1.  */
++extern __off64_t __fslseek64 (struct __unixlib_fd *__fd, __off64_t __lpos,
++			      int __whence);
+ extern int __fsstat (const char *__filename, struct stat *__buf);
+ extern int __fsfstat (int __fd, struct stat *__buf);
+ extern int __fslstat (const char *__filename, struct stat *__buf);
+@@ -126,6 +130,12 @@ extern int __dspwrite (struct __unixlib_fd *__fd, const void *__data, int __nbyt
  extern __off_t __dsplseek (struct __unixlib_fd *__fd, __off_t __lpos, int __whence);
  extern int __dspioctl (struct __unixlib_fd *__fd, unsigned long __request, void *__arg);
  
@@ -339,6 +366,47 @@ index eed3e61..827a1d8 100644
  extern pthread_t __pthread_thread_list; /* Linked list of all threads */
  
  /* Called once early in program initialisation */
+diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/stat.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/stat.h
+index 7d5e3e9..7719f89 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/stat.h
++++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/stat.h
+@@ -14,6 +14,36 @@ __BEGIN_DECLS
+ int __stat (unsigned __objtype, unsigned __loadaddr, unsigned __execaddr,
+ 	    unsigned __length, unsigned __attr, struct stat *buf);
+ 
++/* 2026: copy a struct stat into a struct stat64.  RISC OS sizes are
++   unsigned 32-bit (files up to 4GB-1), kept as they are in the 32-bit
++   st_size; read them back as unsigned.  */
++static inline void
++__stat_to_stat64 (const struct stat *__st, struct stat64 *__st64)
++{
++  __st64->st_dev = __st->st_dev;
++  __st64->st_ino = __st->st_ino;
++  __st64->st_mode = __st->st_mode;
++  __st64->st_nlink = __st->st_nlink;
++  __st64->st_uid = __st->st_uid;
++  __st64->st_gid = __st->st_gid;
++  __st64->st_rdev = __st->st_rdev;
++  __st64->st_size = (unsigned long) __st->st_size;
++#if defined __USE_MISC || defined __USE_XOPEN2K8
++  __st64->st_atim = __st->st_atim;
++  __st64->st_mtim = __st->st_mtim;
++  __st64->st_ctim = __st->st_ctim;
++#else
++  __st64->st_atime = __st->st_atime;
++  __st64->st_atimensec = __st->st_atimensec;
++  __st64->st_mtime = __st->st_mtime;
++  __st64->st_mtimensec = __st->st_mtimensec;
++  __st64->st_ctime = __st->st_ctime;
++  __st64->st_ctimensec = __st->st_ctimensec;
++#endif
++  __st64->st_blksize = __st->st_blksize;
++  __st64->st_blocks = __st->st_blocks;
++}
++
+ __END_DECLS
+ 
+ #endif
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/sched.h b/gcc4/recipe/files/gcc/libunixlib/include/sched.h
 index 2e424fb..869176c 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/sched.h
@@ -355,11 +423,169 @@ index 2e424fb..869176c 100644
  __END_DECLS
  
  #endif /* __SCHED_H */
+diff --git a/gcc4/recipe/files/gcc/libunixlib/include/sys/mman.h b/gcc4/recipe/files/gcc/libunixlib/include/sys/mman.h
+index b658ff5..b4ea83e 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/include/sys/mman.h
++++ b/gcc4/recipe/files/gcc/libunixlib/include/sys/mman.h
+@@ -75,9 +75,25 @@ __BEGIN_DECLS
+    for errors (in which case `errno' is set).  A successful `mmap' call
+    deallocates any previous mapping for the affected region.  */
+ 
++#ifndef __USE_FILE_OFFSET64
+ extern void *mmap (void * __addr, size_t __len,
+ 		       int __prot, int __flags, int __fd,
+-		       off_t __offset) __THROW;
++		       __off_t __offset) __THROW;
++#else
++/* 2026: with _FILE_OFFSET_BITS=64, off_t is 64-bit but mmap took a 32-bit
++   offset, so the offset was read from the wrong place.  */
++# ifdef __REDIRECT_NTH
++extern void *__REDIRECT_NTH (mmap, (void *__addr, size_t __len, int __prot,
++				    int __flags, int __fd, __off64_t __offset),
++			     mmap64);
++# else
++#  define mmap mmap64
++# endif
++#endif
++#if defined __USE_LARGEFILE64 || defined __USE_FILE_OFFSET64
++extern void *mmap64 (void *__addr, size_t __len, int __prot, int __flags,
++		     int __fd, __off64_t __offset) __THROW;
++#endif
+ 
+ /* Deallocate any mapping for the region starting at ADDR and extending LEN
+    bytes.  Returns 0 if successful, -1 for errors (and sets errno).  */
+diff --git a/gcc4/recipe/files/gcc/libunixlib/include/sys/stat.h b/gcc4/recipe/files/gcc/libunixlib/include/sys/stat.h
+index 95184b4..2ed1933 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/include/sys/stat.h
++++ b/gcc4/recipe/files/gcc/libunixlib/include/sys/stat.h
+@@ -78,7 +78,13 @@ typedef __blksize_t blksize_t;
+ 
+ __BEGIN_DECLS
+ 
+-/* Currently struct stat/stat64 are the same.  */
++/* 2026: struct stat64 has a 64-bit st_size (RISC OS files can be up to
++   4GB-1 bytes).  struct stat is unchanged unless _FILE_OFFSET_BITS=64, when
++   it is the same as struct stat64.  Up to UnixLib 5.0.1 both had a 32-bit
++   st_size; the functions for that layout are still in the library under
++   their old names (stat64, fstat64, lstat64), so objects and libraries
++   compiled with the old headers (libstdc++, for one) keep working.  New
++   code uses __unixlib_stat64 & co. through the declarations below.  */
+ #if defined __USE_MISC || defined __USE_XOPEN2K8
+ # define __UNIXLIB_STAT_TIME \
+     struct timespec st_atim; \
+@@ -96,7 +102,7 @@ __BEGIN_DECLS
+     __time_t	st_ctime;		/* Time of last status change.  */ \
+     unsigned long int st_ctimensec;
+ #endif
+-#define __DEFINE_STAT(stattype) \
++#define __DEFINE_STAT(stattype, offtype) \
+   struct stattype \
+   { \
+     __dev_t 	st_dev;			/* Device containing the file.  */ \
+@@ -106,7 +112,7 @@ __BEGIN_DECLS
+     __uid_t	st_uid;			/* User ID of the file's owner.  */ \
+     __gid_t	st_gid;			/* Group ID of the file's group. */ \
+     __dev_t 	st_rdev;		/* Device number, if device.  */ \
+-    __off_t 	st_size;		/* Size of file, in bytes.  */ \
++    offtype 	st_size;		/* Size of file, in bytes.  */ \
+     __UNIXLIB_STAT_TIME \
+     __blksize_t	st_blksize;		/* Optimal block size for I/O.  */ \
+   /*  unsigned long int st_nblocks; / * Number of 512-byte blocks allocated.  */ \
+@@ -114,8 +120,12 @@ __BEGIN_DECLS
+   }
+ #define _STATBUF_ST_BLKSIZE /* Tell code we have this stat member. */
+ 
+-__DEFINE_STAT(stat);
+-__DEFINE_STAT(stat64);
++#ifndef __USE_FILE_OFFSET64
++__DEFINE_STAT(stat, __off_t);
++#else
++__DEFINE_STAT(stat, __off64_t);
++#endif
++__DEFINE_STAT(stat64, __off64_t);
+ 
+ /* Bit masks.  */
+ 
+@@ -200,22 +210,37 @@ extern int fstat (int __fd, struct stat *__buf)
+ #else
+ # ifdef __REDIRECT_NTH
+ extern int __REDIRECT_NTH (stat, (__const char *__restrict __file,
+-                                  struct stat *__restrict __buf), stat64)
++                                  struct stat *__restrict __buf),
++			   __unixlib_stat64)
+      __nonnull ((1, 2));
+-extern int __REDIRECT_NTH (fstat, (int __fd, struct stat *__buf), fstat64)
++extern int __REDIRECT_NTH (fstat, (int __fd, struct stat *__buf),
++			   __unixlib_fstat64)
+      __nonnull ((2));
+ # else
+-#  define stat stat64
+-#  define fstat fstat64
++#  define stat __unixlib_stat64
++#  define fstat __unixlib_fstat64
+ # endif
+ #endif
+ #ifdef __USE_LARGEFILE64
+-extern int stat64 (const char *__restrict __filename,
+-		   struct stat64 *__restrict __buf)
++# ifdef __REDIRECT_NTH
++extern int __REDIRECT_NTH (stat64, (__const char *__restrict __file,
++				    struct stat64 *__restrict __buf),
++			   __unixlib_stat64)
++     __nonnull ((1, 2));
++extern int __REDIRECT_NTH (fstat64, (int __fd, struct stat64 *__buf),
++			   __unixlib_fstat64)
++     __nonnull ((2));
++# else
++#  define stat64 __unixlib_stat64
++#  define fstat64 __unixlib_fstat64
++# endif
++#endif
++/* The 64-bit stat functions under their own names (see struct stat64).  */
++extern int __unixlib_stat64 (const char *__restrict __filename,
++			     struct stat64 *__restrict __buf)
+      __THROW __nonnull ((1, 2));
+-extern int fstat64 (int __fd, struct stat64 *__buf)
++extern int __unixlib_fstat64 (int __fd, struct stat64 *__buf)
+      __THROW __nonnull ((2));
+-#endif
+ 
+ #if defined __USE_BSD || defined __USE_XOPEN_EXTENDED
+ # ifndef __USE_FILE_OFFSET64
+@@ -225,16 +250,24 @@ extern int lstat (const char *__filename, struct stat *__buf)
+ #  ifdef __REDIRECT_NTH
+ extern int __REDIRECT_NTH (lstat,
+                            (__const char *__restrict __file,
+-                            struct stat *__restrict __buf), lstat64)
++                            struct stat *__restrict __buf), __unixlib_lstat64)
+      __nonnull ((1, 2));
+ #  else
+-#   define lstat lstat64
++#   define lstat __unixlib_lstat64
+ #  endif
+ # endif
+ # ifdef __USE_LARGEFILE64
+-extern int lstat64 (const char *__filename,
+-		    struct stat64 *__buf) __THROW __nonnull ((1, 2));
++#  ifdef __REDIRECT_NTH
++extern int __REDIRECT_NTH (lstat64, (__const char *__restrict __file,
++				     struct stat64 *__restrict __buf),
++			   __unixlib_lstat64)
++     __nonnull ((1, 2));
++#  else
++#   define lstat64 __unixlib_lstat64
++#  endif
+ # endif
++extern int __unixlib_lstat64 (const char *__filename,
++			      struct stat64 *__buf) __THROW __nonnull ((1, 2));
+ #endif
+ 
+ /* Set file access permissions for file to mode.  */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/unistd.h b/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
-index be382ba..e7893a6 100644
+index be382ba..e684348 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
-@@ -608,6 +608,10 @@ extern void sync (void) __THROW;
+@@ -608,11 +608,39 @@ extern void sync (void) __THROW;
     This function is a cancellation point.  */
  extern int fsync (int __fd);
  
@@ -368,8 +594,37 @@ index be382ba..e7893a6 100644
 +extern int fdatasync (int __fildes);
 +
  /* Truncate FILE to LENGTH bytes.  */
++#ifndef __USE_FILE_OFFSET64
  extern int truncate (const char *__file, __off_t __length) __THROW;
++#else
++# ifdef __REDIRECT_NTH
++extern int __REDIRECT_NTH (truncate, (const char *__file, __off64_t __length),
++			   truncate64);
++# else
++#  define truncate truncate64
++# endif
++#endif
  
+ /* Truncate the file FD is open on to LENGTH bytes.  */
++#ifndef __USE_FILE_OFFSET64
+ extern int ftruncate (int __fd, __off_t __length) __THROW;
++#else
++# ifdef __REDIRECT_NTH
++extern int __REDIRECT_NTH (ftruncate, (int __fd, __off64_t __length),
++			   ftruncate64);
++# else
++#  define ftruncate ftruncate64
++# endif
++#endif
++
++#if defined __USE_LARGEFILE64 || defined __USE_FILE_OFFSET64
++/* 2026: the same with a 64-bit length (RISC OS files: up to 4GB-1).  */
++extern int truncate64 (const char *__file, __off64_t __length) __THROW;
++extern int ftruncate64 (int __fd, __off64_t __length) __THROW;
++#endif
+ 
+ /* Return the number of bytes in a page.  This is the system's page size,
+    which is not necessarily the same as the hardware page size.  */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/module/pthticker.s b/gcc4/recipe/files/gcc/libunixlib/module/pthticker.s
 new file mode 100644
 index 0000000..0b7caf3
@@ -2380,6 +2635,150 @@ index 0000000..47cb3e8
 +  if (midi_kind != MIDI_NONE)
 +    midi_disconnect ();
 +}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/fgetpos.c b/gcc4/recipe/files/gcc/libunixlib/stdio/fgetpos.c
+index 9590f59..d56a0d5 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdio/fgetpos.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdio/fgetpos.c
+@@ -67,17 +67,19 @@ fgetpos (FILE *stream, __off_t *pos)
+ 
+   return 0;
+ }
+-#if __UNIXLIB_LFS64_SUPPORT
+-#  error "64-bit LFS support missing."
+-#else
++/* 2026: RISC OS file positions are unsigned 32-bit values (files up to
++   4GB-1 bytes).  The stream keeps its position in a 32-bit __off_t, where
++   positions of 2GB and over look negative; fgetpos works out the same bits
++   (the arithmetic wraps), so read the result back as unsigned.  */
+ int
+ fgetpos64 (FILE *stream, __off64_t *pos)
+ {
+   __off_t pos32;
++  if (pos == NULL)
++    return __set_errno (EINVAL);
+   if (fgetpos (stream, &pos32) == -1)
+     return -1;
+-  *pos = pos32;
++  *pos = (unsigned long) pos32;
+   return 0;
+ }
+-#endif
+ 
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/fseeko.c b/gcc4/recipe/files/gcc/libunixlib/stdio/fseeko.c
+index 676be70..94d677a 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdio/fseeko.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdio/fseeko.c
+@@ -67,15 +67,52 @@ fseeko (FILE *stream, __off_t offset, int w)
+ 
+   return 0;
+ }
+-#if __UNIXLIB_LFS64_SUPPORT
+-#  error "64-bit LFS support missing."
+-#else
++/* 2026: as fseeko, with 64-bit offsets and lseek64, so a RISC OS file can
++   be positioned anywhere up to 4GB-1.  Before, this stopped at 2GB-1.  */
+ int
+ fseeko64 (FILE *stream, __off64_t offset, int w)
+ {
+-  if (offset >= -1U && (__off_t)(offset >> 32) != -1U)
+-    return __set_errno (EOVERFLOW);
+-  return fseeko (stream, (__off_t)offset, w);
++  PTHREAD_UNSAFE
++
++  if (!__validfp (stream))
++    return __set_errno (EINVAL);
++
++  __off64_t new_offset;
++  int new_w;
++  if (w == SEEK_CUR)
++    {
++      if (fgetpos64 (stream, &new_offset) == -1)
++	return -1;
++      new_offset += offset;
++      new_w = SEEK_SET;
++    }
++  else if (w == SEEK_SET || w == SEEK_END)
++    {
++      new_offset = offset;
++      new_w = w;
++    }
++  else
++    return __set_errno (EINVAL);
++
++  /* Write out any pending data.  */
++  if (stream->__mode.__bits.__write && __flsbuf (EOF, stream) == EOF)
++    return -1;
++
++  __off64_t cur_offset = lseek64 (fileno (stream), new_offset, new_w);
++  if (cur_offset == (__off64_t)-1)
++    {
++      stream->__error = 1;
++      return -1;
++    }
++
++  /* Up to 4GB-1, kept in the 32-bit field (see fgetpos64).  */
++  stream->__offset = (__off_t) (unsigned long) cur_offset;
++
++  /* As fseeko.  */
++  stream->i_cnt = 0;
++  stream->__pushedback = 0;
++  stream->__eof = 0;
++
++  return 0;
+ }
+-#endif
+ 
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/fsetpos.c b/gcc4/recipe/files/gcc/libunixlib/stdio/fsetpos.c
+index d9aea66..432f2fa 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdio/fsetpos.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdio/fsetpos.c
+@@ -50,16 +50,13 @@ fsetpos (FILE *stream, const __off_t *pos)
+ 
+   return 0;
+ }
+-#if __UNIXLIB_LFS64_SUPPORT
+-#  error "64-bit LFS support missing."
+-#else
++/* 2026: positions up to 4GB-1 (fseeko64).  The old version converted
++   the pointer POS, not the position, so it moved to a meaningless place.  */
+ int
+ fsetpos64 (FILE *stream, const __off64_t *pos)
+ {
+-  if (pos != NULL && *pos >= -1U)
+-    return __set_errno (EOVERFLOW);
+-  __off_t pos32 = (__off_t)pos;
+-  return fsetpos (stream, &pos32);
++  if (pos == NULL)
++    return __set_errno (EINVAL);
++  return fseeko64 (stream, *pos, SEEK_SET);
+ }
+-#endif
+ 
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/ftello.c b/gcc4/recipe/files/gcc/libunixlib/stdio/ftello.c
+index 1759e21..777f924 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdio/ftello.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdio/ftello.c
+@@ -24,13 +24,15 @@ ftello (FILE *stream)
+   return pos;
+ }
+ 
+-#if __UNIXLIB_LFS64_SUPPORT
+-#  error "64-bit LFS support missing."
+-#else
++/* 2026: RISC OS file positions go up to 4GB-1 (unsigned 32-bit); the
++   stream keeps them in a 32-bit __off_t, so read them back as unsigned.  */
+ __off64_t
+ ftello64 (FILE *stream)
+ {
+-  return ftello (stream);
++  __off64_t pos;
++  if (fgetpos64 (stream, &pos) == -1)
++    return (__off64_t)-1;
++
++  return pos;
+ }
+-#endif
+ 
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c
 index 46a40ba..de75f5a 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c
@@ -2482,6 +2881,35 @@ index 3f7c274..dce7b87 100644
 +__pthread_callevery_block_size:
 +	.word	PTHREAD_CALLEVERY_STRUCT_SIZE
 +	DECLARE_OBJECT __pthread_callevery_block_size
+diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/mmap64.c b/gcc4/recipe/files/gcc/libunixlib/sys/mmap64.c
+new file mode 100644
+index 0000000..1b3aa6c
+--- /dev/null
++++ b/gcc4/recipe/files/gcc/libunixlib/sys/mmap64.c
+@@ -0,0 +1,23 @@
++/* mmap64 ()
++   Copyright (c) 2026 UnixLib Developers.
++
++   2026: mmap with a 64-bit offset, for programs built with
++   _FILE_OFFSET_BITS=64 (<sys/mman.h> maps mmap to this).  Before, their
++   64-bit offset was passed to the 32-bit mmap, which read the wrong
++   argument.  Offsets must fit in 32 bits, as for mmap.  */
++
++#include <errno.h>
++#include <sys/mman.h>
++#include <sys/types.h>
++
++void *
++mmap64 (void *addr, size_t len, int prot, int flags, int fd,
++	__off64_t offset)
++{
++  if (offset != (__off64_t) (__off_t) offset)
++    {
++      errno = EOVERFLOW;
++      return MAP_FAILED;
++    }
++  return mmap (addr, len, prot, flags, fd, (__off_t) offset);
++}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c b/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c
 index 9927105..8cb2de5 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c
@@ -2586,7 +3014,7 @@ index 9927105..8cb2de5 100644
  	}
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/dev.c b/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
-index de312db..a529ff2 100644
+index de312db..4acb348 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
 @@ -78,6 +78,11 @@ const struct dev __dev[NDEV] = {
@@ -2611,6 +3039,201 @@ index de312db..a529ff2 100644
    {"custom", DEV_CUSTOM},
  /*   {"pipe", DEV_PIPE}, does open on /dev/pipe make sense ?  */
  /*   {"socket", DEV_SOCKET}, does open on /dev/socket make sense ?  */
+@@ -475,6 +483,44 @@ __fslseek (struct __unixlib_fd * file_desc, __off_t lpos, int whence)
+   return !err ? lpos : __ul_seterr (err, EOPSYS);
+ }
+ 
++/* 2026: RISC OS file pointers and extents are unsigned 32-bit values, so
++   files can be up to 4GB-1 bytes.  __fslseek works with a signed 32-bit
++   __off_t (2GB-1) and is unchanged for existing programs; this is the
++   64-bit version for lseek64 (_FILE_OFFSET_BITS=64).  */
++__off64_t
++__fslseek64 (struct __unixlib_fd *file_desc, __off64_t lpos, int whence)
++{
++  if (file_desc->dflag & FILE_ISDIR)
++    return 0; /* As __fslseek.  */
++
++  const _kernel_oserror *err = NULL;
++  int handle = (int) file_desc->devicehandle->handle;
++  __off_t base32 = 0;
++
++  if (whence == SEEK_CUR)
++    err = SWI_OS_Args_GetFilePtr (handle, &base32);
++  else if (whence == SEEK_END)
++    err = SWI_OS_Args_GetExtent (handle, &base32);
++  else if (whence != SEEK_SET)
++    return __set_errno (EINVAL);
++  if (err)
++    return __ul_seterr (err, EOPSYS);
++
++  __off64_t pos = (__off64_t) (unsigned long) base32 + lpos;
++  if (pos < 0)
++    return __set_errno (EINVAL);
++  if (pos > 0xFFFFFFFFLL)
++    return __set_errno (EOVERFLOW);
++
++  if (whence != SEEK_CUR || lpos != 0)
++    {
++      err = SWI_OS_Args_SetFilePtr (handle, (__off_t) (unsigned long) pos);
++      if (err)
++	return __ul_seterr (err, EOPSYS);
++    }
++  return pos;
++}
++
+ int
+ __fsstat (const char *ux_filename, struct stat *buf)
+ {
+diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/fstat.c b/gcc4/recipe/files/gcc/libunixlib/unix/fstat.c
+index ec4e833..394405f 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/unix/fstat.c
++++ b/gcc4/recipe/files/gcc/libunixlib/unix/fstat.c
+@@ -34,9 +34,26 @@ fstat (int fd, struct stat *buf)
+   return dev_funcall (file_desc->devicehandle->type, fstat, (fd, buf));
+ }
+ 
++/* 2026: the symbol fstat64 keeps the pre-5.0.2 layout (a 32-bit st_size,
++   the same as struct stat) for objects compiled with older headers, such
++   as libstdc++.  New code calls __unixlib_fstat64.  */
++int __fstat64_compat (int fd, struct stat *buf) __asm__ ("fstat64");
++
++int
++__fstat64_compat (int fd, struct stat *buf)
++{
++  return fstat (fd, buf);
++}
++
++/* struct stat64: a 64-bit st_size.  RISC OS file sizes are unsigned 32-bit
++   values, which struct stat holds as a (possibly negative) __off_t.  */
+ int
+-fstat64 (int fd, struct stat64 *buf)
++__unixlib_fstat64 (int fd, struct stat64 *buf)
+ {
+-  /* struct stat64 is currently the same as struct stat.  */
+-  return fstat (fd, (struct stat *)buf);
++  struct stat st;
++
++  if (fstat (fd, &st) != 0)
++    return -1;
++  __stat_to_stat64 (&st, buf);
++  return 0;
+ }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/lstat.c b/gcc4/recipe/files/gcc/libunixlib/unix/lstat.c
+index a5c32c7..9c1d1c5 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/unix/lstat.c
++++ b/gcc4/recipe/files/gcc/libunixlib/unix/lstat.c
+@@ -35,9 +35,12 @@ lstat (const char *filename, struct stat *buf)
+   return dev_funcall (buf->st_dev, lstat, (filename, buf));
+ }
+ 
++/* 2026: the symbol lstat64 keeps the pre-5.0.2 layout (see stat.c).  */
++int __lstat64_compat (const char *filename, struct stat *buf)
++  __asm__ ("lstat64");
++
+ int
+-lstat64 (const char *filename, struct stat64 *buf)
++__lstat64_compat (const char *filename, struct stat *buf)
+ {
+-  /* struct stat64 is currently the same as struct stat.  */
+-  return lstat (filename, (struct stat *)buf);
++  return lstat (filename, buf);
+ }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/scl_fstat.c b/gcc4/recipe/files/gcc/libunixlib/unix/scl_fstat.c
+index 8a9b733..026219f 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/unix/scl_fstat.c
++++ b/gcc4/recipe/files/gcc/libunixlib/unix/scl_fstat.c
+@@ -37,10 +37,27 @@ fstat (int fd, struct stat *buf)
+   return __stat (objtype, loadaddr, execaddr, objlen, attr, buf);
+ }
+  
++/* 2026: the symbol fstat64 keeps the pre-5.0.2 layout (a 32-bit st_size,
++   the same as struct stat) for objects compiled with older headers, such
++   as libstdc++.  New code calls __unixlib_fstat64.  */
++int __fstat64_compat (int fd, struct stat *buf) __asm__ ("fstat64");
++
++int
++__fstat64_compat (int fd, struct stat *buf)
++{
++  return fstat (fd, buf);
++}
++
++/* struct stat64: a 64-bit st_size.  RISC OS file sizes are unsigned 32-bit
++   values, which struct stat holds as a (possibly negative) __off_t.  */
+ int
+-fstat64 (int fd, struct stat64 *buf)
++__unixlib_fstat64 (int fd, struct stat64 *buf)
+ {
+-  /* struct stat64 is currently the same as struct stat.  */
+-  return fstat (fd, (struct stat *)buf);
++  struct stat st;
++
++  if (fstat (fd, &st) != 0)
++    return -1;
++  __stat_to_stat64 (&st, buf);
++  return 0;
+ }
+ 
+diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/stat.c b/gcc4/recipe/files/gcc/libunixlib/unix/stat.c
+index 519f61b..58b4c9b 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/unix/stat.c
++++ b/gcc4/recipe/files/gcc/libunixlib/unix/stat.c
+@@ -35,9 +35,15 @@ stat (const char *filename, struct stat *buf)
+ }
+ 
+ 
++/* 2026: the symbol stat64 keeps the pre-5.0.2 layout (a 32-bit st_size,
++   the same as struct stat) for objects compiled with older headers, such
++   as libstdc++.  New code calls __unixlib_stat64 (unix/stat64.c).  */
++int __stat64_compat (const char *filename, struct stat *buf)
++  __asm__ ("stat64");
++
+ int
+-stat64 (const char *filename, struct stat64 *buf)
++__stat64_compat (const char *filename, struct stat *buf)
+ {
+-  return stat(filename, (struct stat *)buf);
++  return stat (filename, buf);
+ }
+ 
+diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/stat64.c b/gcc4/recipe/files/gcc/libunixlib/unix/stat64.c
+new file mode 100644
+index 0000000..f7d038f
+--- /dev/null
++++ b/gcc4/recipe/files/gcc/libunixlib/unix/stat64.c
+@@ -0,0 +1,33 @@
++/* __unixlib_stat64 (), __unixlib_lstat64 ()
++   Copyright (c) 2026 UnixLib Developers.
++
++   2026: struct stat64 with a 64-bit st_size.  RISC OS file sizes are
++   unsigned 32-bit values (files up to 4GB-1 bytes); struct stat keeps them
++   in a 32-bit __off_t, where sizes of 2GB and over look negative.  The
++   64-bit versions read them back as unsigned.  <sys/stat.h> maps stat64,
++   lstat64 (and stat, lstat with _FILE_OFFSET_BITS=64) to these; the old
++   symbols stat64 and lstat64 keep the old layout (see stat.c).  */
++
++#include <sys/stat.h>
++
++int
++__unixlib_stat64 (const char *filename, struct stat64 *buf)
++{
++  struct stat st;
++
++  if (stat (filename, &st) != 0)
++    return -1;
++  __stat_to_stat64 (&st, buf);
++  return 0;
++}
++
++int
++__unixlib_lstat64 (const char *filename, struct stat64 *buf)
++{
++  struct stat st;
++
++  if (lstat (filename, &st) != 0)
++    return -1;
++  __stat_to_stat64 (&st, buf);
++  return 0;
++}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/sync.c b/gcc4/recipe/files/gcc/libunixlib/unix/sync.c
 index f6b1a2f..8547c9f 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/sync.c
@@ -2649,6 +3272,73 @@ index f6b1a2f..8547c9f 100644
 +{
 +  return fsync (fd);
 +}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/truncate.c b/gcc4/recipe/files/gcc/libunixlib/unix/truncate.c
+index 64df871..2229aa4 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/unix/truncate.c
++++ b/gcc4/recipe/files/gcc/libunixlib/unix/truncate.c
+@@ -73,3 +73,26 @@ truncate (const char *ux_file, off_t length)
+ 
+   return 0;
+ }
++
++/* 2026: 64-bit lengths.  RISC OS extents are unsigned 32-bit values, so a
++   file can be up to 4GB-1 bytes; ftruncate and truncate pass their 32-bit
++   length straight to OS_Args 3, so give them the same bits.  */
++int
++ftruncate64 (int fd, __off64_t length)
++{
++  if (length < 0)
++    return __set_errno (EINVAL);
++  if (length > 0xFFFFFFFFLL)
++    return __set_errno (EFBIG);
++  return ftruncate (fd, (__off_t) (unsigned long) length);
++}
++
++int
++truncate64 (const char *ux_file, __off64_t length)
++{
++  if (length < 0)
++    return __set_errno (EINVAL);
++  if (length > 0xFFFFFFFFLL)
++    return __set_errno (EFBIG);
++  return truncate (ux_file, (__off_t) (unsigned long) length);
++}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/ul_lseek.c b/gcc4/recipe/files/gcc/libunixlib/unix/ul_lseek.c
+index dee2f50..57bf85f 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/unix/ul_lseek.c
++++ b/gcc4/recipe/files/gcc/libunixlib/unix/ul_lseek.c
+@@ -27,17 +27,24 @@ lseek (int fd, __off_t offset, int whence)
+ 		      (file_desc, offset, whence));
+ }
+ 
++/* 2026: RISC OS files can be up to 4GB-1 bytes (unsigned 32-bit file
++   pointers), so lseek64 reaches that far on RISC OS files.  Before, it
++   stopped at 2GB-1 like lseek.  lseek is unchanged.  */
+ __off64_t
+ lseek64 (int fd, __off64_t offset, int whence)
+ {
+-#if __UNIXLIB_LFS64_SUPPORT
+-#  error "64-bit LFS support missing."
+-#else
+-  /* Check if the __off64_t offset fits in a __off_t one.  Further
+-     checking will be done in lseek itself.  */
++  PTHREAD_UNSAFE
++
++  if (BADF (fd))
++    return __set_errno (EBADF);
++
++  struct __unixlib_fd *file_desc = getfd (fd);
++
++  if (file_desc->devicehandle->type == DEV_RISCOS)
++    return __fslseek64 (file_desc, offset, whence);
++
++  /* Other devices: as before.  */
+   if (offset != (__off64_t)(__off_t)offset)
+     return __set_errno (EOVERFLOW);
+-#endif
+-
+   return lseek (fd, (__off_t) offset, whence);
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
 index 7f47f19..ef2abb8 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
