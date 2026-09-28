@@ -4,4 +4,4 @@
 | RISC OS 5, FAT32) and some minutes. Must print PASS.
 Set UST$Dir <Obey$Dir>
 WimpSlot -min 8000K
-Run <UST$Dir>.largefile /<UST$Dir>/LargeTest
+Run <UST$Dir>.largefile <UST$Dir>/LargeTest
