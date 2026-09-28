@@ -7,6 +7,13 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+## 5.0.2 (2026-09-28, pre-release, tag v5.0.2-rc1)
+
+Not yet run on RISC OS: the `LargeFile` test in UnixLibTests.zip. Once it
+passes on a Pi, the same commit is tagged v5.0.2.
+
+- Numbered as UnixLib 5.0.2 (`configure.ac`, `doc/UnixLib/Help`).
+
 - **Files over 2GB** (up to 4GB-1, the RISC OS limit) for programs built
   with `-D_FILE_OFFSET_BITS=64` or using the `*64` calls: `struct stat64`
   has a 64-bit `st_size` (new functions `__unixlib_stat64`/`fstat64`/

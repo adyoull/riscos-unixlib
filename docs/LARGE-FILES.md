@@ -13,8 +13,7 @@ systems. Programs reach further the usual way, with the Large File Support
 does ("Migrating C software to 64-bit file pointers" on the ROOL wiki).
 
 Up to 5.0.1 the 64-bit versions existed but stopped at 2GB-1, and
-`struct stat64` had a 32-bit `st_size`. From the next release (5.0.2)
-they reach 4GB-1.
+`struct stat64` had a 32-bit `st_size`. From 5.0.2 they reach 4GB-1.
 
 ## For programs
 
