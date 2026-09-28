@@ -19,6 +19,13 @@ else
   echo "SKIP (no build/work/build, cross toolchain or python3 unicorn module)"
 fi
 
+echo "== ABI: large-file interface (needs a build + the cross compiler)"
+if [ -f build/work/build/.libs/libunixlib.a ] && [ -x "$GCCSDK_ENV/bin/arm-riscos-gnueabihf-gcc" ]; then
+  tests/abi/check.sh
+else
+  echo "SKIP (no build/work/build or cross toolchain)"
+fi
+
 echo "== patches match the history"
 tools/make-patches.sh --check
 
@@ -34,7 +41,7 @@ for p in patches/unixlib-riscos.diff patches/unixlib-sound.diff; do
 done
 
 echo "== scripts parse"
-for s in build/*.sh tests/*.sh tests/host/*/run.sh tests/riscos/build.sh tools/*.sh; do
+for s in build/*.sh tests/*.sh tests/abi/check.sh tests/host/*/run.sh tests/riscos/build.sh tools/*.sh; do
   sh -n "$s"
 done
 python3 -m py_compile tools/mkrozip.py tests/emu/ticker_test.py

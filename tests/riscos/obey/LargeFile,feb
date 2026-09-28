@@ -1,0 +1,7 @@
+| Files over 2GB with the 64-bit file interface: creates a 3GB file
+| LargeTest here, checks seeking, sizes and data past 2GB, then deletes it.
+| Needs 3GB free on a filing system with files over 2GB (FileCore on
+| RISC OS 5, FAT32) and some minutes. Must print PASS.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.largefile /<UST$Dir>/LargeTest

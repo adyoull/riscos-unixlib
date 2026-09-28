@@ -60,6 +60,10 @@ TickerStartTask
             TickerStats is appended to, tickertest is overwritten).
 Sched       sched_get_priority_min/max and pthread_setschedparam:
             must print PASS
+LargeFile   files over 2GB (built with -D_FILE_OFFSET_BITS=64): makes a
+            3GB file LargeTest in this folder, checks seeking, sizes and
+            data past 2GB, deletes it; must print PASS. Needs 3GB free on
+            a filing system with files over 2GB, and a few minutes
 
 Please report: what each one printed, whether it sounded right, any
 clicks or gaps, and the "max queued" figure.

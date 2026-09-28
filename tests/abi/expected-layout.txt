@@ -1,0 +1,3 @@
+default: off_FILE_offset=33 off_stat_blksize=57 off_stat_size=29 sz_FILE=88 sz_fpos_t=4 sz_off_t=4 sz_stat=64 
+-D_FILE_OFFSET_BITS=64: off_FILE_offset=33 off_stat_blksize=65 off_stat_size=33 sz_FILE=88 sz_fpos_t=8 sz_off_t=8 sz_stat=72 
+-D_LARGEFILE64_SOURCE: off_FILE_offset=33 off_stat64_size=33 off_stat_blksize=57 off_stat_size=29 sz_FILE=88 sz_fpos_t=4 sz_off_t=4 sz_stat64=72 sz_stat=64 

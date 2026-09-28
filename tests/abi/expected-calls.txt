@@ -1,0 +1,2 @@
+default:fgetpos fseeko fsetpos fstat ftello ftruncate lseek lstat mmap stat truncate 
+-D_FILE_OFFSET_BITS=64:__unixlib_fstat64 __unixlib_lstat64 __unixlib_stat64 fgetpos64 fseeko64 fsetpos64 ftello64 ftruncate64 lseek64 mmap64 truncate64 
