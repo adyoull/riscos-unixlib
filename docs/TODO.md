@@ -84,18 +84,17 @@ port; added in 0.1.1. The scheduler still has no real-time policies:
 - The keyboard: SDL's key-up detection polls `OS_Byte 121`; not a UnixLib
   issue, listed in the SDL notes.
 
-## 8. Thread ticker: confirm the root cause on the Pi
+## 8. Thread ticker: loose ends
 
 The ticker ran while other tasks were paged in (Warzone 2100). The code is
 now safe wherever it fires (the PThreadTicker module runs it, or an RMA
 copy without the module) and the likely causes are fixed; see
 [THREAD-TICKER.md](THREAD-TICKER.md). Still to do:
 
-- **Pi run with `UnixLib$TickerStats`** (tests `Ticker`, `TickerEarly`,
-  `TickerStartTask`, and Warzone), old library and new, to see which of the
-  suspects (wrong handle, threads before `Wimp_Initialise`, paging outside
-  `Wimp_Poll`) actually happens. Also answers what `Wimp_ReadSysInfo 5`
-  returns before `Wimp_Initialise`.
+- Root cause confirmed on the Pi (threads before `Wimp_Initialise`,
+  THREAD-TICKER.md). Not yet run: a program without the module
+  (`via=RMA`), `*RMKill PThreadTicker` refusing while in use, and the
+  Ticker tests in UnixLibTests.zip.
 - **Register the name** "PThreadTicker" with RISC OS Open (an allocation,
   not a code submission) before a wide release.
 - A program that dies without reaching `_exit` stays attached to the

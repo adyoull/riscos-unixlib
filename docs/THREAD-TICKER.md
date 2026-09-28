@@ -81,8 +81,23 @@ Candidates, and what 2026 did about each:
 | H3 | **Task switches that don't go through the program's `Wimp_Poll`,** e.g. its own `Wimp_StartTask` (Warzone starts URIdispatch for web links): the child runs while we're paged out, with no pre-filter call. Also possible: TaskWindow paging, `Wimp_TransferBlock`. | Can't be prevented by filters. Harmless now: the handler is always there, sees another task's upcall handler and only counts. |
 | H4 | **Filter bookkeeping** in a static flag in the program. | Replaced by the handle the filters are registered for (in `pthread/ticker.c`). |
 
-The counters below say which of these happens on a real machine. Until a
-Pi run says otherwise, H2 is the likeliest for SDL programs.
+**Confirmed on a Pi (2026-09-28, Warzone 2100 with 0.1.1-rc1 and the
+module, 17 minutes with other tasks running, no crashes):**
+
+```
+warzone2100 ticks=50980 foreign=1 ... pre=9307 post=9315
+ filters_for=0x35803a20 startup=0/.. cached=0x35803a20 now=0/..
+ first_start=0 starts=4 filter_moves=1 filter_errors=0 via=module
+```
+
+- **H2 was the cause.** `first_start=0`: the ticker first started with no
+  filters (SDL's threads exist before `Wimp_Initialise`). The old library
+  would never have registered them; now the periodic check did
+  (`filter_moves=1`), and the filters then ran thousands of times.
+- **H1 is ruled out:** `startup=0`, i.e. `Wimp_ReadSysInfo 5` returns 0
+  before `Wimp_Initialise`, not another task's handle.
+- **H3 happens but rarely:** 1 tick in 50980 found another task paged in.
+  Harmless now.
 
 ## `UnixLib$TickerStats`
 

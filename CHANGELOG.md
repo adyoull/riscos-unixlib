@@ -4,11 +4,26 @@ Versions are git tags `vX.Y.Z`. How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+## 0.1.1 (2026-09-28, tag v0.1.1)
+
+Release files also include `PThreadTicker-0.01.zip` for RISC OS users.
+
+**Tested on RISC OS:** Warzone 2100 (2.3.9-2test1) linked with 0.1.1-rc1,
+with the PThreadTicker module, on a Pi: 17 minutes of play with other
+tasks running, no crashes; the TickerStats line confirmed the cause
+(docs/THREAD-TICKER.md). Not yet run on RISC OS: a program without the
+module (the RMA copy; the same code Warzone riscos16/17 ran), refusing
+`*RMKill` while in use, and the programs in UnixLibTests.zip.
+
+### Since 0.1.1-rc1
+
+- The `UnixLib$TickerStats` line gives the program's leaf name (it was
+  the full path cut to 47 characters) and a Wimp version of 0 when there
+  is no task (it printed whatever was in R1).
+
 ## 0.1.1-rc1 (2026-09-27, pre-release, tag v0.1.1-rc1)
 
-**Not yet tested on RISC OS.** Becomes 0.1.1 once the Pi tests
-(UnixLibTests.zip) pass. Release files also include
-`PThreadTicker-0.01.zip` for RISC OS users.
+Pre-release, not tested on RISC OS; everything below is in 0.1.1.
 
 ### Library
 
