@@ -398,6 +398,43 @@ __fsclose (struct __unixlib_fd *file_desc)
   return (!err) ? 0 : __ul_seterr (err, EOPSYS);
 }
 
+#ifdef __ARM_EABI__
+/* 2026: map in the stack pages a read will fill.
+
+   ARMEABISupport maps a stack's pages in when they are first touched, from
+   its abort handler.  That works for USR mode, but a SWI (OS_GBPB) writing
+   into a page that hasn't been touched yet aborts in SVC mode, and the
+   program dies ("EMT trap" with fontconfig reading into a stack buffer,
+   Warzone 2100; GCCSDK's fontconfig port works around the same thing).
+   So before the SWI, read one byte of each page of the part of the buffer
+   that lies in a stack, here in USR mode.  Nothing is written, and buffers
+   that aren't in a stack (heap, dynamic areas) aren't touched at all.  */
+static void
+touch_stack_pages (const void *data, size_t nbyte)
+{
+  const char *lo = data, *hi = lo + nbyte;
+  const char *sp = __builtin_frame_address (0);
+  unsigned stack, base, top;
+
+  /* A buffer in a live stack frame is above the stack pointer.  */
+  if (nbyte == 0 || hi <= sp)
+    return;
+  if (_swix (ARMEABISupport_StackOp, _INR(0,1)|_OUT(1),
+	     ARMEABISUPPORT_STACKOP_GET_STACK, lo, &stack) != NULL
+      || stack == 0
+      || _swix (ARMEABISupport_StackOp, _INR(0,1)|_OUTR(1,2),
+		ARMEABISUPPORT_STACKOP_GET_BOUNDS, stack, &base, &top) != NULL)
+    return;
+  if (lo < (const char *) base)
+    lo = (const char *) base;
+  if (hi > (const char *) top)
+    hi = (const char *) top;
+  for (const char *p = lo; p < hi;
+       p = (const char *) (((unsigned) p | 4095u) + 1))
+    (void) *(const volatile char *) p;
+}
+#endif
+
 int
 __fsread (struct __unixlib_fd *file_desc, void *data, int nbyte)
 {
@@ -422,6 +459,10 @@ __fsread (struct __unixlib_fd *file_desc, void *data, int nbyte)
     {
       const _kernel_oserror *err;
       unsigned not_read;
+#ifdef __ARM_EABI__
+      if (nbyte > 0)
+	touch_stack_pages (data, nbyte);
+#endif
       if ((err = SWI_OS_GBPB_ReadBytes ((int) file_desc->devicehandle->handle,
 					data, nbyte, &not_read)) != NULL)
 	return __ul_seterr (err, EOPSYS);

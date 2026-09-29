@@ -7,6 +7,16 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **`read()` into a stack buffer whose pages hadn't been used yet could
+  kill the program** ("Fatal signal received: EMT trap"; Warzone 2100 with
+  fontconfig on one Pi 4). ARMEABISupport maps a stack's pages in when
+  they're first touched, but a SWI (OS_GBPB) writing to such a page
+  aborts in SVC mode. `read()` on a RISC OS file now reads one byte of
+  each page of the part of the buffer that is in a stack first
+  (`ARMEABISupport_StackOp` 2 and 3 say whether it is, and the stack's
+  bounds). Buffers outside a stack aren't touched; nothing is written.
+  GCCSDK's fontconfig port had worked around the same thing.
+
 - **`ctime`, `ctime_r`, `asctime` and `asctime_r` returned a bad
   pointer** (Warzone 2100: crash in `strlen` at start-up on one Pi 4).
   The inline wrapper for Territory_ConvertDateAndTime in `time/stdtime.c`
