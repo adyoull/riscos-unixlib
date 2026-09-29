@@ -7,6 +7,10 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- Docs: MODIFICATIONS.md lists every difference from GCCSDK UnixLib
+  (file inventory, and for each change the problem, evidence, reasons,
+  effect and how it was checked).
+
 ## 5.0.2 (2026-09-29, tag v5.0.2)
 
 **Tested on RISC OS:** the `LargeFile` test on a Pi (SDFS): a 3GB file,

@@ -27,7 +27,7 @@ after it is a separate commit.
 | Large files | `sys/stat.h`, `unix/stat64.c`, `unix/ul_lseek.c`, `stdio/fseeko.c`… | With `-D_FILE_OFFSET_BITS=64`, files up to 4GB-1 (the RISC OS limit): 64-bit `st_size`, `lseek`/`fseeko`/`ftello` past 2GB, `ftruncate64`, `mmap64`. Programs built without it are unchanged, and libraries built with older headers keep working. See [docs/LARGE-FILES.md](docs/LARGE-FILES.md). |
 | MIDI | `sound/midi.c` | New **`/dev/midi`**: raw MIDI bytes go to a MIDISynth module (proposed, see [docs/MIDISYNTH-MODULE.md](docs/MIDISYNTH-MODULE.md)) or the RISC OS MIDI module. |
 
-Details and reasons: [CHANGELOG.md](CHANGELOG.md). Sound details:
+Every difference from GCCSDK UnixLib, with the evidence and reasons: [MODIFICATIONS.md](MODIFICATIONS.md). History: [CHANGELOG.md](CHANGELOG.md). Sound details:
 [docs/SOUND.md](docs/SOUND.md). Known UnixLib problems
 found by the ports but **not fixed yet**: [docs/TODO.md](docs/TODO.md).
 
