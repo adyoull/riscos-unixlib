@@ -33,7 +33,16 @@ header and interface table, its workspace, attach/detach and refusing to
 be killed while in use, the handler with our task and another task paged
 in, the filters (registers and flags preserved), and UnixLib's copy run
 from another address. 77 checks.
-`make check` runs it when there's a build, the cross toolchain and the
+
+`emu/swi_test.py` links `emu/swi_stub.c` with the built `libunixlib.a` and
+runs library functions that call SWIs, with the SWIs faked as RISC OS
+behaves: `__standard_time` (`ctime`, `asctime`) must return its buffer
+although Territory_ConvertDateAndTime changes R2, and `__fsread`
+(`read()`) must touch every page of a stack buffer before OS_GBPB writes
+to it, and leave other buffers alone. 20 checks; the library before these
+fixes fails 6 of them (`ctime` returns &27, as in Warzone 2100's crash).
+
+`make check` runs them when there's a build, the cross toolchain and the
 Python `unicorn` module (`pip install unicorn`); otherwise it says SKIP.
 
 ## `abi/`: what compiled code depends on
