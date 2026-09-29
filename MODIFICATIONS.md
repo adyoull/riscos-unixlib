@@ -7,7 +7,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 39 modified files and 7 added files).
+diff against unchanged GCCSDK UnixLib: 48 modified files and 7 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S5) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -29,8 +29,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1288 |
-| Modified (listed below) | 39 |
+| Byte-identical to GCCSDK `64c6f81` | 1279 |
+| Modified (listed below) | 48 |
 | Added | 7 |
 | Removed relative to upstream | 0 |
 
@@ -52,7 +52,8 @@ the commits are named below.
 | `unix/truncate.c` | L3 `truncate64`, `ftruncate64` |
 | `sys/mmap64.c` (**new**), `include/sys/mman.h` | L4 `mmap64` |
 | `include/unistd.h` | F1 (`fdatasync`), L3 (declarations and redirects) |
-| `unix/dev.c`, `incl-local/internal/dev.h` | S5 (device table), L2 (`__fslseek64`) |
+| `unix/dev.c`, `incl-local/internal/dev.h` | S5 (device table), L2 (`__fslseek64`), R2 (`read()` into a stack) |
+| `time/stdtime.c`, `incl-local/internal/os.h`, `incl-local/sys/socket.h`, `common/env.c`, `locale/iconv.c`, `stdio/err.c`, `netlib/scl_getservbyname.c`, `netlib/scl_getservbyport.c`, `resolv/scl_gethostbyname.c` | R1 inline SWI wrappers (`ctime` bad pointer) |
 | `configure.ac`, `doc/UnixLib/Help` | V1 version number |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
 
@@ -76,7 +77,8 @@ port's own tree, and were gathered here so every port links the same
 library:
 
 - OpenTTD 14.1: W1, T1, T2, A1.
-- Warzone 2100 2.3.9: F1, X1, and the problem behind K1-K4.
+- Warzone 2100 2.3.9: F1, X1, the problem behind K1-K4, and the crashes
+  behind R1 and R2.
 - riscos-mesa (SDL2, OpenAL Soft): P1, P2.
 - Sound (S1-S5) and large files (L1-L4) were written here.
 
@@ -246,6 +248,133 @@ the single priority 0. An unknown policy gives -1 with `EINVAL`.
 and still do; it is now the right error.
 
 **Verification.** Pi test `Sched` (not yet run).
+
+### R1. Inline SWI wrappers: every register and memory the SWI changes - commit `c98c781`
+
+**Problem.** UnixLib calls many SWIs through small inline functions that put
+arguments in registers with `register ... __asm ("rN")` variables. GCC
+assumes that any register not listed as an output or clobber keeps its
+value across the SWI, and that memory isn't read or written unless it is
+told so. Several wrappers left out registers the SWI changes:
+
+- `Territory_ConvertDateAndTime` (`time/stdtime.c`) returns R2 = bytes left
+  in the buffer, but R2 (the buffer) was an input only.
+
+**Evidence.** Warzone 2100 2.3.9-10 aborted at start-up on one Pi 4 in
+`strlen` at &27, called with the result of `ctime()`. In the linked
+program, `__standard_time` loaded the buffer into R2, called the SWI, and
+returned R2. The static buffer is 64 bytes and the date string with its
+terminator is 25, so R2 came back as 39 = &27. With a caller's 26-byte
+buffer (`ctime_r`, `asctime_r`) it returned 1. Whether reading near address
+0 aborts depends on the machine, which is why it crashed on one Pi and not
+another.
+
+**Change.** All 69 inline SWI wrappers were checked against the PRM:
+- `Territory_ConvertDateAndTime`: R2 is an output ("+r"). R3 and R4 are
+  treated the same way rather than assumed preserved.
+- `OS_GBPB` 2 and 4 (`internal/os.h`): R2 returns the address after the
+  last byte transferred, so it is an output. The write also reads memory.
+- `OS_GetEnv` (`stdio/err.c`, SharedCLibrary build): R1 and R2 are outputs.
+- SharedCLibrary `gethostbyname`: R0 (status) and R1 (the hostent) are
+  outputs. As far as the compiler knew they were never set. It now
+  returns NULL on failure, as POSIX says; before, it returned whatever was
+  in R1.
+- Wrappers that pass pointers to SWIs that read or write memory list
+  `"memory"`: file names and buffers in `internal/os.h`, all the Socket
+  SWIs, `iconv`, `OS_ReadVarVal` and `OS_SetVarVal`. Otherwise GCC may
+  move a store to a buffer after the SWI that reads it, or keep a value in
+  a register that the SWI has overwritten in memory.
+- Both wrapper headers now state the rule in a comment.
+
+**Why this way.** The wrappers stay as they are, with only their register
+and clobber lists corrected. Rewriting them with `_swix` would change far
+more code.
+
+**Effect.**
+- `ctime`, `ctime_r`, `asctime` and `asctime_r` return their buffer.
+- The OS_GBPB and OS_GetEnv mistakes were latent: nothing in the 5.0.2
+  build used the stale registers.
+- No interface changes: the library exports exactly the same 2160
+  symbols as 5.0.2, and `tests/abi/check.sh` passes.
+- Machine code changed only in `stdtime.o` and `dev.o`, plus register
+  allocation in `rename.o`, `tty.o`, `vfork.o` and `symlink.o` (a value
+  reloaded from memory after a SWI instead of kept in a register).
+
+**Verification.** `tests/emu/swi_test.py` links the library and runs
+`__standard_time` in the Unicorn emulator, with a fake
+Territory_ConvertDateAndTime that returns R2 = bytes left and changes R3
+and R4. It checks the returned pointer and the text, for both a caller's
+buffer and the static buffer. Against the unfixed library it fails, with
+`ctime` returning &27, as in Warzone's crash. The SharedCLibrary files were
+compiled by hand with `-mlibscl`. Not yet run on RISC OS.
+
+**Upstream status.** Not reported. The same wrappers are in GCCSDK.
+
+### R2. `read()` into a stack buffer maps the pages first (`unix/dev.c`) - commit `6b1c53a`
+
+**Problem.** For EABI programs, ARMEABISupport gives each stack a dynamic
+area whose pages are mapped in by its abort handler when first touched. A
+SWI that writes into a stack page nobody has touched yet aborts in SVC
+mode, and the program dies.
+
+**Evidence.**
+- Warzone 2100 2.3.9-7 died on one Pi 4 with "Fatal signal received: EMT
+  trap", just after fontconfig wrote its cache. fontconfig `read()`s into
+  stack buffers (`char buf[BUFSIZ]` in `fcxml.c`, an `FcCache` in
+  `fccache.c`). It depends on how deep the stack had been used before, so
+  it happened on one machine and not another.
+- GCCSDK's own fontconfig port works around the same thing with a
+  `memset` before the `read()`: "the read below causes a stack page fault
+  from SVC mode when a SWI (probably OS_GBPB) is used to read a file to the
+  stack" (`autobuilder/libraries/fontconfig/src.fcxml.c.p`, 2021).
+- ARMEABISupport's source (GCCSDK `gcc4/riscos/armeabisupport`): the stack
+  abort handler maps whatever page the fault address is in, whether the
+  access was a read or a write.
+
+**Change.** `__fsread` (which serves `read`, `readv`, and `fread` through
+`read`) calls a new `touch_stack_pages` before OS_GBPB:
+1. If the buffer ends above the current frame, `ARMEABISupport_StackOp` 2
+   says whether it is in a stack, and 3 gives the stack's bounds.
+2. One byte of each page of the part of the buffer that lies between the
+   stack's base (above its guard pages) and top is read, from USR mode, so
+   the abort handler maps it.
+
+EABI builds only.
+
+**Why this way.**
+- *Only reading, not writing (GCCSDK's `memset`):* the abort handler maps
+  the page either way, and reading can't change the caller's data or race
+  with another thread.
+- *Only stack pages:* a caller may pass a buffer larger than the memory
+  behind it and rely on the file being short. Touching every page of such
+  a buffer could fault where the SWI wouldn't have written. Every page
+  between a stack's base and top belongs to that stack, so touching those
+  is always safe.
+- *In the library rather than in each program:* every program gets it,
+  and fontconfig, PhysFS, expat and SDL all `read()` into buffers.
+
+**Effect.** For a heap buffer, one extra SWI (StackOp 2, which fails) per
+`read()` on a RISC OS file. For a stack buffer, two SWIs and one load per
+page. A zero-length read or a buffer below the current frame costs nothing
+extra.
+
+**Verification.** `tests/emu/swi_test.py` makes the fake OS_GBPB fail if it
+writes into a page of a fake stack that no USR-mode access has touched,
+and checks:
+- a 3-page buffer spanning 4 pages is fully touched before the SWI, and
+  only those pages;
+- the guard page isn't touched;
+- a heap buffer isn't touched, and only StackOp 2 is called for it;
+- a zero-length read calls no StackOp;
+- the data arrives.
+
+Against the unfixed library, no page is touched and the checks fail. Not
+yet run on RISC OS: Chris Gransden's machine is where the crash was seen.
+
+**Not covered.** Other SWIs that write into caller buffers can hit the
+same problem if the buffer is on the stack: Socket_Recv and the other
+Socket reads, OS_File loads, OS_Args/OS_FSControl results, and `readlink`.
+See section 8.
 
 ---
 
@@ -615,7 +744,12 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 - the sound tests (`Tone*`, `Mix`, `ExitBug`, `ExitBugSSB`);
 - `ExitJoin`, `FsyncRO`, `Sched`;
 - a threaded program without PThreadTicker;
-- `*RMKill PThreadTicker` refusal.
+- `*RMKill PThreadTicker` refusal;
+- R1 and R2 (on the machine where Warzone 2100 crashed).
+
+**Stack pages and other SWIs (R2):** only `read()` on RISC OS files maps a
+stack buffer's pages first. Socket reads, OS_File loads, `readlink` and
+UnixLib's own stack buffers passed to SWIs could hit the same abort.
 
 **Known problems** (details in `docs/TODO.md`), not caused by these changes:
 - sleeping in a Wimp task doesn't multitask;

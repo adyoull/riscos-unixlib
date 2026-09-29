@@ -110,3 +110,20 @@ copy without the module) and the likely causes are fixed; see
   `setitimer` refuses to run in a Wimp task (ENOSYS), which avoids the
   problem there; a program that sets one before `Wimp_Initialise` would be
   exposed. The module could run those too if it ever matters.
+
+## 9. SWIs writing into untouched stack pages
+
+- **Where:** anything that passes a caller's buffer to a SWI that writes
+  into it. ARMEABISupport maps a stack page in when USR mode first touches
+  it; a SWI writing to a page nobody has touched yet aborts in SVC mode.
+- **Done:** `read()` on RISC OS files (`unix/dev.c`, `touch_stack_pages`,
+  2026-09-29; Warzone 2100's fontconfig crash).
+- **Not done:** Socket reads (`recv`, `recvfrom`, `read` on a socket),
+  OS_File loads, `readlink`, and UnixLib's own large stack buffers given to
+  SWIs (e.g. `OS_FSControl 37` into a `_POSIX_PATH_MAX` buffer). The same
+  helper could be used there, or `touch_stack_pages` could move to a
+  shared place.
+- **Better:** ARMEABISupport handling SVC-mode faults on stack pages
+  (GCCSDK's fontconfig patch mentions using OS_AbortTrap for that). Then
+  this workaround could go, and the minimum ARMEABISupport version could be
+  raised instead.

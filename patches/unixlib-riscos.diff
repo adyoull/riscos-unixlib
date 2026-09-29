@@ -107,6 +107,37 @@ index d7a6a30..da15f81 100644
  	/* Terminal type device file.  */
  	mode |= S_IFCHR;
  	break;
+diff --git a/gcc4/recipe/files/gcc/libunixlib/common/env.c b/gcc4/recipe/files/gcc/libunixlib/common/env.c
+index c9673b7..f2adb9a 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/common/env.c
++++ b/gcc4/recipe/files/gcc/libunixlib/common/env.c
+@@ -25,7 +25,7 @@ get_var_len (const char *name)
+ 		    : "=r" (len)
+ 		    : "r" (r0in),
+ 		      [SWI_XOS_ReadVarVal] "i" (OS_ReadVarVal | (1<<17))
+-		    : "r1", "r3", "r4", "r14", "cc");
++		    : "r1", "r3", "r4", "r14", "cc", "memory");
+   return len;
+ }
+ 
+@@ -43,7 +43,7 @@ set_var (const char *name, const char *value, size_t value_len)
+ 		    : "=r" (err)
+ 		    : "r" (r0in), "r" (r1in), "r" (r2in),
+ 		      [SWI_XOS_SetVarVal] "i" (OS_SetVarVal | (1<<17))
+-		    : "r3", "r4", "r14", "cc");
++		    : "r3", "r4", "r14", "cc", "memory");
+   return err;
+ }
+ 
+@@ -81,7 +81,7 @@ __remenv_from_os (const char *name)
+ 		    :
+ 		    : "r" (r0in),
+ 		      [SWI_XOS_SetVarVal] "i" (OS_SetVarVal | (1<<17))
+-		    : "r1", "r2", "r3", "r4", "r14", "cc");
++		    : "r1", "r2", "r3", "r4", "r14", "cc", "memory");
+ 
+   return 0;
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/configure.ac b/gcc4/recipe/files/gcc/libunixlib/configure.ac
 index 53fe31c..9b0c2c8 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/configure.ac
@@ -195,6 +226,278 @@ index e45417e..fd02f5c 100644
  /* /dev/custom support */
  extern void *__customopen (struct __unixlib_fd *__fd, const char *file, int __mode);
  extern int __customclose (struct __unixlib_fd *__fd);
+diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/os.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/os.h
+index deb5f8d..592552f 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/os.h
++++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/os.h
+@@ -22,6 +22,12 @@
+ 
+ __BEGIN_DECLS
+ 
++/* 2026: every inline SWI wrapper must list, as outputs or clobbers, every
++   register the SWI can change (see the PRM for each SWI), and "memory" if
++   the SWI reads or writes memory through a pointer.  GCC assumes anything
++   not listed is unchanged: Territory_ConvertDateAndTime's R2 was missing
++   in time/stdtime.c and ctime() returned a bad pointer.  */
++
+ /* Setup console I/O.  */
+ extern int __os_console (void) __THROW;
+ 
+@@ -76,7 +82,7 @@ SWI_OS_Byte (int __a, int __xin, int __yin, int *__xoutp, int *__youtp)
+ 		    : "=r" (err), "=r" (xout), "=r" (yout)
+ 		    : "r" (a), "r" (xin), "r" (yin),
+ 		      [SWI_XOS_Byte] "i" (OS_Byte | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   if (__xoutp && !err)
+     *__xoutp = xout;
+   if (__youtp && !err)
+@@ -93,7 +99,7 @@ SWI_OS_CLI (const char *__cmd)
+ 		    "MOVVC\tr0, #0\n\t"
+ 		    : "=r" (err)
+ 		    : "r" (cmd), [SWI_XOS_CLI] "i" (OS_CLI | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+ 
+   return err;
+ }
+@@ -111,7 +117,7 @@ SWI_OS_Find_Open (unsigned __reason, const char *__filename, unsigned *__fhandle
+ 		    : "=r" (err), "=r" (fhandle)
+ 		    : "r" (reason), "r" (filename),
+ 		      [SWI_XOS_Find] "i" (OS_Find | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   *__fhandle = !err ? fhandle : 0;
+   return err;
+ }
+@@ -126,7 +132,7 @@ SWI_OS_Find_Close (unsigned __fhandle)
+ 		    : "=r" (err)
+ 		    : "r" (fhandle),
+ 		      [SWI_XOS_Find] "i" (OS_Find | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
+@@ -147,7 +153,7 @@ SWI_OS_File_SaveBlockLoadExec (const char *__filename, unsigned __loadaddr,
+ 		    : "=r" (err)
+ 		    : "r" (filename), "r" (loadaddr), "r" (execaddr),
+ 		      "r" (start), "r" (end), [SWI_XOS_File] "i" (OS_File | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+ 
+   return err;
+ }
+@@ -167,7 +173,7 @@ SWI_OS_File_WriteCatLoadExecAttr (const char *__filename, unsigned __loadaddr,
+ 		    : "=r" (err)
+ 		    : "r" (filename), "r" (loadaddr), "r" (execaddr),
+ 		      "r" (attr), [SWI_XOS_File] "i" (OS_File | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
+@@ -183,7 +189,7 @@ SWI_OS_File_WriteCatInfoAttr (const char *__filename, unsigned __attr)
+ 		    : "=r" (err)
+ 		    : "r" (filename), "r" (attr),
+ 		      [SWI_XOS_File] "i" (OS_File | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
+@@ -197,7 +203,7 @@ SWI_OS_File_DeleteObject (const char *__objectname)
+ 		    "MOVVC\tr0, #0\n\t"
+ 		    : "=r" (err)
+ 		    : "r" (objectname), [SWI_XOS_File] "i" (OS_File | (1<<17))
+-		    : "r2", "r3", "r4", "r5", "r14", "cc");
++		    : "r2", "r3", "r4", "r5", "r14", "cc", "memory");
+   return err;
+ }
+ 
+@@ -213,7 +219,7 @@ SWI_OS_File_CreateDirectory (const char *__dirname)
+ 		    : "=r" (err)
+ 		    : "r" (dirname), "r" (numentries),
+ 		      [SWI_XOS_File] "i" (OS_File | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
+@@ -232,7 +238,7 @@ SWI_OS_File_CreateFileWithFileType (const char *__filename,
+ 		    : "=r" (err)
+ 		    : "r" (filename), "r" (filetype), "r" (start), "r" (end),
+ 		      [SWI_XOS_File] "i" (OS_File | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
+@@ -255,7 +261,7 @@ SWI_OS_File_ReadCatInfo (const char *__filename, unsigned *__objtype,
+ 		    : "=r" (err), "=r" (objtype), "=r" (loadaddr),
+ 		      "=r" (execaddr), "=r" (objlen), "=r" (attr)
+ 		    : "r" (filename), [SWI_XOS_File] "i" (OS_File | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   if (!err)
+     {
+       if (__objtype)
+@@ -288,10 +294,12 @@ SWI_OS_File_WriteCatInfoFileType (const char *__filename, unsigned __filetype)
+ 		    : "=r" (err)
+ 		    : "r" (filename), "r" (filetype),
+ 		      [SWI_XOS_File] "i" (OS_File | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
++/* 2026: OS_GBPB 2 and 4 return R2 = address after the last byte
++   transferred (and R4 = the new file pointer), so R2 is an output too.  */
+ static __inline__ const _kernel_oserror * __attribute__ ((always_inline))
+ SWI_OS_GBPB_ReadBytes (unsigned __fhandle, void *__buf, unsigned __to_read,
+ 		       unsigned *__not_read)
+@@ -304,8 +312,8 @@ SWI_OS_GBPB_ReadBytes (unsigned __fhandle, void *__buf, unsigned __to_read,
+   __asm__ volatile ("MOV\tr0, #4\n\t"
+ 		    "SWI\t%[SWI_XOS_GBPB]\n\t"
+ 		    "MOVVC\tr0, #0\n\t"
+-		    : "=r" (err), "=r" (not_read)
+-		    : "r" (fhandle), "r" (buf), "r" (to_read),
++		    : "=r" (err), "=r" (not_read), "+r" (buf)
++		    : "r" (fhandle), "r" (to_read),
+ 		      [SWI_XOS_GBPB] "i" (OS_GBPB | (1<<17))
+ 		    : "r4", "r14", "cc", "memory");
+   if (__not_read && !err)
+@@ -325,10 +333,10 @@ SWI_OS_GBPB_WriteBytes (unsigned __fhandle, const void *__buf, unsigned __to_wri
+   __asm__ volatile ("MOV\tr0, #2\n\t"
+ 		    "SWI\t%[SWI_XOS_GBPB]\n\t"
+ 		    "MOVVC\tr0, #0\n\t"
+-		    : "=r" (err), "=r" (not_written)
+-		    : "r" (fhandle), "r" (buf), "r" (to_write),
++		    : "=r" (err), "=r" (not_written), "+r" (buf)
++		    : "r" (fhandle), "r" (to_write),
+ 		      [SWI_XOS_GBPB] "i" (OS_GBPB | (1<<17))
+-		    : "r4", "r14", "cc");
++		    : "r4", "r14", "cc", "memory");
+   if (__not_written && !err)
+     *__not_written = not_written;
+   return err;
+@@ -349,7 +357,7 @@ SWI_OS_ChangeRedirection (int __fh_in, int __fh_out,
+ 		    : "=r" (prev_fh_in), "=r" (prev_fh_out), [err] "=r" (err)
+ 		    : "r" (fh_in), "r" (fh_out),
+ 		      [SWI_XOS_ChangeRedirection] "i" (OS_ChangeRedirection | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   if (__prev_fh_in && !err)
+     *__prev_fh_in = prev_fh_in;
+   if (__prev_fh_out && !err)
+@@ -366,7 +374,7 @@ SWI_DDEUtils_SetCLSize (size_t __len)
+ 		    "MOVVC\tr0, #0\n\t"
+ 		    : "=r" (err)
+ 		    : "r" (len), [SWI_XDDEUtils_SetCLSize] "i" (DDEUtils_SetCLSize | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
+@@ -379,7 +387,7 @@ SWI_DDEUtils_SetCL (const char *__cli)
+ 		    "MOVVC\tr0, #0\n\t"
+ 		    : "=r" (err)
+ 		    : "r" (cli), [SWI_XDDEUtils_SetCL] "i" (DDEUtils_SetCL | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
+@@ -393,7 +401,7 @@ SWI_DDEUtils_GetCLSize (size_t *__len)
+ 		    "MOVVC\t%[err], #0\n\t"
+ 		    : [err] "=r" (err), "=r" (len)
+ 		    : [SWI_XDDEUtils_GetCLSize] "i" (DDEUtils_GetCLSize | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   if (__len && !err)
+     *__len = len;
+   return err;
+@@ -423,7 +431,7 @@ SWI_DDEUtils_Prefix (const char *__dir)
+ 		    : "=r" (err)
+ 		    : "r" (dir),
+ 		      [SWI_XDDEUtils_Prefix] "i" (DDEUtils_Prefix | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
+@@ -439,7 +447,7 @@ SWI_DDEUtils_ReadPrefix (int __ao, const char **__prefix)
+ 		    : [err] "=r" (err), "=r" (prefix)
+ 		    : "r" (ao),
+ 		      [SWI_XDDEUtils_ReadPrefix] "i" (DDEUtils_ReadPrefix | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   if (__prefix && !err)
+     *__prefix = prefix;
+   return err;
+@@ -457,7 +465,7 @@ SWI_OS_FSControl_Rename (const char *__oldfn, const char *__newfn)
+ 		    : "=r" (err)
+ 		    : "r" (oldfn), "r" (newfn),
+ 		      [SWI_XOS_FSControl] "i" (OS_FSControl | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
+@@ -472,7 +480,7 @@ SWI_OS_FSControl_SetCurDir (const char *__dirname)
+ 		    : "=r" (err)
+ 		    : "r" (dirname),
+ 		      [SWI_XOS_FSControl] "i" (OS_FSControl | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
+@@ -518,7 +526,7 @@ SWI_OS_Args_GetFilePtr (unsigned __fhandle, __off_t *__fileptr)
+ 		    : "=r" (err), "=r" (fileptr)
+ 		    : "r" (fhandle),
+ 		      [SWI_XOS_Args] "i" (OS_Args | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   if (__fileptr && !err)
+     *__fileptr = fileptr;
+   return err;
+@@ -537,7 +545,7 @@ SWI_OS_Args_SetFilePtr (unsigned __fhandle, __off_t __fileptr)
+ 		    : "=r" (err)
+ 		    : "r" (fhandle), "r" (fileptr),
+ 		      [SWI_XOS_Args] "i" (OS_Args | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }  
+ 
+@@ -554,7 +562,7 @@ SWI_OS_Args_GetExtent (unsigned __fhandle, __off_t *__extent)
+ 		    : "=r" (err), "=r" (extent)
+ 		    : "r" (fhandle),
+ 		      [SWI_XOS_Args] "i" (OS_Args | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   if (__extent && !err)
+     *__extent = extent;
+   return err;
+@@ -573,7 +581,7 @@ SWI_OS_Args_SetExtent (unsigned __fhandle, __off_t __extent)
+ 		    : "=r" (err)
+ 		    : "r" (fhandle), "r" (extent),
+ 		      [SWI_XOS_Args] "i" (OS_Args | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }  
+ 
+@@ -630,7 +638,7 @@ SWI_OS_Args_Flush (unsigned __fhandle)
+ 		    : "=r" (err)
+ 		    : "r" (fhandle),
+ 		      [SWI_XOS_Args] "i" (OS_Args | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/ticker.s b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/ticker.s
 new file mode 100644
 index 0000000..af20ac3
@@ -366,6 +669,236 @@ index eed3e61..827a1d8 100644
  extern pthread_t __pthread_thread_list; /* Linked list of all threads */
  
  /* Called once early in program initialisation */
+diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/socket.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/socket.h
+index b7ed72c..13293d8 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/socket.h
++++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/socket.h
+@@ -13,6 +13,9 @@
+ 
+ __BEGIN_DECLS
+ 
++/* 2026: the Socket SWIs read or write memory through their pointer
++   arguments, so every wrapper lists "memory" (see internal/os.h).  */
++
+ extern int __net_error (int rtrn, const _kernel_oserror *err);
+ 
+ static __inline__ int __attribute__ ((always_inline))
+@@ -29,7 +32,7 @@ _accept (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addrlen)
+ 		    : [err] "=r" (err), "=r" (rtrn)
+                     : "r" (fd), "r" (addr), "r" (addrlen),
+                       [SWI_XSocket_Accept_1] "i" (Socket_Accept_1 | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
+@@ -46,7 +49,7 @@ _bind (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __addrlen)
+ 		    : [err] "=r" (err)
+ 		    : "r" (fd), "r" (addr), "r" (addrlen),
+                       [SWI_XSocket_Bind] "i" (Socket_Bind | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return __net_error (0, err);
+ }
+ 
+@@ -63,7 +66,7 @@ _connect (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __addrlen)
+ 		    : [err] "=r" (err)
+ 		    : "r" (fd), "r" (addr), "r" (addrlen),
+                       [SWI_XSocket_Connect] "i" (Socket_Connect | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return __net_error (0, err);
+ }
+ 
+@@ -80,7 +83,7 @@ _getpeername (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addrlen)
+ 		    : [err] "=r" (err)
+                     : "r" (fd), "r" (addr), "r" (addrlen),
+                       [SWI_XSocket_Getpeername_1] "i" (Socket_Getpeername_1 | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (0, err);
+ }
+ 
+@@ -97,7 +100,7 @@ _getsockname (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addrlen)
+ 		    : [err] "=r" (err)
+                     : "r" (fd), "r" (addr), "r" (addrlen),
+                       [SWI_XSocket_Getsockname_1] "i" (Socket_Getsockname_1 | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (0, err);
+ }
+ 
+@@ -117,7 +120,7 @@ _getsockopt (int __fd, int __level, int __optname, void *__restrict __optval,
+ 		    : [err] "=r" (err)
+                     : "r" (fd), "r" (level), "r" (optname), "r" (optval), "r" (optlen),
+                       [SWI_XSocket_Getsockopt] "i" (Socket_Getsockopt | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (0, err);
+ }
+ 
+@@ -133,7 +136,7 @@ _listen (int __fd, int __backlog)
+ 		    : [err] "=r" (err)
+                     : "r" (fd), "r" (backlog),
+                       [SWI_XSocket_Listen] "i" (Socket_Listen | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (0, err);
+ }
+ 
+@@ -152,7 +155,7 @@ _recv (int __fd, void *__buf, size_t __len, int __flags)
+ 		    : [err] "=r" (err), "=r" (rtrn)
+                     : "r" (fd), "r" (buf), "r" (len), "r" (flags),
+                       [SWI_XSocket_Recv] "i" (Socket_Recv | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
+@@ -175,7 +178,7 @@ _recvfrom (int __fd, void *__restrict __buf, size_t __len, int __flags,
+                     : "r" (fd), "r" (buf), "r" (len), "r" (flags),
+ 		      "r" (srcaddr), "r" (srcaddrlen),
+                       [SWI_XSocket_Recvfrom_1] "i" (Socket_Recvfrom_1 | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
+@@ -193,7 +196,7 @@ _recvmsg (int __fd, struct msghdr *__msg, int __flags)
+ 		    : [err] "=r" (err), "=r" (rtrn)
+                     : "r" (fd), "r" (msg), "r" (flags),
+                       [SWI_XSocket_Recvmsg_1] "i" (Socket_Recvmsg_1 | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
+@@ -208,7 +211,7 @@ _sclose (int __sd)
+ 		    : [err] "=r" (err)
+                     : "r" (sd),
+                       [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (0, err);
+ }
+ 
+@@ -222,7 +225,7 @@ _sclose_no_error (int __sd)
+ 		    :
+                     : "r" (sd),
+                       [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+ }
+ 
+ static __inline__ int __attribute__ ((always_inline))
+@@ -243,7 +246,7 @@ _sselect (int __nfds, fd_set *__readfds, fd_set *__writefds,
+                     : "r" (nfds), "r" (readfds), "r" (writefds),
+ 		      "r" (exceptfds), "r" (timeout),
+                       [SWI_XSocket_Select] "i" (Socket_Select | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
+@@ -262,7 +265,7 @@ _send (int __fd, __const void *__buf, size_t __len, int __flags)
+ 		    : [err] "=r" (err), "=r" (rtrn)
+                     : "r" (fd), "r" (buf), "r" (len), "r" (flags),
+                       [SWI_XSocket_Send] "i" (Socket_Send | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
+@@ -280,7 +283,7 @@ _sendmsg (int __fd, __const struct msghdr *__msg, int __flags)
+ 		    : [err] "=r" (err), "=r" (rtrn)
+                     : "r" (fd), "r" (msg), "r" (flags),
+                       [SWI_XSocket_Sendmsg_1] "i" (Socket_Sendmsg_1 | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
+@@ -303,7 +306,7 @@ _sendto (int __fd, __const void *__buf, size_t __len, int __flags,
+                     : "r" (fd), "r" (buf), "r" (len), "r" (flags),
+ 		      "r" (addr), "r" (addrlen),
+                       [SWI_XSocket_Sendto] "i" (Socket_Sendto | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
+@@ -324,7 +327,7 @@ _setsockopt (int __fd, int __level, int __optname, const void *__optval,
+                     : "r" (fd), "r" (level), "r" (optname), "r" (optval),
+ 		      "r" (optlen),
+                       [SWI_XSocket_Setsockopt] "i" (Socket_Setsockopt | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (0, err);
+ }
+ 
+@@ -340,7 +343,7 @@ _shutdown (int __fd, int __how)
+ 		    : [err] "=r" (err)
+                     : "r" (fd), "r" (how),
+                       [SWI_XSocket_Shutdown] "i" (Socket_Shutdown | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (0, err);
+ }
+ 
+@@ -357,7 +360,7 @@ _sioctl (int __sd, unsigned long __request, void *__arg)
+ 		    : [err] "=r" (err)
+                     : "r" (sd), "r" (request), "r" (arg),
+                       [SWI_XSocket_Ioctl] "i" (Socket_Ioctl | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (0, err);
+ }
+ 
+@@ -375,7 +378,7 @@ _socket (int __domain, int __type, int __protocol)
+ 		    : [err] "=r" (err), "=r" (rtrn)
+                     : "r" (domain), "r" (type), "r" (protocol),
+                       [SWI_XSocket_Creat] "i" (Socket_Creat | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
+@@ -393,7 +396,7 @@ _sread (int __sd, void *__buf, size_t __count)
+ 		    : [err] "=r" (err), "=r" (rtrn)
+                     : "r" (sd), "r" (buf), "r" (count),
+                       [SWI_XSocket_Read] "i" (Socket_Read | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
+@@ -411,7 +414,7 @@ _swrite (int __sd, const void *__buf, size_t __count)
+ 		    : [err] "=r" (err), "=r" (rtrn)
+                     : "r" (sd), "r" (buf), "r" (count),
+                       [SWI_XSocket_Write] "i" (Socket_Write | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
+@@ -429,7 +432,7 @@ _sreadv (int __sd, const struct iovec *__vector, int __count)
+ 		    : [err] "=r" (err), "=r" (rtrn)
+ 		    : "r" (sd), "r" (vector), "r" (count),
+                       [SWI_XSocket_Readv] "i" (Socket_Readv | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
+@@ -447,7 +450,7 @@ _swritev (int __sd, const struct iovec *__vector, int __count)
+ 		    : [err] "=r" (err), "=r" (rtrn)
+ 		    : "r" (sd), "r" (vector), "r" (count),
+                       [SWI_XSocket_Writev] "i" (Socket_Writev | (1<<17))
+-                    : "r14", "cc");
++                    : "r14", "cc", "memory");
+   return __net_error (rtrn, err);
+ }
+ 
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/stat.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/stat.h
 index 7d5e3e9..7719f89 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/stat.h
@@ -625,6 +1158,28 @@ index be382ba..e684348 100644
  
  /* Return the number of bytes in a page.  This is the system's page size,
     which is not necessarily the same as the hardware page size.  */
+diff --git a/gcc4/recipe/files/gcc/libunixlib/locale/iconv.c b/gcc4/recipe/files/gcc/libunixlib/locale/iconv.c
+index a01ab8f..d71a429 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/locale/iconv.c
++++ b/gcc4/recipe/files/gcc/libunixlib/locale/iconv.c
+@@ -38,7 +38,7 @@ SWI_Iconv_Open (const char *__tocode, const char *__fromcode, iconv_t *resultp)
+ 		    : "=r" (err), "=r" (result)
+ 		    : "r" (tocode), "r" (fromcode),
+ 		      [SWI_XIconv_Open] "i" (Iconv_Open | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   *resultp = result;
+   return err;
+ }
+@@ -74,7 +74,7 @@ SWI_Iconv_Close (iconv_t __cd)
+ 		    "MOVVC\tr0, #0\n\t"
+ 		    : "=r" (err)
+ 		    : "r" (cd), [SWI_XIconv_Close] "i" (Iconv_Close | (1<<17))
+-		    : "r14", "cc");
++		    : "r14", "cc", "memory");
+   return err;
+ }
+ 
 diff --git a/gcc4/recipe/files/gcc/libunixlib/module/pthticker.s b/gcc4/recipe/files/gcc/libunixlib/module/pthticker.s
 new file mode 100644
 index 0000000..0b7caf3
@@ -777,6 +1332,32 @@ index 0000000..0b7caf3
 +	MOV	pc, lr
 +
 +	.end
+diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c b/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c
+index b6950c6..6537ebc 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c
++++ b/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c
+@@ -18,7 +18,7 @@ getservbyname (const char *__name, const char *__proto)
+ 		  : [rtrn] "=r" (rtrn)
+ 		  : "r" (name), "r" (proto),
+ 		    [SWI_XInetServices_GetServiceByName] "i" (InetServices_GetServiceByName | (1<<17))
+-		  : "r2", "r14", "cc");
++		  : "r2", "r14", "cc", "memory");
+   return rtrn;
+ }
+ 
+diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyport.c b/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyport.c
+index 4f0199f..fd34fd4 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyport.c
++++ b/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyport.c
+@@ -20,7 +20,7 @@ getservbyport (int __port, const char *__proto)
+ 		  : [rtrn] "=r" (rtrn)
+ 		  : "r" (port), "r" (proto),
+ 		    [SWI_XInetServices_GetServiceByPort] "i" (InetServices_GetServiceByPort | (1<<17))
+-		  : "r2", "r14", "cc");
++		  : "r2", "r14", "cc", "memory");
+   return rtrn;
+ }
+ 
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s b/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
 index fada843..1dd8b95 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
@@ -1544,6 +2125,46 @@ index 0000000..9dcce42
 +  if (created)
 +    _swix (OS_File, _INR(0,2), 18, file, 0xFFF);	/* Text */
 +}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/resolv/scl_gethostbyname.c b/gcc4/recipe/files/gcc/libunixlib/resolv/scl_gethostbyname.c
+index 1f425ed..441a6d8 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/resolv/scl_gethostbyname.c
++++ b/gcc4/recipe/files/gcc/libunixlib/resolv/scl_gethostbyname.c
+@@ -16,16 +16,20 @@ gethostbyname (const char *__name)
+ {
+   register const char *name __asm ("r1") = __name;
+   const _kernel_oserror *roerr;
++  /* 2026: the SWI returns R0 = status and R1 = the hostent; both are
++     outputs.  Before, rtrn and ulerrno were never set as far as the
++     compiler knew.  */
++  register int status __asm ("r0");
+   register struct hostent *rtrn __asm ("r1");
+   __asm volatile ("SWI\t%[SWI_XResolver_GetHostByName]\n\t"
+ 		  "MOVVS\t%[roerr], r0\n\t"
+ 		  "MOVVC\t%[roerr], #0\n\t"
+-		  : [roerr] "=r" (roerr)
++		  : [roerr] "=&r" (roerr), "=r" (status), "=r" (rtrn)
+ 		  : "r" (name),
+ 		    [SWI_XResolver_GetHostByName] "i" (Resolver_GetHostByName | (1<<17))
+-		  : "r0", "r14", "cc");
++		  : "r14", "cc", "memory");
+ 
+-  int ulerrno;
++  int ulerrno = status;
+   if (roerr != NULL)
+     {
+       /* RISC OS error happened.  */
+@@ -40,7 +44,10 @@ gethostbyname (const char *__name)
+     ulerrno = NETDB_SUCCESS;
+ 
+   if (ulerrno != NETDB_SUCCESS)
+-    __set_h_errno (ulerrno);
++    {
++      __set_h_errno (ulerrno);
++      return NULL;
++    }
+ 
+   return rtrn;
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sched/sched_prio.c b/gcc4/recipe/files/gcc/libunixlib/sched/sched_prio.c
 new file mode 100644
 index 0000000..09a1e5a
@@ -2635,6 +3256,20 @@ index 0000000..47cb3e8
 +  if (midi_kind != MIDI_NONE)
 +    midi_disconnect ();
 +}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/err.c b/gcc4/recipe/files/gcc/libunixlib/stdio/err.c
+index d7f2f0e..0de0663 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdio/err.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdio/err.c
+@@ -34,7 +34,8 @@ get_cli (void)
+ 		    "MOVVS\tr0, #0\n\t"
+ 		    : "=r" (cli)
+ 		    : [SWI_XOS_GetEnv] "i" (OS_GetEnv | (1<<17))
+-		    : "r14", "cc");
++		    /* 2026: OS_GetEnv also returns R1 (RAM limit) and R2.  */
++		    : "r1", "r2", "r14", "cc");
+   return cli;
+ #else
+   return _kernel_command_string ();
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/fgetpos.c b/gcc4/recipe/files/gcc/libunixlib/stdio/fgetpos.c
 index 9590f59..d56a0d5 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdio/fgetpos.c
@@ -3013,8 +3648,30 @@ index 9927105..8cb2de5 100644
  	  break;
  	}
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/time/stdtime.c b/gcc4/recipe/files/gcc/libunixlib/time/stdtime.c
+index b08fb6d..8b8c45b 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/time/stdtime.c
++++ b/gcc4/recipe/files/gcc/libunixlib/time/stdtime.c
+@@ -23,10 +23,15 @@ SWI_Territory_ConvertDateAndTime (int __territory, const char *__ro_time,
+   register const char *str __asm ("r4") = __str;
+   register const _kernel_oserror *err __asm ("r0");
+   register char *term __asm ("r1");
++  /* 2026: the SWI returns R0 = buffer, R1 = terminator and R2 = bytes left
++     in the buffer, so R2 is an output too ("+r"); R3 and R4 are treated
++     the same way rather than assumed preserved.  With R2 as an input only,
++     GCC kept the result pointer in R2 and ctime() returned "bytes left"
++     (Warzone 2100 crashed in strlen at &27).  */
+   __asm__ volatile ("SWI\t%[SWI_Territory_ConvertDateAndTime]\n\t"
+ 		    "MOVVC\tr0, #0\n\t"
+-		    : "=r" (err), "=r" (term)
+-		    : "r" (territory), "r" (ro_time), "r" (buf), "r" (size), "r" (str),
++		    : "=r" (err), "=r" (term), "+r" (buf), "+r" (size), "+r" (str)
++		    : "r" (territory), "r" (ro_time),
+ 		      [SWI_Territory_ConvertDateAndTime] "i" (Territory_ConvertDateAndTime | (1<<17))
+ 		    : "r14", "cc", "memory");
+   *termp = term;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/dev.c b/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
-index de312db..4acb348 100644
+index de312db..20273d7 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
 @@ -78,6 +78,11 @@ const struct dev __dev[NDEV] = {
@@ -3039,7 +3696,62 @@ index de312db..4acb348 100644
    {"custom", DEV_CUSTOM},
  /*   {"pipe", DEV_PIPE}, does open on /dev/pipe make sense ?  */
  /*   {"socket", DEV_SOCKET}, does open on /dev/socket make sense ?  */
-@@ -475,6 +483,44 @@ __fslseek (struct __unixlib_fd * file_desc, __off_t lpos, int whence)
+@@ -390,6 +398,43 @@ __fsclose (struct __unixlib_fd *file_desc)
+   return (!err) ? 0 : __ul_seterr (err, EOPSYS);
+ }
+ 
++#ifdef __ARM_EABI__
++/* 2026: map in the stack pages a read will fill.
++
++   ARMEABISupport maps a stack's pages in when they are first touched, from
++   its abort handler.  That works for USR mode, but a SWI (OS_GBPB) writing
++   into a page that hasn't been touched yet aborts in SVC mode, and the
++   program dies ("EMT trap" with fontconfig reading into a stack buffer,
++   Warzone 2100; GCCSDK's fontconfig port works around the same thing).
++   So before the SWI, read one byte of each page of the part of the buffer
++   that lies in a stack, here in USR mode.  Nothing is written, and buffers
++   that aren't in a stack (heap, dynamic areas) aren't touched at all.  */
++static void
++touch_stack_pages (const void *data, size_t nbyte)
++{
++  const char *lo = data, *hi = lo + nbyte;
++  const char *sp = __builtin_frame_address (0);
++  unsigned stack, base, top;
++
++  /* A buffer in a live stack frame is above the stack pointer.  */
++  if (nbyte == 0 || hi <= sp)
++    return;
++  if (_swix (ARMEABISupport_StackOp, _INR(0,1)|_OUT(1),
++	     ARMEABISUPPORT_STACKOP_GET_STACK, lo, &stack) != NULL
++      || stack == 0
++      || _swix (ARMEABISupport_StackOp, _INR(0,1)|_OUTR(1,2),
++		ARMEABISUPPORT_STACKOP_GET_BOUNDS, stack, &base, &top) != NULL)
++    return;
++  if (lo < (const char *) base)
++    lo = (const char *) base;
++  if (hi > (const char *) top)
++    hi = (const char *) top;
++  for (const char *p = lo; p < hi;
++       p = (const char *) (((unsigned) p | 4095u) + 1))
++    (void) *(const volatile char *) p;
++}
++#endif
++
+ int
+ __fsread (struct __unixlib_fd *file_desc, void *data, int nbyte)
+ {
+@@ -414,6 +459,10 @@ __fsread (struct __unixlib_fd *file_desc, void *data, int nbyte)
+     {
+       const _kernel_oserror *err;
+       unsigned not_read;
++#ifdef __ARM_EABI__
++      if (nbyte > 0)
++	touch_stack_pages (data, nbyte);
++#endif
+       if ((err = SWI_OS_GBPB_ReadBytes ((int) file_desc->devicehandle->handle,
+ 					data, nbyte, &not_read)) != NULL)
+ 	return __ul_seterr (err, EOPSYS);
+@@ -475,6 +524,44 @@ __fslseek (struct __unixlib_fd * file_desc, __off_t lpos, int whence)
    return !err ? lpos : __ul_seterr (err, EOPSYS);
  }
  
