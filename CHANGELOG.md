@@ -7,6 +7,25 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **`ctime`, `ctime_r`, `asctime` and `asctime_r` returned a bad
+  pointer** (Warzone 2100: crash in `strlen` at start-up on one Pi 4).
+  The inline wrapper for Territory_ConvertDateAndTime in `time/stdtime.c`
+  didn't say the SWI changes R2 ("bytes left in the buffer"), so GCC
+  returned that instead of the buffer: 39 (&27) with the static buffer,
+  1 with a caller's 26-byte buffer. Fixed, and every inline SWI wrapper
+  was checked against the PRM:
+  - `OS_GBPB` read/write (`internal/os.h`): R2 is an output (address after
+    the last byte);
+  - `OS_GetEnv` (SharedCLibrary build, `stdio/err.c`): R1 and R2 are
+    outputs;
+  - SharedCLibrary `gethostbyname`: R0 and R1 are outputs, and it returns
+    NULL on failure (it returned whatever was in R1);
+  - wrappers that pass pointers (file names, buffers, the Socket SWIs)
+    now say the SWI reads or writes memory ("memory" clobber).
+  None changes an interface: the library exports exactly the same
+  symbols, and only 6 objects' code changed (`stdtime.o`, `dev.o`, and
+  register allocation in `rename.o`, `tty.o`, `vfork.o`, `symlink.o`).
+
 - Docs: MODIFICATIONS.md lists every difference from GCCSDK UnixLib
   (file inventory, and for each change the problem, evidence, reasons,
   effect and how it was checked).

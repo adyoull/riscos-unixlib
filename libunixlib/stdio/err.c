@@ -34,7 +34,8 @@ get_cli (void)
 		    "MOVVS\tr0, #0\n\t"
 		    : "=r" (cli)
 		    : [SWI_XOS_GetEnv] "i" (OS_GetEnv | (1<<17))
-		    : "r14", "cc");
+		    /* 2026: OS_GetEnv also returns R1 (RAM limit) and R2.  */
+		    : "r1", "r2", "r14", "cc");
   return cli;
 #else
   return _kernel_command_string ();

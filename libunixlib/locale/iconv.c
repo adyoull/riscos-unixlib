@@ -38,7 +38,7 @@ SWI_Iconv_Open (const char *__tocode, const char *__fromcode, iconv_t *resultp)
 		    : "=r" (err), "=r" (result)
 		    : "r" (tocode), "r" (fromcode),
 		      [SWI_XIconv_Open] "i" (Iconv_Open | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   *resultp = result;
   return err;
 }
@@ -74,7 +74,7 @@ SWI_Iconv_Close (iconv_t __cd)
 		    "MOVVC\tr0, #0\n\t"
 		    : "=r" (err)
 		    : "r" (cd), [SWI_XIconv_Close] "i" (Iconv_Close | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 

@@ -22,6 +22,12 @@
 
 __BEGIN_DECLS
 
+/* 2026: every inline SWI wrapper must list, as outputs or clobbers, every
+   register the SWI can change (see the PRM for each SWI), and "memory" if
+   the SWI reads or writes memory through a pointer.  GCC assumes anything
+   not listed is unchanged: Territory_ConvertDateAndTime's R2 was missing
+   in time/stdtime.c and ctime() returned a bad pointer.  */
+
 /* Setup console I/O.  */
 extern int __os_console (void) __THROW;
 
@@ -76,7 +82,7 @@ SWI_OS_Byte (int __a, int __xin, int __yin, int *__xoutp, int *__youtp)
 		    : "=r" (err), "=r" (xout), "=r" (yout)
 		    : "r" (a), "r" (xin), "r" (yin),
 		      [SWI_XOS_Byte] "i" (OS_Byte | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   if (__xoutp && !err)
     *__xoutp = xout;
   if (__youtp && !err)
@@ -93,7 +99,7 @@ SWI_OS_CLI (const char *__cmd)
 		    "MOVVC\tr0, #0\n\t"
 		    : "=r" (err)
 		    : "r" (cmd), [SWI_XOS_CLI] "i" (OS_CLI | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
 
   return err;
 }
@@ -111,7 +117,7 @@ SWI_OS_Find_Open (unsigned __reason, const char *__filename, unsigned *__fhandle
 		    : "=r" (err), "=r" (fhandle)
 		    : "r" (reason), "r" (filename),
 		      [SWI_XOS_Find] "i" (OS_Find | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   *__fhandle = !err ? fhandle : 0;
   return err;
 }
@@ -126,7 +132,7 @@ SWI_OS_Find_Close (unsigned __fhandle)
 		    : "=r" (err)
 		    : "r" (fhandle),
 		      [SWI_XOS_Find] "i" (OS_Find | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 
@@ -147,7 +153,7 @@ SWI_OS_File_SaveBlockLoadExec (const char *__filename, unsigned __loadaddr,
 		    : "=r" (err)
 		    : "r" (filename), "r" (loadaddr), "r" (execaddr),
 		      "r" (start), "r" (end), [SWI_XOS_File] "i" (OS_File | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
 
   return err;
 }
@@ -167,7 +173,7 @@ SWI_OS_File_WriteCatLoadExecAttr (const char *__filename, unsigned __loadaddr,
 		    : "=r" (err)
 		    : "r" (filename), "r" (loadaddr), "r" (execaddr),
 		      "r" (attr), [SWI_XOS_File] "i" (OS_File | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 
@@ -183,7 +189,7 @@ SWI_OS_File_WriteCatInfoAttr (const char *__filename, unsigned __attr)
 		    : "=r" (err)
 		    : "r" (filename), "r" (attr),
 		      [SWI_XOS_File] "i" (OS_File | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 
@@ -197,7 +203,7 @@ SWI_OS_File_DeleteObject (const char *__objectname)
 		    "MOVVC\tr0, #0\n\t"
 		    : "=r" (err)
 		    : "r" (objectname), [SWI_XOS_File] "i" (OS_File | (1<<17))
-		    : "r2", "r3", "r4", "r5", "r14", "cc");
+		    : "r2", "r3", "r4", "r5", "r14", "cc", "memory");
   return err;
 }
 
@@ -213,7 +219,7 @@ SWI_OS_File_CreateDirectory (const char *__dirname)
 		    : "=r" (err)
 		    : "r" (dirname), "r" (numentries),
 		      [SWI_XOS_File] "i" (OS_File | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 
@@ -232,7 +238,7 @@ SWI_OS_File_CreateFileWithFileType (const char *__filename,
 		    : "=r" (err)
 		    : "r" (filename), "r" (filetype), "r" (start), "r" (end),
 		      [SWI_XOS_File] "i" (OS_File | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 
@@ -255,7 +261,7 @@ SWI_OS_File_ReadCatInfo (const char *__filename, unsigned *__objtype,
 		    : "=r" (err), "=r" (objtype), "=r" (loadaddr),
 		      "=r" (execaddr), "=r" (objlen), "=r" (attr)
 		    : "r" (filename), [SWI_XOS_File] "i" (OS_File | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   if (!err)
     {
       if (__objtype)
@@ -288,10 +294,12 @@ SWI_OS_File_WriteCatInfoFileType (const char *__filename, unsigned __filetype)
 		    : "=r" (err)
 		    : "r" (filename), "r" (filetype),
 		      [SWI_XOS_File] "i" (OS_File | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 
+/* 2026: OS_GBPB 2 and 4 return R2 = address after the last byte
+   transferred (and R4 = the new file pointer), so R2 is an output too.  */
 static __inline__ const _kernel_oserror * __attribute__ ((always_inline))
 SWI_OS_GBPB_ReadBytes (unsigned __fhandle, void *__buf, unsigned __to_read,
 		       unsigned *__not_read)
@@ -304,8 +312,8 @@ SWI_OS_GBPB_ReadBytes (unsigned __fhandle, void *__buf, unsigned __to_read,
   __asm__ volatile ("MOV\tr0, #4\n\t"
 		    "SWI\t%[SWI_XOS_GBPB]\n\t"
 		    "MOVVC\tr0, #0\n\t"
-		    : "=r" (err), "=r" (not_read)
-		    : "r" (fhandle), "r" (buf), "r" (to_read),
+		    : "=r" (err), "=r" (not_read), "+r" (buf)
+		    : "r" (fhandle), "r" (to_read),
 		      [SWI_XOS_GBPB] "i" (OS_GBPB | (1<<17))
 		    : "r4", "r14", "cc", "memory");
   if (__not_read && !err)
@@ -325,10 +333,10 @@ SWI_OS_GBPB_WriteBytes (unsigned __fhandle, const void *__buf, unsigned __to_wri
   __asm__ volatile ("MOV\tr0, #2\n\t"
 		    "SWI\t%[SWI_XOS_GBPB]\n\t"
 		    "MOVVC\tr0, #0\n\t"
-		    : "=r" (err), "=r" (not_written)
-		    : "r" (fhandle), "r" (buf), "r" (to_write),
+		    : "=r" (err), "=r" (not_written), "+r" (buf)
+		    : "r" (fhandle), "r" (to_write),
 		      [SWI_XOS_GBPB] "i" (OS_GBPB | (1<<17))
-		    : "r4", "r14", "cc");
+		    : "r4", "r14", "cc", "memory");
   if (__not_written && !err)
     *__not_written = not_written;
   return err;
@@ -349,7 +357,7 @@ SWI_OS_ChangeRedirection (int __fh_in, int __fh_out,
 		    : "=r" (prev_fh_in), "=r" (prev_fh_out), [err] "=r" (err)
 		    : "r" (fh_in), "r" (fh_out),
 		      [SWI_XOS_ChangeRedirection] "i" (OS_ChangeRedirection | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   if (__prev_fh_in && !err)
     *__prev_fh_in = prev_fh_in;
   if (__prev_fh_out && !err)
@@ -366,7 +374,7 @@ SWI_DDEUtils_SetCLSize (size_t __len)
 		    "MOVVC\tr0, #0\n\t"
 		    : "=r" (err)
 		    : "r" (len), [SWI_XDDEUtils_SetCLSize] "i" (DDEUtils_SetCLSize | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 
@@ -379,7 +387,7 @@ SWI_DDEUtils_SetCL (const char *__cli)
 		    "MOVVC\tr0, #0\n\t"
 		    : "=r" (err)
 		    : "r" (cli), [SWI_XDDEUtils_SetCL] "i" (DDEUtils_SetCL | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 
@@ -393,7 +401,7 @@ SWI_DDEUtils_GetCLSize (size_t *__len)
 		    "MOVVC\t%[err], #0\n\t"
 		    : [err] "=r" (err), "=r" (len)
 		    : [SWI_XDDEUtils_GetCLSize] "i" (DDEUtils_GetCLSize | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   if (__len && !err)
     *__len = len;
   return err;
@@ -423,7 +431,7 @@ SWI_DDEUtils_Prefix (const char *__dir)
 		    : "=r" (err)
 		    : "r" (dir),
 		      [SWI_XDDEUtils_Prefix] "i" (DDEUtils_Prefix | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 
@@ -439,7 +447,7 @@ SWI_DDEUtils_ReadPrefix (int __ao, const char **__prefix)
 		    : [err] "=r" (err), "=r" (prefix)
 		    : "r" (ao),
 		      [SWI_XDDEUtils_ReadPrefix] "i" (DDEUtils_ReadPrefix | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   if (__prefix && !err)
     *__prefix = prefix;
   return err;
@@ -457,7 +465,7 @@ SWI_OS_FSControl_Rename (const char *__oldfn, const char *__newfn)
 		    : "=r" (err)
 		    : "r" (oldfn), "r" (newfn),
 		      [SWI_XOS_FSControl] "i" (OS_FSControl | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 
@@ -472,7 +480,7 @@ SWI_OS_FSControl_SetCurDir (const char *__dirname)
 		    : "=r" (err)
 		    : "r" (dirname),
 		      [SWI_XOS_FSControl] "i" (OS_FSControl | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 
@@ -518,7 +526,7 @@ SWI_OS_Args_GetFilePtr (unsigned __fhandle, __off_t *__fileptr)
 		    : "=r" (err), "=r" (fileptr)
 		    : "r" (fhandle),
 		      [SWI_XOS_Args] "i" (OS_Args | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   if (__fileptr && !err)
     *__fileptr = fileptr;
   return err;
@@ -537,7 +545,7 @@ SWI_OS_Args_SetFilePtr (unsigned __fhandle, __off_t __fileptr)
 		    : "=r" (err)
 		    : "r" (fhandle), "r" (fileptr),
 		      [SWI_XOS_Args] "i" (OS_Args | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }  
 
@@ -554,7 +562,7 @@ SWI_OS_Args_GetExtent (unsigned __fhandle, __off_t *__extent)
 		    : "=r" (err), "=r" (extent)
 		    : "r" (fhandle),
 		      [SWI_XOS_Args] "i" (OS_Args | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   if (__extent && !err)
     *__extent = extent;
   return err;
@@ -573,7 +581,7 @@ SWI_OS_Args_SetExtent (unsigned __fhandle, __off_t __extent)
 		    : "=r" (err)
 		    : "r" (fhandle), "r" (extent),
 		      [SWI_XOS_Args] "i" (OS_Args | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }  
 
@@ -630,7 +638,7 @@ SWI_OS_Args_Flush (unsigned __fhandle)
 		    : "=r" (err)
 		    : "r" (fhandle),
 		      [SWI_XOS_Args] "i" (OS_Args | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return err;
 }
 

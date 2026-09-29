@@ -20,7 +20,7 @@ getservbyport (int __port, const char *__proto)
 		  : [rtrn] "=r" (rtrn)
 		  : "r" (port), "r" (proto),
 		    [SWI_XInetServices_GetServiceByPort] "i" (InetServices_GetServiceByPort | (1<<17))
-		  : "r2", "r14", "cc");
+		  : "r2", "r14", "cc", "memory");
   return rtrn;
 }
 

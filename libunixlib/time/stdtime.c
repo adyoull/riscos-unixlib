@@ -23,10 +23,15 @@ SWI_Territory_ConvertDateAndTime (int __territory, const char *__ro_time,
   register const char *str __asm ("r4") = __str;
   register const _kernel_oserror *err __asm ("r0");
   register char *term __asm ("r1");
+  /* 2026: the SWI returns R0 = buffer, R1 = terminator and R2 = bytes left
+     in the buffer, so R2 is an output too ("+r"); R3 and R4 are treated
+     the same way rather than assumed preserved.  With R2 as an input only,
+     GCC kept the result pointer in R2 and ctime() returned "bytes left"
+     (Warzone 2100 crashed in strlen at &27).  */
   __asm__ volatile ("SWI\t%[SWI_Territory_ConvertDateAndTime]\n\t"
 		    "MOVVC\tr0, #0\n\t"
-		    : "=r" (err), "=r" (term)
-		    : "r" (territory), "r" (ro_time), "r" (buf), "r" (size), "r" (str),
+		    : "=r" (err), "=r" (term), "+r" (buf), "+r" (size), "+r" (str)
+		    : "r" (territory), "r" (ro_time),
 		      [SWI_Territory_ConvertDateAndTime] "i" (Territory_ConvertDateAndTime | (1<<17))
 		    : "r14", "cc", "memory");
   *termp = term;

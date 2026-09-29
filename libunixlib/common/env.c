@@ -25,7 +25,7 @@ get_var_len (const char *name)
 		    : "=r" (len)
 		    : "r" (r0in),
 		      [SWI_XOS_ReadVarVal] "i" (OS_ReadVarVal | (1<<17))
-		    : "r1", "r3", "r4", "r14", "cc");
+		    : "r1", "r3", "r4", "r14", "cc", "memory");
   return len;
 }
 
@@ -43,7 +43,7 @@ set_var (const char *name, const char *value, size_t value_len)
 		    : "=r" (err)
 		    : "r" (r0in), "r" (r1in), "r" (r2in),
 		      [SWI_XOS_SetVarVal] "i" (OS_SetVarVal | (1<<17))
-		    : "r3", "r4", "r14", "cc");
+		    : "r3", "r4", "r14", "cc", "memory");
   return err;
 }
 
@@ -81,7 +81,7 @@ __remenv_from_os (const char *name)
 		    :
 		    : "r" (r0in),
 		      [SWI_XOS_SetVarVal] "i" (OS_SetVarVal | (1<<17))
-		    : "r1", "r2", "r3", "r4", "r14", "cc");
+		    : "r1", "r2", "r3", "r4", "r14", "cc", "memory");
 
   return 0;
 }

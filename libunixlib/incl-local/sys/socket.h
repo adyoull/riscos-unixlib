@@ -13,6 +13,9 @@
 
 __BEGIN_DECLS
 
+/* 2026: the Socket SWIs read or write memory through their pointer
+   arguments, so every wrapper lists "memory" (see internal/os.h).  */
+
 extern int __net_error (int rtrn, const _kernel_oserror *err);
 
 static __inline__ int __attribute__ ((always_inline))
@@ -29,7 +32,7 @@ _accept (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addrlen)
 		    : [err] "=r" (err), "=r" (rtrn)
                     : "r" (fd), "r" (addr), "r" (addrlen),
                       [SWI_XSocket_Accept_1] "i" (Socket_Accept_1 | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
@@ -46,7 +49,7 @@ _bind (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __addrlen)
 		    : [err] "=r" (err)
 		    : "r" (fd), "r" (addr), "r" (addrlen),
                       [SWI_XSocket_Bind] "i" (Socket_Bind | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return __net_error (0, err);
 }
 
@@ -63,7 +66,7 @@ _connect (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __addrlen)
 		    : [err] "=r" (err)
 		    : "r" (fd), "r" (addr), "r" (addrlen),
                       [SWI_XSocket_Connect] "i" (Socket_Connect | (1<<17))
-		    : "r14", "cc");
+		    : "r14", "cc", "memory");
   return __net_error (0, err);
 }
 
@@ -80,7 +83,7 @@ _getpeername (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addrlen)
 		    : [err] "=r" (err)
                     : "r" (fd), "r" (addr), "r" (addrlen),
                       [SWI_XSocket_Getpeername_1] "i" (Socket_Getpeername_1 | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (0, err);
 }
 
@@ -97,7 +100,7 @@ _getsockname (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addrlen)
 		    : [err] "=r" (err)
                     : "r" (fd), "r" (addr), "r" (addrlen),
                       [SWI_XSocket_Getsockname_1] "i" (Socket_Getsockname_1 | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (0, err);
 }
 
@@ -117,7 +120,7 @@ _getsockopt (int __fd, int __level, int __optname, void *__restrict __optval,
 		    : [err] "=r" (err)
                     : "r" (fd), "r" (level), "r" (optname), "r" (optval), "r" (optlen),
                       [SWI_XSocket_Getsockopt] "i" (Socket_Getsockopt | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (0, err);
 }
 
@@ -133,7 +136,7 @@ _listen (int __fd, int __backlog)
 		    : [err] "=r" (err)
                     : "r" (fd), "r" (backlog),
                       [SWI_XSocket_Listen] "i" (Socket_Listen | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (0, err);
 }
 
@@ -152,7 +155,7 @@ _recv (int __fd, void *__buf, size_t __len, int __flags)
 		    : [err] "=r" (err), "=r" (rtrn)
                     : "r" (fd), "r" (buf), "r" (len), "r" (flags),
                       [SWI_XSocket_Recv] "i" (Socket_Recv | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
@@ -175,7 +178,7 @@ _recvfrom (int __fd, void *__restrict __buf, size_t __len, int __flags,
                     : "r" (fd), "r" (buf), "r" (len), "r" (flags),
 		      "r" (srcaddr), "r" (srcaddrlen),
                       [SWI_XSocket_Recvfrom_1] "i" (Socket_Recvfrom_1 | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
@@ -193,7 +196,7 @@ _recvmsg (int __fd, struct msghdr *__msg, int __flags)
 		    : [err] "=r" (err), "=r" (rtrn)
                     : "r" (fd), "r" (msg), "r" (flags),
                       [SWI_XSocket_Recvmsg_1] "i" (Socket_Recvmsg_1 | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
@@ -208,7 +211,7 @@ _sclose (int __sd)
 		    : [err] "=r" (err)
                     : "r" (sd),
                       [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (0, err);
 }
 
@@ -222,7 +225,7 @@ _sclose_no_error (int __sd)
 		    :
                     : "r" (sd),
                       [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
 }
 
 static __inline__ int __attribute__ ((always_inline))
@@ -243,7 +246,7 @@ _sselect (int __nfds, fd_set *__readfds, fd_set *__writefds,
                     : "r" (nfds), "r" (readfds), "r" (writefds),
 		      "r" (exceptfds), "r" (timeout),
                       [SWI_XSocket_Select] "i" (Socket_Select | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
@@ -262,7 +265,7 @@ _send (int __fd, __const void *__buf, size_t __len, int __flags)
 		    : [err] "=r" (err), "=r" (rtrn)
                     : "r" (fd), "r" (buf), "r" (len), "r" (flags),
                       [SWI_XSocket_Send] "i" (Socket_Send | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
@@ -280,7 +283,7 @@ _sendmsg (int __fd, __const struct msghdr *__msg, int __flags)
 		    : [err] "=r" (err), "=r" (rtrn)
                     : "r" (fd), "r" (msg), "r" (flags),
                       [SWI_XSocket_Sendmsg_1] "i" (Socket_Sendmsg_1 | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
@@ -303,7 +306,7 @@ _sendto (int __fd, __const void *__buf, size_t __len, int __flags,
                     : "r" (fd), "r" (buf), "r" (len), "r" (flags),
 		      "r" (addr), "r" (addrlen),
                       [SWI_XSocket_Sendto] "i" (Socket_Sendto | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
@@ -324,7 +327,7 @@ _setsockopt (int __fd, int __level, int __optname, const void *__optval,
                     : "r" (fd), "r" (level), "r" (optname), "r" (optval),
 		      "r" (optlen),
                       [SWI_XSocket_Setsockopt] "i" (Socket_Setsockopt | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (0, err);
 }
 
@@ -340,7 +343,7 @@ _shutdown (int __fd, int __how)
 		    : [err] "=r" (err)
                     : "r" (fd), "r" (how),
                       [SWI_XSocket_Shutdown] "i" (Socket_Shutdown | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (0, err);
 }
 
@@ -357,7 +360,7 @@ _sioctl (int __sd, unsigned long __request, void *__arg)
 		    : [err] "=r" (err)
                     : "r" (sd), "r" (request), "r" (arg),
                       [SWI_XSocket_Ioctl] "i" (Socket_Ioctl | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (0, err);
 }
 
@@ -375,7 +378,7 @@ _socket (int __domain, int __type, int __protocol)
 		    : [err] "=r" (err), "=r" (rtrn)
                     : "r" (domain), "r" (type), "r" (protocol),
                       [SWI_XSocket_Creat] "i" (Socket_Creat | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
@@ -393,7 +396,7 @@ _sread (int __sd, void *__buf, size_t __count)
 		    : [err] "=r" (err), "=r" (rtrn)
                     : "r" (sd), "r" (buf), "r" (count),
                       [SWI_XSocket_Read] "i" (Socket_Read | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
@@ -411,7 +414,7 @@ _swrite (int __sd, const void *__buf, size_t __count)
 		    : [err] "=r" (err), "=r" (rtrn)
                     : "r" (sd), "r" (buf), "r" (count),
                       [SWI_XSocket_Write] "i" (Socket_Write | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
@@ -429,7 +432,7 @@ _sreadv (int __sd, const struct iovec *__vector, int __count)
 		    : [err] "=r" (err), "=r" (rtrn)
 		    : "r" (sd), "r" (vector), "r" (count),
                       [SWI_XSocket_Readv] "i" (Socket_Readv | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
@@ -447,7 +450,7 @@ _swritev (int __sd, const struct iovec *__vector, int __count)
 		    : [err] "=r" (err), "=r" (rtrn)
 		    : "r" (sd), "r" (vector), "r" (count),
                       [SWI_XSocket_Writev] "i" (Socket_Writev | (1<<17))
-                    : "r14", "cc");
+                    : "r14", "cc", "memory");
   return __net_error (rtrn, err);
 }
 
