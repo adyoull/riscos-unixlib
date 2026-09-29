@@ -7,6 +7,15 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+## 5.0.2 (2026-09-29, tag v5.0.2)
+
+**Tested on RISC OS:** the `LargeFile` test on a Pi (SDFS): a 3GB file,
+seeking, sizes and data past 2GB with the POSIX and stdio calls, EOVERFLOW
+at 4GB and EFBIG at 5GB, all ok, PASS. The pre-release v5.0.2-rc1
+(2026-09-28) had the same library.
+
+### Since 5.0.2-rc1
+
 - Pi tests: the programs `largefile`, `exitjoin` and `fsyncro` had the same
   names as their Obey files apart from case, which is the same name on RISC
   OS, so unzipping overwrote one with the other (the LargeFile test crashed
@@ -14,10 +23,7 @@ How to release: docs/MAINTAINING.md.
   `fsrotest`; `tests/riscos/build.sh` now stops on such clashes. Only
   UnixLibTests.zip changes, not the library.
 
-## 5.0.2 (2026-09-28, pre-release, tag v5.0.2-rc1)
-
-Not yet run on RISC OS: the `LargeFile` test in UnixLibTests.zip. Once it
-passes on a Pi, the same commit is tagged v5.0.2.
+### Since 5.0.1
 
 - Numbered as UnixLib 5.0.2 (`configure.ac`, `doc/UnixLib/Help`).
 
@@ -30,8 +36,7 @@ passes on a Pi, the same commit is tagged v5.0.2.
   and `fsetpos64` works (it used the pointer instead of the position).
   Nothing changes for programs built without `_FILE_OFFSET_BITS=64`.
   docs/LARGE-FILES.md. Checks: `tests/abi/check.sh` (layouts and
-  symbols, in `make check`), Pi test `LargeFile`. **Not yet run on RISC
-  OS.**
+  symbols, in `make check`), Pi test `LargeFile` (passed on a Pi).
 
 - Docs: where to get SharedSoundBuffer and StreamManager (README,
   docs/SOUND.md, the test ReadMe): `ssb.zip` from Andrew Sellors' RDPClient
