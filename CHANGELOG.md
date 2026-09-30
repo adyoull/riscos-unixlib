@@ -7,6 +7,16 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+## 5.0.3 (2026-09-30, tag v5.0.3)
+
+Fixes found by Warzone 2100 (on another user's Pi 4) and riscos-plex. The
+library's exported symbols are the same as 5.0.2's, and only 6 objects'
+machine code changed. Checked with the emulator test (`tests/emu/swi_test.py`,
+which fails on 5.0.2) and `make check`; not yet run on the machine where
+Warzone crashed.
+
+- Numbered as UnixLib 5.0.3 (`configure.ac`, `doc/UnixLib/Help`).
+
 - **Build paths no longer end up in `libunixlib.a`** (riscos-plex). The
   debug information in the 5.0.2 library recorded the directory it was
   built in (and the toolchain's header directory under the builder's home

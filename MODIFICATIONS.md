@@ -702,9 +702,9 @@ file:
 
 ## 6. Version, build and symbols
 
-### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`
+### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e` and the 5.0.3 release commit
 
-`AC_INIT` and the Help file say **5.0.2**. Releases continue UnixLib's own
+`AC_INIT` and the Help file say **5.0.3**. Releases continue UnixLib's own
 numbering from GCCSDK's 5.0. The libtool version stays `5:0:0`, because no
 interface was removed.
 

@@ -5,7 +5,7 @@ dnl Process this file with autoconf to produce a configure script
 dnl Written by Nick Burrett <nick@sqrt.co.uk>
 
 AC_PREREQ(2.64)
-AC_INIT([RISC OS UnixLib C Runtime Library], 5.0.2, [http://gccsdk.riscos.info/], [libunixlib])
+AC_INIT([RISC OS UnixLib C Runtime Library], 5.0.3, [http://gccsdk.riscos.info/], [libunixlib])
 AC_CONFIG_SRCDIR([assert/assert.c])
 AC_CONFIG_HEADER(config.h)
 
