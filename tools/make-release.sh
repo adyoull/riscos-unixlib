@@ -41,5 +41,11 @@ rm -rf "$OUT/tmp"
 
 cp "$B/.libs/libunixlib.a" patches/unixlib-riscos.diff patches/unixlib-sound.diff \
    tests/riscos/out/UnixLibTests.zip "$OUT/"
+# No paths from the build machine in anything we ship (the zips are
+# checked by their contents).
+leak=$(for f in "$OUT"/*; do
+         case $f in *.zip) unzip -p "$f" ;; *) cat "$f" ;; esac
+       done | strings -a | grep -F -e "$PWD" -e "$HOME" | sort -u)
+[ -z "$leak" ] || { echo "release files contain build paths:" >&2; echo "$leak" >&2; exit 1; }
 (cd "$OUT" && sha256sum * > SHA256SUMS)
 ls -l "$OUT"

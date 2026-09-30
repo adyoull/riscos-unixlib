@@ -159,6 +159,16 @@ and the patch scripts diff against it.
   one next to it.
 - **RISC OS test programs ship as AIF** (`elf2aif -e`), not ELF: the ELF
   files had problems on the Pi.
+- **No build-machine paths in shipped files.** Debug information records
+  the compile directory and header directories; `build-unixlib.sh` maps
+  them with `-fdebug-prefix-map` (build dir → `/riscos-unixlib`,
+  `GCCSDK_ENV` → `/gccsdk-env`) and stops if `libunixlib.a` or the module
+  still contains `$REPO` or `$HOME`; `make release` checks every release
+  file. Keep both checks if you change the build.
+- **Inline SWI wrappers must list every register the SWI changes** as an
+  output or clobber, and `"memory"` if it reads or writes through a
+  pointer (see the PRM for each SWI). GCC assumes anything unlisted is
+  unchanged: `ctime()` returned R2 of Territory_ConvertDateAndTime.
 - **Unaligned loads fault on RISC OS** (Linux hides it). See the README's
   porting notes.
 - **UnixLib code runs in every program.** Anything at exit (`_exit` in

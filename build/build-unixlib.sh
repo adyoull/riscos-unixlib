@@ -11,6 +11,7 @@
 #   (build/fetch-sources.sh fetches and checks both)
 #   GCCSDK_ENV=<installed env>         default ~/gccsdk/env
 #   CFLAGS                             default "-g -O2 -fstack-clash-protection"
+#                                      (-fdebug-prefix-map is always added)
 #   INSTALL=yes                        also copy libunixlib.a and UnixLib's
 #                                      headers into GCCSDK_ENV
 #
@@ -26,6 +27,13 @@ GCCSDK_ENV=${GCCSDK_ENV:-$HOME/gccsdk/env}
 CFLAGS=${CFLAGS:-"-g -O2 -fstack-clash-protection"}
 T=arm-riscos-gnueabihf
 W=$REPO/build/work
+# The debug information records the directory each object was compiled in
+# (DW_AT_comp_dir, here $W/build) and where the toolchain's own headers are
+# (GCCSDK_ENV, often under the home directory). Map both to fixed names so
+# the library doesn't carry paths from the machine it was built on, and
+# builds from different places give the same debug information. Added even
+# when CFLAGS is given.
+CFLAGS="$CFLAGS -fdebug-prefix-map=$W=/riscos-unixlib -fdebug-prefix-map=$GCCSDK_ENV=/gccsdk-env"
 export PATH="$GCCSDK_ENV/bin:$PATH"
 command -v $T-gcc >/dev/null || { echo "no $T-gcc in $GCCSDK_ENV/bin" >&2; exit 1; }
 
@@ -49,6 +57,12 @@ CC=$T-gcc AR=$T-ar RANLIB=$T-ranlib CFLAGS="$CFLAGS" \
     --disable-shared --enable-static --disable-multilib >configure.log
 make -j"$(nproc)" >make.log 2>&1 || { tail -40 make.log; exit 1; }
 ls -l .libs/libunixlib.a
+# No trace of the build machine's paths in what we ship.
+if strings -a .libs/libunixlib.a pthticker | grep -F -q -e "$REPO" -e "$HOME"; then
+  echo "libunixlib.a or pthticker contains a build path:" >&2
+  strings -a .libs/libunixlib.a pthticker | grep -F -e "$REPO" -e "$HOME" | sort | uniq -c >&2
+  exit 1
+fi
 # Refuse a library built from mismatched objects (see tools/check-lib.sh).
 GCCSDK_ENV="$GCCSDK_ENV" "$REPO/tools/check-lib.sh" "$W/build/.libs/libunixlib.a"
 if [ "$INSTALL" = yes ]; then

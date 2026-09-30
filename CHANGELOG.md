@@ -7,6 +7,18 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **Build paths no longer end up in `libunixlib.a`** (riscos-plex). The
+  debug information in the 5.0.2 library recorded the directory it was
+  built in (and the toolchain's header directory under the builder's home
+  directory), and programs linked with it and shipped as ELF, or kept as
+  `_g` debug builds, carried them too. `build/build-unixlib.sh` now maps
+  them to `/riscos-unixlib` and `/gccsdk-env` (`-fdebug-prefix-map`) and
+  stops if the library or the module still contains a path from the
+  build machine; `make release` checks every release file the same way.
+  The machine code is identical; only the debug information changes.
+  AIF programs (`!RunImage`) never had them: elf2aif leaves out debug
+  sections.
+
 - **`read()` into a stack buffer whose pages hadn't been used yet could
   kill the program** ("Fatal signal received: EMT trap"; Warzone 2100 with
   fontconfig on one Pi 4). ARMEABISupport maps a stack's pages in when
