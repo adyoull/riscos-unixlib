@@ -5,9 +5,10 @@
 
    heaptest        allocates 16 MB blocks up to 320 MB (or until memory
                    runs out), fills and checks them, lists the heap's
-                   areas, tries one 128 MB + 64 KB block, frees it all.
-                   PASS if it got past 160 MB (more than one area) and
-                   every block kept its contents.
+                   areas, frees them and allocates one 200 MB block
+                   (more than one area holds).  PASS if it got past
+                   160 MB, the 200 MB block was allocated, and all the
+                   memory kept its contents.
    heaptest -check run after the first has quit: PASS if none of its
                    areas are left (this run's own heap area, which has the
                    same name, isn't counted).  */
@@ -103,19 +104,28 @@ main (int argc, char **argv)
   areas = list_areas (0);
   printf ("%d heap areas\n", areas);
 
-  big = malloc ((128 << 20) + (64 << 10));
-  printf ("one 128 MB + 64 KB block: %s\n",
-	  big ? "allocated" : "refused (RISC OS gave no area that big)");
+  /* Free the 16 MB blocks first, then one block bigger than an area (a
+     4096x4096 OpenTTD map needs 128 MB + 16 bytes).  */
+  for (i = 0; i < got; i++)
+    free (b[i]);
+  big = malloc ((200 << 20));
+  printf ("one 200 MB block: %s\n", big ? "allocated" : "refused");
   if (big)
     {
-      memset (big, 0x5a, (128 << 20) + (64 << 10));
+      size_t j;
+      memset (big, 0x5a, 200 << 20);
+      for (j = 0; j < (200u << 20); j += 4093)
+	if (((unsigned char *) big)[j] != 0x5a)
+	  {
+	    printf ("200 MB block changed at %u\n", (unsigned) j);
+	    ok = 0;
+	    break;
+	  }
       list_areas (0);
     }
   free (big);
-  for (i = 0; i < got; i++)
-    free (b[i]);
 
-  if (got * 16 > 160 && areas > 1 && ok)
+  if (got * 16 > 160 && areas > 1 && big && ok)
     printf ("PASS (now run HeapCheck after this has quit)\n");
   else
     printf ("FAIL (%d MB, %d areas, contents %s)\n", got * 16, areas,

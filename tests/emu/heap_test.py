@@ -3,21 +3,18 @@
 
 Links tests/emu/heap_stub.c with the built libunixlib.a and runs the real
 malloc/free/realloc (stdlib/alloc.c) and heap sbrk (sys/brk.c), with
-OS_DynamicArea and OS_ChangeDynamicArea faked the way RISC OS 5 behaved
-for the OpenTTD port: an area asked for with a large maximum gets a
-smaller one (here 1MB instead of 128MB), while a maximum just a little
-over that is given as asked.  Checks:
+OS_DynamicArea and OS_ChangeDynamicArea faked the way RISC OS 5 behaved on
+a Pi 4: an area's maximum is cut down (here to 1MB instead of 128MB), and
+an area asked for at a given base (R3) is put there if the space is free
+(tests/riscos/daprobe.c).  Checks, with areas placed one after another:
 
-  - allocations past the first area's maximum carry on in new areas
-    ("<name> 2", "<name> 3"), including one placed below the first;
-  - every block is usable and no two overlap;
-  - one block bigger than an area's usual maximum gets an area of its own
-    when RISC OS allows it, and fails cleanly (no area left behind) when
-    it doesn't;
-  - malloc never falls back to mmap (ARMEABISupport) with a heap in
-    dynamic areas;
-  - __dynamic_area_extra_exit removes every area but the current one
-    (which __dynamic_area_exit removes itself).
+  - the heap carries on in areas made directly after each other ("<name>
+    2", "<name> 3"), so it stays one range: blocks bigger than an area,
+    a big block reusing a free top, random malloc/free/realloc;
+  - with the space after an area taken, or fixed bases refused, it goes on
+    in an area elsewhere (a new segment) and still works;
+  - memory running out, a big maximum refused, no needless SWIs, no mmap
+    fallback, and every area but the current one removed at exit.
 
   tests/emu/heap_test.py [build dir]   (default build/work/build)
 """
@@ -115,7 +112,7 @@ class Area:
 
 
 class Machine:
-    def __init__(self, elf):
+    def __init__(self, elf, fixed=True):
         self.uc = uc = Uc(UC_ARCH_ARM, UC_MODE_ARM)
         top = 0
         for vaddr, data, memsz in segments(elf):
@@ -137,6 +134,7 @@ class Machine:
         self.counts = {}
         self.unexpected = []
         self.next_base = 0
+        self.fixed = fixed       # honour a base asked for in R3
         self.add_area(FIRST, 0x10000000, CAP, b"Test Heap")
 
     def add_area(self, num, base, maximum, name):
@@ -144,6 +142,12 @@ class Machine:
         self.areas[num] = a
         self.uc.mem_map(base, (maximum + 0xFFFF) & ~0xFFFF)
         return a
+
+    def free_at(self, base, maximum):
+        end = base + ((maximum + 0xFFFF) & ~0xFFFF)
+        return all(a.deleted or end <= a.base
+                   or base >= a.base + ((a.max + 0xFFFF) & ~0xFFFF)
+                   for a in self.areas.values())
 
     def reg(self, r, v=None):
         if v is None:
@@ -186,10 +190,19 @@ class Machine:
             got = want if want <= HONOUR else CAP
             name = bytes(uc.mem_read(self.reg(UC_ARM_REG_R8), 40)).split(b"\0")[0]
             n = 100 + len(self.areas)
-            base = (BASES[self.next_base] if self.next_base < len(BASES)
-                    else 0x70000000 + (self.next_base - len(BASES)) * 0x400000)
+            if r[3] != 0xFFFFFFFF:
+                if not self.fixed or not self.free_at(r[3], got):
+                    self.fail_swi()
+                    return
+                base = r[3]
+            else:
+                while True:
+                    base = (BASES[self.next_base] if self.next_base < len(BASES)
+                            else 0x70000000 + (self.next_base - len(BASES)) * 0x400000)
+                    self.next_base += 1
+                    if self.free_at(base, got):
+                        break
             a = self.add_area(n, base, got, name)
-            self.next_base += 1
             self.reg(UC_ARM_REG_R1, n)
             self.reg(UC_ARM_REG_R3, a.base)
             self.reg(UC_ARM_REG_R5, got)
@@ -199,6 +212,7 @@ class Machine:
                 self.fail_swi()
                 return
             a.deleted = True
+            uc.mem_unmap(a.base, (a.max + 0xFFFF) & ~0xFFFF)
         elif num == OS_DynamicArea and r[0] == 2:
             a = self.areas.get(r[1])
             if a is None or a.deleted:
@@ -226,9 +240,30 @@ class Machine:
 
     def owner(self, addr, n):
         for a in self.areas.values():
-            if a.base <= addr and addr + n <= a.base + a.size:
+            if not a.deleted and a.base <= addr and addr + n <= a.base + a.size:
                 return a
         return None
+
+    def covered(self, addr, n):
+        """Is [addr, addr+n) inside used parts of live areas (which may be
+        next to each other)?"""
+        end = addr + n
+        while addr < end:
+            a = self.owner(addr, 1)
+            if a is None:
+                return False
+            addr = a.base + a.size
+        return True
+
+    def live(self):
+        return sorted((a for a in self.areas.values() if not a.deleted),
+                      key=lambda a: a.base)
+
+    def one_range(self):
+        """Do the live heap areas (not foreign ones) lie end to end?"""
+        ar = [a for a in self.live() if a.name.startswith(b"Test Heap")]
+        return all(ar[i].base + ar[i].max == ar[i + 1].base
+                   for i in range(len(ar) - 1))
 
 
 def main():
@@ -238,174 +273,200 @@ def main():
         print("can't link the test image:", e)
         return 1
     s = symbols(elf)
-    m = Machine(elf)
-    m.call(s["t_init"], FIRST, 0x10000000)
+    import random
 
-    # 40 blocks of 64KB: 2.5MB, past the 1MB first area.
-    blocks = []
-    for i in range(40):
-        p = m.call(s["t_malloc"], 64 * 1024)
-        blocks.append((p, 64 * 1024))
-        if p:
-            m.uc.mem_write(p, bytes([i]) * 64 * 1024)
-    check(all(p for p, _ in blocks), "40 x 64KB allocated (%d failed)"
-          % sum(1 for p, _ in blocks if not p))
-    names = sorted(a.name for a in m.areas.values())
+    def fresh(**kw):
+        m = Machine(elf, **kw)
+        m.call(s["t_init"], FIRST, 0x10000000)
+        return m
+
+    def fill(m, count, size):
+        out = []
+        for i in range(count):
+            p = m.call(s["t_malloc"], size)
+            out.append(p)
+            if p:
+                m.uc.mem_write(p, bytes([i & 0xFF]) * size)
+        return out
+
+    def intact(m, ptrs, size):
+        return all(bytes(m.uc.mem_read(p, size)) == bytes([i & 0xFF]) * size
+                   for i, p in enumerate(ptrs) if p)
+
+    def no_overlap(spans):
+        spans = sorted(spans)
+        return all(spans[i][1] <= spans[i + 1][0] for i in range(len(spans) - 1))
+
+    def random_workload(m, steps, top):
+        rnd = random.Random(2026)
+        live, ok = {}, True
+        for step in range(steps):
+            op = rnd.random()
+            if live and op < 0.35:
+                p = rnd.choice(list(live))
+                n, tag = live.pop(p)
+                ok &= bytes(m.uc.mem_read(p, n)) == bytes([tag]) * n
+                m.call(s["t_free"], p)
+            elif live and op < 0.5:
+                p = rnd.choice(list(live))
+                n, tag = live.pop(p)
+                n2 = rnd.randint(1, top)
+                q = m.call(s["t_realloc"], p, n2)
+                if not q:
+                    live[p] = (n, tag)
+                    continue
+                k = min(n, n2)
+                ok &= bytes(m.uc.mem_read(q, k)) == bytes([tag]) * k
+                m.uc.mem_write(q, bytes([tag]) * n2)
+                live[q] = (n2, tag)
+            else:
+                n = rnd.randint(1, top)
+                p = m.call(s["t_malloc"], n)
+                if p:
+                    tag = step & 0xFF
+                    m.uc.mem_write(p, bytes([tag]) * n)
+                    live[p] = (n, tag)
+        ok &= all(bytes(m.uc.mem_read(p, n)) == bytes([t]) * n
+                  for p, (n, t) in live.items())
+        return ok, live
+
+    def exit_check(m, what):
+        cur = m.call(s["t_area"])
+        m.call(s["t_exit"])
+        left = [a.num for a in m.live() if a.name.startswith(b"Test Heap")]
+        check(left == [cur], "%s: at exit only the current area is left for "
+              "__dynamic_area_exit (left %s, current %d)" % (what, left, cur))
+
+    # ---- Areas placed one after another (RISC OS 5) ----
+    m = fresh()
+    blocks = fill(m, 40, 64 * 1024)
+    check(all(blocks), "40 x 64KB allocated (%d failed)" % blocks.count(0))
+    names = sorted(a.name for a in m.live())
     check(b"Test Heap 2" in names and b"Test Heap 3" in names,
           "new areas named after the first: %s" % names)
-    check(all(m.owner(p, n) for p, n in blocks if p),
-          "every block lies inside an area's used part")
-    spans = sorted((p, p + n) for p, n in blocks if p)
-    check(all(spans[i][1] <= spans[i + 1][0] for i in range(len(spans) - 1)),
-          "no two blocks overlap")
-    check(all(bytes(m.uc.mem_read(p, 64 * 1024)) == bytes([i]) * 64 * 1024
-              for i, (p, n) in enumerate(blocks) if p),
-          "every block kept its contents")
-    low = m.areas.get(102)
-    check(low is not None and low.base < 0x10000000 and low.size > 0,
-          "an area below the first one is used too")
-
-    # Free half, allocate again: reuse, no new area.
-    for p, _ in blocks[::2]:
-        m.call(s["t_free"], p)
-    before = len(m.areas)
-    again = [m.call(s["t_malloc"], 60 * 1024) for _ in range(10)]
-    check(all(again) and len(m.areas) == before,
-          "freed space reused without a new area")
-
-    # One 1.5MB block: bigger than an area's usual maximum, but RISC OS
-    # gives a maximum just that big when asked.
-    live = sum(1 for a in m.areas.values() if not a.deleted)
-    big = m.call(s["t_malloc"], 1536 * 1024)
-    check(sum(1 for a in m.areas.values() if not a.deleted) == live + 1,
-          "1.5MB block: exactly one new area (%d)"
-          % (sum(1 for a in m.areas.values() if not a.deleted) - live))
-    check(big and m.owner(big, 1536 * 1024), "1.5MB block in an area of its own")
+    check(m.one_range(), "the areas lie end to end: %s"
+          % [(hex(a.base), a.max) for a in m.live()])
+    check(all(m.covered(p, 64 * 1024) for p in blocks if p)
+          and no_overlap((p, p + 64 * 1024) for p in blocks if p)
+          and intact(m, blocks, 64 * 1024),
+          "blocks inside the areas, no overlaps, contents kept")
+    # A block bigger than one area: spans areas.
+    big = m.call(s["t_malloc"], 2560 * 1024)
+    check(big and m.covered(big, 2560 * 1024),
+          "2.5MB block (areas hold 1MB) allocated across areas (&%X)" % big)
     if big:
-        m.uc.mem_write(big, b"\x5a" * 1536 * 1024)
-        check(bytes(m.uc.mem_read(big, 1536 * 1024)) == b"\x5a" * 1536 * 1024,
-              "1.5MB block usable")
-
-    # 3MB: RISC OS won't give an area that big. Fails, nothing left behind.
-    live = sum(1 for a in m.areas.values() if not a.deleted)
-    huge = m.call(s["t_malloc"], 3 * MB)
-    check(huge == 0, "3MB block refused (got &%X)" % huge)
-    check(sum(1 for a in m.areas.values() if not a.deleted) == live,
-          "no area left behind by the refused block")
-
-    # Still working afterwards; realloc across areas keeps the data.
+        m.uc.mem_write(big, b"\x5a" * 2560 * 1024)
+        check(bytes(m.uc.mem_read(big, 2560 * 1024)) == b"\x5a" * 2560 * 1024
+              and intact(m, blocks, 64 * 1024),
+              "2.5MB block usable, other blocks untouched")
+    check(m.one_range(), "still one range after the big block")
     p = m.call(s["t_malloc"], 1000)
-    check(p != 0, "small allocation after the refusal")
     m.uc.mem_write(p, b"hello\0")
-    q = m.call(s["t_realloc"], p, 200 * 1024)
-    check(q and bytes(m.uc.mem_read(q, 6)) == b"hello\0", "realloc keeps the data")
-
+    q = m.call(s["t_realloc"], p, 1200 * 1024)
+    check(q and bytes(m.uc.mem_read(q, 6)) == b"hello\0",
+          "realloc to 1.2MB keeps the data")
     check(not m.unexpected, "no other SWIs (no mmap fallback): %s"
           % ["&%X/%d" % u for u in m.unexpected])
+    exit_check(m, "chained")
 
-    # A big block while the first area's top is mostly free: the new area
-    # must hold the whole block (the old top can't be merged with it).
-    m2 = Machine(elf)
-    m2.call(s["t_init"], FIRST, 0x10000000)
+    # A big block while the top is mostly free: it reuses that space.
+    m2 = fresh()
     p = m2.call(s["t_malloc"], 800 * 1024)
     m2.call(s["t_free"], p)
     big = m2.call(s["t_malloc"], 1536 * 1024)
-    live = [a for a in m2.areas.values() if not a.deleted]
-    check(big and len(live) == 2 and m2.owner(big, 1536 * 1024) is live[1],
-          "1.5MB block with 800KB free at the top: one new area holding it "
-          "(areas %s)" % [(hex(a.base), a.size) for a in live])
+    used = sum(a.size for a in m2.live())
+    check(big and m2.covered(big, 1536 * 1024) and used <= 1800 * 1024,
+          "1.5MB block after freeing 800KB: reuses the free top (%d KB "
+          "used)" % (used // 1024))
 
-    # Random mallocs, frees and reallocs across many areas: contents kept,
-    # no overlaps, nothing outside an area.
-    import random
-    rnd = random.Random(2026)
-    m3 = Machine(elf)
-    m3.call(s["t_init"], FIRST, 0x10000000)
-    live3 = {}
-    ok = True
-    for step in range(400):
-        op = rnd.random()
-        if live3 and op < 0.35:
-            p = rnd.choice(list(live3))
-            n, tag = live3.pop(p)
-            if bytes(m3.uc.mem_read(p, n)) != bytes([tag]) * n:
-                ok = False
-            m3.call(s["t_free"], p)
-        elif live3 and op < 0.5:
-            p = rnd.choice(list(live3))
-            n, tag = live3.pop(p)
-            n2 = rnd.randint(1, 100 * 1024)
-            q = m3.call(s["t_realloc"], p, n2)
-            if not q:
-                live3[p] = (n, tag)
-                continue
-            if bytes(m3.uc.mem_read(q, min(n, n2))) != bytes([tag]) * min(n, n2):
-                ok = False
-            m3.uc.mem_write(q, bytes([tag]) * n2)
-            live3[q] = (n2, tag)
-        else:
-            n = rnd.randint(1, 100 * 1024)
-            p = m3.call(s["t_malloc"], n)
-            if p:
-                tag = step & 0xFF
-                m3.uc.mem_write(p, bytes([tag]) * n)
-                live3[p] = (n, tag)
-    spans = sorted((p, p + n) for p, (n, _) in live3.items())
-    check(ok and all(bytes(m3.uc.mem_read(p, n)) == bytes([t]) * n
-                     for p, (n, t) in live3.items()),
-          "random workload: every block kept its contents")
-    check(all(spans[i][1] <= spans[i + 1][0] for i in range(len(spans) - 1))
-          and all(m3.owner(p, n) for p, (n, _) in live3.items()),
-          "random workload: no overlaps, all inside areas")
-    check(sum(1 for a in m3.areas.values() if not a.deleted) >= 3,
-          "random workload used several areas (%d)"
-          % sum(1 for a in m3.areas.values() if not a.deleted))
+    # Random workload, blocks up to 300KB, across many areas.
+    m3 = fresh()
+    ok, live = random_workload(m3, 400, 300 * 1024)
+    check(ok, "random workload: every block kept its contents")
+    check(no_overlap((p, p + n) for p, (n, _) in live.items())
+          and all(m3.covered(p, n) for p, (n, _) in live.items()),
+          "random workload: no overlaps, all inside the areas")
+    check(len(m3.live()) >= 3 and m3.one_range(),
+          "random workload: several areas, end to end (%d)" % len(m3.live()))
     check(not m3.unexpected, "random workload: no other SWIs")
 
-    # Out of memory while starting a new area: the empty area is removed
-    # and the heap goes on in the old one.
-    m4 = Machine(elf)
-    m4.call(s["t_init"], FIRST, 0x10000000)
-    m4.ram = 1024 * 1024        # all used up just as the first area fills
-    got = [m4.call(s["t_malloc"], 200 * 1024) for _ in range(10)]
-    live = [a for a in m4.areas.values() if not a.deleted]
-    check(0 in got and all(a.size > 0 for a in live),
+    # Out of memory just as an area fills: no empty area left behind.
+    m4 = fresh()
+    m4.ram = 1024 * 1024
+    got = fill(m4, 10, 200 * 1024)
+    check(0 in got and all(a.size > 0 for a in m4.live()),
           "out of memory: no empty area left behind (%s)"
-          % [(a.num, a.size) for a in live])
-    first = [p for p in got if p and m4.owner(p, 200 * 1024)
-             and m4.owner(p, 200 * 1024).num == FIRST]
-    if first:
-        m4.call(s["t_free"], first[0])
+          % [(a.num, a.size) for a in m4.live()])
+    m4.call(s["t_free"], got[0])
     check(m4.call(s["t_malloc"], 100 * 1024) != 0,
           "out of memory: freed space can be used again")
 
-    # RISC OS refuses an area with a big maximum (older systems, little
-    # address space): the request is made again with just what's needed.
-    m5 = Machine(elf)
-    m5.call(s["t_init"], FIRST, 0x10000000)
+    # RISC OS refuses an area with a big maximum: asks for less.
+    m5 = fresh()
     m5.refuse_big = True
-    got = [m5.call(s["t_malloc"], 200 * 1024) for _ in range(8)]
-    check(all(got) and len([a for a in m5.areas.values() if not a.deleted]) > 1,
-          "big maximum refused: carries on in areas just big enough (%d failed)"
+    got = fill(m5, 8, 200 * 1024)
+    check(all(got) and len(m5.live()) > 1 and m5.one_range(),
+          "big maximum refused: carries on in smaller areas (%d failed)"
           % got.count(0))
 
-    # Growing within an area doesn't ask RISC OS for the area's maximum
-    # every time (one OS_DynamicArea 2 per actual growth at most).
-    m6 = Machine(elf)
-    m6.call(s["t_init"], FIRST, 0x10000000)
+    # Growing within an area doesn't read the area's details every time.
+    m6 = fresh()
     for _ in range(400):
         m6.call(s["t_malloc"], 1000)
     reads = m6.counts.get((OS_DynamicArea, 2), 0)
     grows = m6.counts.get(OS_ChangeDynamicArea, 0)
-    check(reads <= grows, "OS_DynamicArea 2 only when growing (%d reads, %d "
+    check(reads <= 2, "OS_DynamicArea 2 not on every growth (%d reads, %d "
           "grows)" % (reads, grows))
 
-    # Exit: every area but the current one is removed.
-    cur = m.call(s["t_area"])
-    m.call(s["t_exit"])
-    left = [a.num for a in m.areas.values() if not a.deleted]
-    check(left == [cur], "at exit only the current area is left for "
-          "__dynamic_area_exit (left %s, current %d)" % (left, cur))
+    # ---- The space after the first area is taken by another area ----
+    m7 = fresh()
+    m7.add_area(50, 0x10000000 + CAP, CAP, b"Someone else")
+    blocks = fill(m7, 30, 64 * 1024)
+    check(all(blocks), "space after taken: 30 x 64KB allocated (%d failed)"
+          % blocks.count(0))
+    seg = [a for a in m7.live() if a.name.startswith(b"Test Heap")
+           and a.num != FIRST]
+    check(seg and seg[0].base not in (0x10000000 + CAP,),
+          "space after taken: went on in an area elsewhere")
+    check(all(m7.covered(p, 64 * 1024) for p in blocks if p)
+          and no_overlap((p, p + 64 * 1024) for p in blocks if p)
+          and intact(m7, blocks, 64 * 1024),
+          "space after taken: blocks inside areas, no overlaps, kept")
+    big = m7.call(s["t_malloc"], 1536 * 1024)
+    check(big and m7.covered(big, 1536 * 1024),
+          "space after taken: a 1.5MB block across the new segment's areas")
+    check(m7.areas[50].size == 0 and not m7.areas[50].deleted,
+          "the other program's area is left alone")
+    exit_check(m7, "space after taken")
+
+    # ---- Fixed bases refused (RISC OS chooses every address) ----
+    m8 = fresh(fixed=False)
+    blocks = fill(m8, 40, 64 * 1024)
+    check(all(blocks), "no fixed bases: 40 x 64KB allocated (%d failed)"
+          % blocks.count(0))
+    low = [a for a in m8.live() if a.base < 0x10000000]
+    check(low and low[0].size > 0, "no fixed bases: an area below the first "
+          "is used too")
+    check(no_overlap((p, p + 64 * 1024) for p in blocks if p)
+          and all(m8.owner(p, 64 * 1024) for p in blocks if p)
+          and intact(m8, blocks, 64 * 1024),
+          "no fixed bases: each block in one area, no overlaps, kept")
+    for p in blocks[::2]:
+        m8.call(s["t_free"], p)
+    before = len(m8.live())
+    again = fill(m8, 10, 60 * 1024)
+    check(all(again) and len(m8.live()) == before,
+          "no fixed bases: freed space reused without a new area")
+    n_live = len(m8.live())
+    huge = m8.call(s["t_malloc"], 1536 * 1024)
+    check(huge == 0 and len(m8.live()) == n_live,
+          "no fixed bases: a block bigger than an area is refused, nothing "
+          "left behind")
+    ok, live = random_workload(m8, 300, 100 * 1024)
+    check(ok and no_overlap((p, p + n) for p, (n, _) in live.items()),
+          "no fixed bases: random workload kept its contents")
+    check(not m8.unexpected, "no fixed bases: no other SWIs")
+    exit_check(m8, "no fixed bases")
 
     print("heap_test: %d checks, %d failed" % (checks, fails))
     return 1 if fails else 0
