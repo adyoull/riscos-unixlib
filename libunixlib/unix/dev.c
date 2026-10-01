@@ -408,16 +408,16 @@ __fsclose (struct __unixlib_fd *file_desc)
    Warzone 2100; GCCSDK's fontconfig port works around the same thing).
    So before the SWI, read one byte of each page of the part of the buffer
    that lies in a stack, here in USR mode.  Nothing is written, and buffers
-   that aren't in a stack (heap, dynamic areas) aren't touched at all.  */
+   that aren't in a stack (heap, dynamic areas) aren't touched at all.
+   ARMEABISupport is asked about every buffer: one that is in another
+   thread's stack can be anywhere, below this thread's stack pointer too.  */
 static void
 touch_stack_pages (const void *data, size_t nbyte)
 {
   const char *lo = data, *hi = lo + nbyte;
-  const char *sp = __builtin_frame_address (0);
   unsigned stack, base, top;
 
-  /* A buffer in a live stack frame is above the stack pointer.  */
-  if (nbyte == 0 || hi <= sp)
+  if (nbyte == 0)
     return;
   if (_swix (ARMEABISupport_StackOp, _INR(0,1)|_OUT(1),
 	     ARMEABISUPPORT_STACKOP_GET_STACK, lo, &stack) != NULL

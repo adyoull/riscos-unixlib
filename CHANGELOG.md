@@ -26,6 +26,11 @@ How to release: docs/MAINTAINING.md.
   outside 0-255 return 0 (or are returned unchanged) instead of reading
   past the end of the ctype tables, as the non-locale versions already did.
 
+- **`read()` into a stack buffer:** a buffer in another thread's stack is
+  mapped in before the read even when that stack lies below the calling
+  thread's stack pointer (it was skipped). This costs one SWI per `read()`
+  of a RISC OS file for buffers that were skipped before.
+
 ## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
 
 Fixes for problems in 5.0.3 (and earlier) found by an independent review

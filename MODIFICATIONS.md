@@ -362,8 +362,11 @@ mode, and the program dies.
 
 **Change.** `__fsread` (which serves `read`, `readv`, and `fread` through
 `read`) calls a new `touch_stack_pages` before OS_GBPB:
-1. If the buffer ends above the current frame, `ARMEABISupport_StackOp` 2
-   says whether it is in a stack, and 3 gives the stack's bounds.
+1. `ARMEABISupport_StackOp` 2 says whether the buffer is in a stack, and 3
+   gives the stack's bounds. (Until 5.0.3.1-rc1 a buffer below the current
+   frame was skipped without asking; that missed a buffer in another
+   thread's stack lying below this one, so every buffer is asked about
+   now.)
 2. One byte of each page of the part of the buffer that lies between the
    stack's base (above its guard pages) and top is read, from USR mode, so
    the abort handler maps it.
@@ -384,8 +387,7 @@ EABI builds only.
 
 **Effect.** For a heap buffer, one extra SWI (StackOp 2, which fails) per
 `read()` on a RISC OS file. For a stack buffer, two SWIs and one load per
-page. A zero-length read or a buffer below the current frame costs nothing
-extra.
+page. A zero-length read costs nothing extra.
 
 **Verification.** `tests/emu/swi_test.py` makes the fake OS_GBPB fail if it
 writes into a page of a fake stack that no USR-mode access has touched,
@@ -394,6 +396,8 @@ and checks:
   only those pages;
 - the guard page isn't touched;
 - a heap buffer isn't touched, and only StackOp 2 is called for it;
+- a buffer in a stack below the current stack pointer (another thread's)
+  is touched too;
 - a zero-length read calls no StackOp;
 - the data arrives.
 

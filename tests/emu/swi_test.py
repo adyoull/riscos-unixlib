@@ -106,7 +106,8 @@ def segments(elf):
 
 
 class Machine:
-    def __init__(self, elf):
+    def __init__(self, elf, fakestack=FAKESTACK):
+        self.fs = fakestack
         self.uc = uc = Uc(UC_ARCH_ARM, UC_MODE_ARM)
         top = 0
         for vaddr, data, memsz in segments(elf):
@@ -117,13 +118,13 @@ class Machine:
             uc.mem_write(vaddr, data)
         uc.mem_map(0, 0x10000)                       # RET page
         uc.mem_map(CSTACK - 0x10000, 0x10000)
-        uc.mem_map(FAKESTACK, FAKESTACK_PAGES * PAGE)
+        uc.mem_map(self.fs, FAKESTACK_PAGES * PAGE)
         uc.mem_map(HEAP, 0x10000)
         uc.mem_map(ERRBLK, PAGE)
         uc.mem_write(ERRBLK, struct.pack("<I", 0x1E6) + b"Not in a stack\0")
         uc.hook_add(UC_HOOK_INTR, self.swi)
         uc.hook_add(UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE, self.access,
-                    begin=FAKESTACK, end=FAKESTACK + FAKESTACK_PAGES * PAGE - 1)
+                    begin=self.fs, end=self.fs + FAKESTACK_PAGES * PAGE - 1)
         self.mapped = set()          # fake-stack pages touched from USR mode
         self.heap_touched = False
         self.stackops = []
@@ -131,7 +132,7 @@ class Machine:
         self.bytes_left = None
 
     def access(self, uc, access, addr, size, value, data):
-        self.mapped.add((addr - FAKESTACK) // PAGE)
+        self.mapped.add((addr - self.fs) // PAGE)
 
     def reg(self, r, v=None):
         if v is None:
@@ -166,8 +167,8 @@ class Machine:
             # page nobody has touched yet would abort in SVC mode on RISC OS.
             ok = True
             for a in range(r2, r2 + r3):
-                if FAKESTACK <= a < FAKESTACK + FAKESTACK_PAGES * PAGE:
-                    if (a - FAKESTACK) // PAGE not in self.mapped:
+                if self.fs <= a < self.fs + FAKESTACK_PAGES * PAGE:
+                    if (a - self.fs) // PAGE not in self.mapped:
                         ok = False
             self.gbpb.append((r2, r3, ok))
             before = set(self.mapped)
@@ -179,7 +180,7 @@ class Machine:
         elif num == ARMEABISupport_StackOp:
             self.stackops.append((r0, r1))
             if r0 == 2:              # get stack: handle for an address
-                if FAKESTACK <= r1 < FAKESTACK + FAKESTACK_PAGES * PAGE:
+                if self.fs <= r1 < self.fs + FAKESTACK_PAGES * PAGE:
                     self.reg(UC_ARM_REG_R1, 0x5A5A)
                 else:
                     self.reg(UC_ARM_REG_R0, ERRBLK)
@@ -187,8 +188,8 @@ class Machine:
                     self.set_v(True)
             elif r0 == 3:            # bounds: base (above guard), top
                 # the first page is a guard page
-                self.reg(UC_ARM_REG_R1, FAKESTACK + PAGE)
-                self.reg(UC_ARM_REG_R2, FAKESTACK + FAKESTACK_PAGES * PAGE)
+                self.reg(UC_ARM_REG_R1, self.fs + PAGE)
+                self.reg(UC_ARM_REG_R2, self.fs + FAKESTACK_PAGES * PAGE)
             else:
                 raise RuntimeError("StackOp %d" % r0)
         else:
@@ -265,6 +266,19 @@ def main():
     check(not m.mapped, "read into heap: fake stack untouched")
     check(all(op[0] == 2 for op in m.stackops),
           "read into heap: only asked whether it's a stack (%s)" % m.stackops)
+
+    # --- another thread's stack lying below this thread's stack pointer ---
+    # (it used to be skipped: only buffers above the stack pointer were
+    # checked)
+    LOWSTACK = 0x400000
+    m = Machine(elf, LOWSTACK)
+    start = LOWSTACK + 2 * PAGE + 8
+    got = m.call(syms["t_fsread"], start, 2 * PAGE)
+    check(got == 2 * PAGE and m.gbpb and m.gbpb[0][2],
+          "read into a stack below sp: pages mapped before OS_GBPB (mapped %s)"
+          % sorted(m.mapped))
+    check(m.mapped == {2, 3, 4},
+          "read into a stack below sp: only the buffer's pages (%s)" % sorted(m.mapped))
 
     # --- zero-length read: no SWIs besides OS_GBPB ---
     m = Machine(elf)
