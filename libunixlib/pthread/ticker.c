@@ -44,7 +44,9 @@ static const void *start_routine, *stop_routine, *pre_filter, *post_filter;
 static void *module_ws;		/* The module's workspace, if used.  */
 static const void *detach_routine;
 static int filters_for;		/* Task the filters are registered for.  */
-static volatile int busy;	/* In __pthread_start/stop_ticker.  */
+static volatile int busy;	/* In __pthread_start/stop_ticker: a count,
+				   so a nested call (start inside stop, say)
+				   doesn't clear it for the outer one.  */
 
 /* For the statistics.  */
 static int startup_handle, startup_version;
@@ -218,13 +220,13 @@ __pthread_start_ticker (void)
   if (!gbl->pthread_system_running || gbl->pthread_num_running_threads <= 1)
     return;
 
-  busy = 1;
+  busy++;
   set_filters (b, current_task ());
   ticker_on (b);
   if (first_start_handle == -1)
     first_start_handle = filters_for;
   starts++;
-  busy = 0;
+  busy--;
 }
 
 /* Stop the ticker and remove the filters.  */
@@ -236,10 +238,10 @@ __pthread_stop_ticker (void)
   if (!__ul_global.pthread_system_running)
     return;
 
-  busy = 1;
+  busy++;
   set_filters (b, 0);
   ticker_off (b);
-  busy = 0;
+  busy--;
 }
 
 /* Called now and then by the context switcher (USR mode, in the

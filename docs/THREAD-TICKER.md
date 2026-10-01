@@ -119,7 +119,7 @@ tickertest ticks=1003 foreign=12 last_foreign=0x2211a8/0x0 pre=412 post=411
 
 | Field | Meaning |
 |---|---|
-| (first word) | the program (command line's first word) |
+| (first word) | the program: the leaf name of the command line's first word |
 | `ticks` | ticker calls |
 | `foreign` | ticker calls that found **another task** paged in. Non-zero = the ticker was live while we were paged out. |
 | `last_foreign` | the upcall handler / its R12 at the last foreign tick. SharedUnixLibrary's handler with another key = another UnixLib program (e.g. a child); anything else = a non-UnixLib task. |
@@ -173,11 +173,17 @@ uses its RMA copy.
   UnixLib programs"): its code would still be called. A program that dies
   without reaching `_exit` stays counted, so the module can't be killed
   until the next restart (its ticker, if left running, is harmless).
+  `exec` detaches too (since 5.0.3.1-rc2; before, a program that
+  `exec`'d stayed counted). Since module 0.02 the count is updated with
+  IRQs off (`OS_IntOff`), so two programs in TaskWindows can't lose a
+  count by updating it at once.
 - **Loading:** a program uses the module only if it was loaded before the
   program started. Put `PThrTicker` in `!System.310.Modules` (or in the
   application) and load it from `!Run`:
   `RMEnsure PThreadTicker 0.01 RMLoad System:Modules.PThrTicker`. It is
-  optional: without it programs still work.
+  optional: without it programs still work. (0.01 rather than the latest
+  version on purpose: a newer RMLoad would try to replace a copy in use,
+  which refuses, and stop the `!Run` file.)
 - **Interface:** the routines read these offsets in the RMA block, and the
   module and UnixLib are released separately, so they must never move: 76
   upcall handler, 80 its R12 (the SUL key), 88 ticker started, 92

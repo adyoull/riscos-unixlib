@@ -43,6 +43,15 @@ How to release: docs/MAINTAINING.md.
   fail with `EIO`. Closing `/dev/midi` resets MIDI hardware only if the
   program sent something.
 
+- **Thread ticker:** `exec` detaches from the PThreadTicker module (a
+  program that `exec`'d stayed counted, so the module couldn't be killed
+  until a reboot). The `busy` flag that keeps the ticker re-check out of
+  start/stop is a count, so a nested call can't clear it early.
+- **PThreadTicker 0.02:** the count of programs using the module is
+  updated with interrupts off (`OS_IntOff`), so two programs starting or
+  quitting at once in TaskWindows can't lose a count. Same interface;
+  works with every UnixLib that uses the module.
+
 ## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
 
 Fixes for problems in 5.0.3 (and earlier) found by an independent review

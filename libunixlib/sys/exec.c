@@ -10,6 +10,7 @@
 #include <malloc.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <sys/param.h>
 #include <swis.h>
 #include <sys/wait.h>
@@ -411,6 +412,11 @@ execve (const char *execname, char *const argv[], char *const envp[])
       __pthread_stop_ticker ();
       gbl->pthread_system_running = 0;
     }
+  /* 2026: and detach from the PThreadTicker module (does nothing in a
+     fork/vfork child, whose parent still uses it).  The exec'd program
+     isn't this one, so the attachment would never be released and the
+     module couldn't be killed until a reboot.  */
+  __pthread_ticker_fini ();
 
 #if __UNIXLIB_FEATURE_ITIMERS
   /* Stop any interval timers that might be running.  Technically
