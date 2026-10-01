@@ -63,8 +63,11 @@ static pid_t dsp_owner_pid;
 /* 2026: DigitalRenderer has one user at a time and doesn't say who.  A
    program that activates it puts its pid in this system variable; one that
    finds another pid there has been taken over and must not deactivate the
-   new owner's session.  If the variable is missing (a program with an
-   older UnixLib took over, or nobody set it), the old behaviour applies.  */
+   new owner's session.  A program that doesn't set it (one built with an
+   older UnixLib, or not using UnixLib) can't be detected: after it takes
+   over, the variable still holds this program's pid, and this program
+   stops DigitalRenderer when it closes or exits, as it always did.  If the
+   variable can't be read, it is assumed to be this program's.  */
 #define DR_OWNER_VAR "UnixLib$DSPOwner"
 
 /* Static, like the rest of this device's state (and so the host tests can
@@ -85,6 +88,10 @@ dr_unclaim (void)
   _swix (OS_SetVarVal, _INR(0,4), DR_OWNER_VAR, NULL, -1, 0, 0);
 }
 
+/* Set when another program (with this UnixLib) took DigitalRenderer over
+   from this one.  */
+static int dr_taken_over;
+
 /* Non-zero if this program activated DigitalRenderer and nobody has taken
    it over since.  */
 static int
@@ -102,6 +109,7 @@ dr_is_ours (void)
   if (atoi (buf) == (int) getpid ())
     return 1;
   dr_owner = 0;			/* taken over by another program */
+  dr_taken_over = 1;
   return 0;
 }
 
@@ -199,6 +207,7 @@ activate_defaults (void)
   if (err == NULL)
     {
       dr_owner = 1;
+      dr_taken_over = 0;
       dsp_owner_pid = getpid ();
       dr_claim ();
     }
@@ -335,17 +344,24 @@ dr_write (struct __unixlib_fd *fd, const void *data, int nbyte)
   */
   {
     int state;
-    if ((err = check_state (&state)) == NULL && !dr_is_ours ())
+    if ((err = check_state (&state)) == NULL)
       {
-        /* Someone else is playing: DigitalRenderer has one user at a
-           time, so take it over (as before), but only now that this
-           program has something to play.  */
-        if (state & DRState_Active)
-          DRender_Deactivate ();
-        err = activate_defaults ();
+        int ours = dr_is_ours ();
+        if (!(state & DRState_Active))
+          err = activate_defaults ();	/* nobody is playing */
+        else if (!ours && !dr_taken_over)
+          {
+            /* Someone else is playing: DigitalRenderer has one user at a
+               time, so take it over (as before), but only now that this
+               program has something to play.  */
+            DRender_Deactivate ();
+            err = activate_defaults ();
+          }
+        /* 2026: else either ours, or another program took it over from
+           this one: then stream into its session, as before, rather than
+           take it back on every write (two programs would fight over it
+           and both stutter).  Its exit is its business.  */
       }
-    else if (err == NULL && !(state & DRState_Active))
-      err = activate_defaults ();
     if (err)
       return __ul_seterr (err, EOPSYS);
   }
@@ -544,6 +560,16 @@ dr_ioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
 #define SSB_OUT_FRAG_DEFAULT 4096	/* output bytes: 1024 frames */
 #define SSB_NFRAGS_DEFAULT   8		/* ~190 ms at 44.1 kHz */
 
+/* 2026: <sys/soundcard.h> encodes requests one of two ways: with its own
+   _SIOR (direction "out" = 0x20000000) or, when <sys/ioctl.h> was included
+   first, with _IOR (0x40000000).  A program may use either, so the
+   read-only requests told apart by their full value are checked in both.
+   (With the second encoding, a read request has the same value as the
+   first encoding's _SIOW write request: only treat a value as a read
+   where no write request of that number is handled.)  */
+#define OSS_READ(enc, n)  ((unsigned long) ((enc) | ((sizeof (int) & 0x1fff) << 16) | ('P' << 8) | (n)))
+#define OSS_IS_READ(req, n)  ((req) == OSS_READ (0x20000000, n) || (req) == OSS_READ (0x40000000, n))
+
 enum { BACKEND_NONE, BACKEND_DR, BACKEND_SSB };
 static int dsp_backend = BACKEND_NONE;
 /* 2026: /dev/dsp descriptors open in this program (dup()s share one).  The
@@ -552,6 +578,7 @@ static int dsp_backend = BACKEND_NONE;
    its settings, and its close switched the first one to DigitalRenderer
    (SDL probes the device like this).  */
 static int dsp_opens;
+static pid_t dsp_open_pid;	/* the process that opened it */
 
 static struct
 {
@@ -998,7 +1025,10 @@ ssb_ioctl (struct __unixlib_fd *fd, unsigned long full_request, void *arg)
       return 0;
 
     case SNDCTL_DSP_GETTRIGGER & 0xffff:	/* and SETTRIGGER */
-      if (full_request == (unsigned long) SNDCTL_DSP_GETTRIGGER)
+      /* GETTRIGGER in either encoding (OSS_READ).  The second one has the
+	 same value as SETTRIGGER in the first; writing PCM_ENABLE_OUTPUT
+	 back to a SETTRIGGER caller is harmless (it is ignored anyway).  */
+      if (OSS_IS_READ (full_request, 16))
 	*iarg = PCM_ENABLE_OUTPUT;
       return 0;
     }
@@ -1021,9 +1051,14 @@ __dsp_exit (void)
     return;
   ssb_close_stream ();
   dr_exit ();
-  /* The process is ending: the descriptors are closed after this.  */
-  dsp_opens = 0;
-  dsp_backend = BACKEND_NONE;
+  /* The process is ending: the descriptors are closed after this.  Not if
+     another process (the parent of a vfork child that played on the
+     parent's descriptor) opened them: they are still the parent's.  */
+  if (dsp_open_pid == getpid ())
+    {
+      dsp_opens = 0;
+      dsp_backend = BACKEND_NONE;
+    }
 }
 
 void *
@@ -1046,6 +1081,7 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
       dsp_backend = BACKEND_SSB;
       ssb_set_defaults ();
       dsp_opens = 1;
+      dsp_open_pid = getpid ();
       return (void *) 1;
     }
   if (force_ssb)
@@ -1056,7 +1092,10 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
   dsp_backend = BACKEND_DR;
   ret = dr_open (fd, file, mode);
   if (ret != (void *) -1)
-    dsp_opens = 1;
+    {
+      dsp_opens = 1;
+      dsp_open_pid = getpid ();
+    }
   return ret;
 }
 
@@ -1097,26 +1136,23 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
      read-only SOUND_PCM_READ_* requests have the same low bits as the
      setting ones (READ_RATE = SPEED, READ_BITS = SETFMT, READ_CHANNELS =
      CHANNELS): READ_RATE with 0 used to set the rate to 4000 Hz.  Answer
-     them here from the full request.  SNDCTL_DSP_PROFILE (same low bits as
-     GETODELAY) is a hint: accept it and leave the argument alone.  */
-  if (request == (unsigned long) SOUND_PCM_READ_RATE
-      || request == (unsigned long) SOUND_PCM_READ_CHANNELS
-      || request == (unsigned long) SOUND_PCM_READ_BITS)
+     them here from the full request, in either encoding (see
+     OSS_READ).  */
+  if (OSS_IS_READ (request, 2) || OSS_IS_READ (request, 5)
+      || OSS_IS_READ (request, 6))
     {
       int ssbe = dsp_backend == BACKEND_SSB;
       int fmt = ssbe ? ssb.format : dr_format;
       if (!arg)
 	return __set_errno (EINVAL);
-      if (request == (unsigned long) SOUND_PCM_READ_RATE)
+      if (OSS_IS_READ (request, 2))
 	*(int *) arg = ssbe ? ssb.rate : dr_frequency;
-      else if (request == (unsigned long) SOUND_PCM_READ_CHANNELS)
+      else if (OSS_IS_READ (request, 6))
 	*(int *) arg = ssbe ? ssb.channels : dr_channels;
       else
 	*(int *) arg = (fmt == AFMT_S16_LE || fmt == AFMT_S16_BE) ? 16 : 8;
       return 0;
     }
-  if (request == (unsigned long) SNDCTL_DSP_PROFILE)
-    return 0;
   if (dsp_backend == BACKEND_SSB)
     return ssb_ioctl (fd, request, arg);
   return dr_ioctl (fd, request, arg);

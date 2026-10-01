@@ -283,8 +283,18 @@ static void test_read_ioctls (void)
   x = 0;
   CHECK (__dspioctl (&FD, SOUND_PCM_READ_BITS, &x) == 0 && x == 16, "READ_BITS gives 16 (%d)", x);
   CHECK (ioc (SNDCTL_DSP_SETFMT, AFMT_QUERY) == AFMT_S16_LE, "READ_BITS didn't change the format");
-  x = 1234;
-  CHECK (__dspioctl (&FD, SNDCTL_DSP_PROFILE, &x) == 0 && x == 1234, "PROFILE accepted, argument left alone");
+  /* The same requests as encoded when <sys/ioctl.h> came first (_IOR,
+     direction 0x40000000).  */
+  x = 0;
+  CHECK (__dspioctl (&FD, 0x40045002, &x) == 0 && x == 22050 && F.rate == 22050, "READ_RATE (_IOR encoding) gives 22050 (%d), rate %d", x, F.rate);
+  x = 0;
+  CHECK (__dspioctl (&FD, 0x40045006, &x) == 0 && x == 1, "READ_CHANNELS (_IOR encoding) gives 1 (%d)", x);
+  /* GETODELAY with _IOR (0x40045017) is SNDCTL_DSP_PROFILE in the other
+     encoding: it must still be answered as GETODELAY.  */
+  x = -5;
+  CHECK (__dspioctl (&FD, 0x40045017, &x) == 0 && x >= 0, "GETODELAY (_IOR encoding) answered (%d)", x);
+  x = 0;
+  CHECK (__dspioctl (&FD, 0x40045010, &x) == 0 && x == PCM_ENABLE_OUTPUT, "GETTRIGGER (_IOR encoding) answered (%d)", x);
   __dspclose (&FD);
   /* DigitalRenderer path too.  */
   fake_reset (); F.modules = 0; dr_state = 0;
@@ -309,6 +319,20 @@ static void test_fork_child_exit (void)
   fake_pid = 100;
   __dsp_exit ();
   CHECK (!F.open && F.closes == 1, "the parent's own exit closes it");
+
+  /* A vfork child writes first on the parent's descriptor (so the stream
+     is the child's) and exits: the descriptor is still the parent's, so
+     its next write must still go to SharedSoundBuffer.  */
+  fake_reset (); fake_pid = 100;
+  dsp_open (O_WRONLY);
+  fake_pid = 200;
+  __dspwrite (&FD, buf, sizeof buf);
+  __dsp_exit ();
+  fake_pid = 100;
+  int acts = dr_activations, opens = F.opens;
+  CHECK (__dspwrite (&FD, buf, sizeof buf) == (int) sizeof buf && F.opens == opens + 1 && dr_activations == acts,
+	 "after a vfork child played and exited, the parent's descriptor still uses SharedSoundBuffer");
+  __dsp_exit ();
 
   fake_reset (); F.modules = 0; dr_state = 0; dr_deactivations = 0; fake_pid = 100;
   dsp_open (O_WRONLY);
@@ -337,18 +361,25 @@ static void test_dr_takeover (void)
   CHECK (dr_deactivations == deact && dr_state == 1, "A's exit leaves B's session alone");
   CHECK (strcmp (F.var_owner, "300") == 0, "and leaves B's claim");
 
-  /* A takes it back by writing; then its exit stops it.  */
+  /* A writes again while B plays: it streams into B's session, as before,
+     rather than take it back on every write (they would fight).  */
   fake_reset (); F.modules = 0; dr_state = 0; dr_deactivations = dr_activations = 0;
   dsp_open (O_WRONLY);
   __dspwrite (&FD, buf, sizeof buf);
   snprintf (F.var_owner, sizeof F.var_owner, "300");
   deact = dr_deactivations;
+  int acts = dr_activations;
   __dspwrite (&FD, buf, sizeof buf);
-  CHECK (dr_deactivations == deact + 1 && strcmp (F.var_owner, "100") == 0, "writing after a takeover takes it back");
+  __dspwrite (&FD, buf, sizeof buf);
+  CHECK (dr_deactivations == deact && dr_activations == acts && strcmp (F.var_owner, "300") == 0, "writing after a takeover doesn't fight over it");
+  /* B stops: A's next write starts its own session again.  */
+  dr_state = 0; F.var_set = 0;
+  __dspwrite (&FD, buf, sizeof buf);
+  CHECK (dr_activations == acts + 1 && F.var_set && strcmp (F.var_owner, "100") == 0, "once the other program stopped, A starts again and claims it");
   __dsp_exit ();
   CHECK (dr_state == 0 && !F.var_set, "exit stops it and removes the claim");
 
-  /* No variable (an older UnixLib took over): behaves as before.  */
+  /* The variable can't be read (deleted): assumed ours, as before.  */
   fake_reset (); F.modules = 0; dr_state = 0;
   dsp_open (O_WRONLY);
   __dspwrite (&FD, buf, sizeof buf);

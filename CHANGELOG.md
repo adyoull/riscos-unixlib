@@ -25,11 +25,15 @@ run on RISC OS.
   Further opens share the first one's stream and settings.
 - **`SOUND_PCM_READ_RATE` no longer sets the rate to 4000 Hz**
   (`READ_CHANNELS` and `READ_BITS` had the same problem): they are told
-  apart from SPEED/CHANNELS/SETFMT by the full request now.
+  apart from SPEED/CHANNELS/SETFMT by the full request now, in both of
+  `<sys/soundcard.h>`'s encodings (with or without `<sys/ioctl.h>` first).
+  `GETTRIGGER` likewise.
 - **DigitalRenderer takeover:** a program whose DigitalRenderer session
   another program took over no longer stops that program's sound when it
-  exits. The owner's pid is kept in the system variable
-  `UnixLib$DSPOwner`.
+  exits, and doesn't take it back on every write either (it streams into
+  the new owner's session, as before). The owner's pid is kept in the
+  system variable `UnixLib$DSPOwner`; programs built with older UnixLibs
+  don't set it, and can't be told apart.
 - **`swprintf` and `wcsftime` refuse formats with characters above 0xFF**
   (EILSEQ / 0). Characters such as U+FF25 were narrowed to `%` and started
   conversions with no argument behind them.
@@ -40,8 +44,16 @@ run on RISC OS.
   ReadMe and MAINTAINING say that riscos-unixlib is an **unofficial fork**
   of GCCSDK's UnixLib, not a GCCSDK release; `configure.ac`'s bug-report
   address is this repo's issues page.
-- Tests: host tests for all of the above (dsp 151 checks, midi 24, ticker
-  38, new `tests/host/wchar` 8); the previous code fails them.
+- Tests: host tests for the sound, wide-character and ticker fixes (dsp
+  156 checks, midi 24, ticker 38, new `tests/host/wchar` 8); the previous
+  code fails them. The sound tests now use UnixLib's `<sys/soundcard.h>`
+  (they used the PC's). Not covered: `__pthread_prog_fini` itself (only
+  the ticker functions it calls are), and `glob()` (checked by its stack
+  frame size only).
+- The fixes were reviewed again (Opus and Sonnet). That review found a
+  regression in the first version (`SNDCTL_DSP_PROFILE` special case broke
+  `GETODELAY` for programs including `<sys/ioctl.h>` first), two
+  DigitalRenderer programs fighting over it, and a vfork case; fixed.
 
 ## 5.0.3 (2026-09-30, tag v5.0.3)
 

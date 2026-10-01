@@ -526,7 +526,9 @@ MIDISynth connection and stopped its DigitalRenderer session.
 
 **Change.** Each records the process that opened the stream or connection
 or activated DigitalRenderer (`getpid()`). In any other process the exit
-functions do nothing. A child's descriptor closes never reach the device:
+functions do nothing. If a vfork child was the first to play on the
+parent's descriptor, its exit closes its stream, but it leaves the
+parent's open count alone. A child's descriptor closes never reach the device:
 SUL increments the refcounts at fork.
 
 ### S7. A second open of `/dev/dsp` (`sound/dsp.c`) - commit `401f52a`
@@ -550,8 +552,14 @@ rate to 4000 Hz. On the old DigitalRenderer path a rate of 0 was ignored,
 so this was a regression from S3.
 
 **Change.** They are answered from the full request on both paths, without
-changing anything. `SNDCTL_DSP_PROFILE` (same low bits as `GETODELAY`) is
-accepted and its argument left alone.
+changing anything. `<sys/soundcard.h>` encodes requests in one of two ways:
+its own `_SIOR`, or `<sys/ioctl.h>`'s `_IOR` if that header was included
+first. Both are accepted, here and for `SNDCTL_DSP_GETTRIGGER`.
+
+A first version of this fix also special-cased `SNDCTL_DSP_PROFILE`. In the
+second encoding, though, `GETODELAY` has the same value as `PROFILE`, so
+that broke `GETODELAY` for such programs. The second review of the fixes
+caught it, and the special case was removed.
 
 ### S9. DigitalRenderer taken over by another program (`sound/dsp.c`) - commit `401f52a`
 
@@ -562,16 +570,27 @@ samples into B's session.
 
 **Change.** DigitalRenderer doesn't say who is using it, so a program that
 activates it puts its pid in the system variable `UnixLib$DSPOwner`. It
-only deactivates if the variable still holds its pid, and a write after a
-takeover takes it back properly. The variable is removed when the owner
-deactivates. If the variable is missing (for example, a program built
-with an older UnixLib took over and didn't set it), the old behaviour
-applies.
+only deactivates if the variable still holds its pid. The variable is
+removed when the owner deactivates.
+
+A program whose session was taken over, and which writes again while the
+new owner is playing, streams into that session, as before. A first
+version took the session back on every write, so two programs would fight
+over it; the second review caught that. Once the other program has
+stopped, the next write starts and claims a new session.
+
+A program that doesn't set the variable can't be detected: one built with
+an older UnixLib, or one not using UnixLib. After it takes over, the
+variable still holds the first program's pid, and the first program stops
+DigitalRenderer when it closes or exits, as it always did.
 
 **Verification of S6-S9.** Host tests, with fakes for `getpid` and system
 variables:
-- dsp: 151 checks;
+- dsp: 156 checks;
 - midi: 24 checks.
+
+They now use UnixLib's own `<sys/soundcard.h>`, so the RISC OS request
+numbers are tested. Before, they picked up the PC's header.
 
 Against the previous `dsp.c`:
 - the second-open test hangs (the first descriptor ends up waiting on
@@ -718,6 +737,9 @@ machine.
   started, then returns without writing stats, detaching or freeing the
   block.
 - `__pthread_ticker_fini` and the stats writer refuse in a child too.
+- If `__pthread_ticker_init` never ran (a fatal error earlier in
+  `__pthread_prog_init`), the process counts as the owner, so its block is
+  still freed, as before.
 
 **Verification.** `tests/host/ticker` (38 checks): a child's fini doesn't
 detach, and the parent's does. `__pthread_prog_fini` itself isn't in a

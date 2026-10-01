@@ -95,11 +95,13 @@ find_module (const char **base, void **ws)
 static pid_t owner_pid;
 
 /* Non-zero in the process that set the ticker up, zero in a fork()/vfork()
-   child of it.  */
+   child of it.  Also non-zero if __pthread_ticker_init never ran (a fatal
+   error early in __pthread_prog_init): then the block is this process's
+   and should still be freed, as before.  */
 int
 __pthread_ticker_owner (void)
 {
-  return getpid () == owner_pid;
+  return owner_pid == 0 || getpid () == owner_pid;
 }
 
 /* Called once by __pthread_prog_init: use the PThreadTicker module's
