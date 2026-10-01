@@ -64,6 +64,13 @@ LargeFile   files over 2GB (built with -D_FILE_OFFSET_BITS=64): makes a
             3GB file LargeTest in this folder, checks seeking, sizes and
             data past 2GB, deletes it; must print PASS. Needs 3GB free on
             a filing system with files over 2GB, and a few minutes
+BigHeap     a heap past 128 MB: allocates up to 320 MB in 16 MB blocks,
+            checks them, lists the heap's dynamic areas ("UnixLibTest
+            Heap", "UnixLibTest Heap 2"...) and tries one 128 MB + 64 KB
+            block (say whether it was allocated). Must print PASS. Needs
+            about 350 MB free.
+HeapCheck   run after BigHeap has quit: must print PASS (no "UnixLibTest
+            Heap" area left behind; the Task Manager should agree)
 
 Please report: what each one printed, whether it sounded right, any
 clicks or gaps, and the "max queued" figure.

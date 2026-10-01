@@ -1,0 +1,4 @@
+| After BigHeap has quit: none of its heap areas may be left.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 1024K
+Run <UST$Dir>.heaptest -check

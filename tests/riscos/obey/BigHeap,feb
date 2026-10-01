@@ -1,0 +1,5 @@
+| A heap past 128 MB: allocates up to 320 MB in 16 MB blocks and lists
+| the heap's dynamic areas. Must print PASS; then run HeapCheck.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 1024K
+Run <UST$Dir>.heaptest
