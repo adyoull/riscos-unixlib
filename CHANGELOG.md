@@ -9,7 +9,9 @@ How to release: docs/MAINTAINING.md.
 
 - Pi 4 with rc9: `Ticker` PASS, both threads counted about 1.5 billion in
   20 s while the task polled about a million times (rc8: both 0);
-  `TickerStartTask` PASS (3 child tasks, both threads about 1.2 billion). K9.
+  `TickerStartTask` PASS (3 child tasks, both threads about 1.2 billion);
+  with PThreadTicker 0.03 loaded, `Ticker`, `ForkThreads` (module in use,
+  RMKill refused) and `ExitJoin` PASS. K9.
 
 ## 5.0.3.1-rc9 (2026-10-01, pre-release, tag v5.0.3.1-rc9)
 
