@@ -2,6 +2,8 @@
    past 128 MB for a single block?  Changes nothing outside itself: every
    area it makes is removed before it ends.
 
+   A0. Two areas made one straight after the other, letting RISC OS choose
+      where (as UnixLib does now): do they come out next to each other?
    A. Adjacent areas: make a normal area, then ask for a second one with
       its base (R3) just after the first one's maximum.  If RISC OS puts it
       there, fill the first to its maximum and write across the join.
@@ -89,6 +91,36 @@ area_remove (int num)
   const _kernel_oserror *e;
   if (num && (e = _swix (OS_DynamicArea, _INR(0,1), 1, num)) != NULL)
     say ("  !! removing area %d: %s\n", num, errtext (e));
+}
+
+/* ---- A0: two areas in a row, RISC OS choosing where ---- */
+static void
+probe_in_a_row (void)
+{
+  const _kernel_oserror *e1, *e2;
+  int a = 0, b = 0;
+  unsigned abase, amax, bbase, bmax;
+
+  say ("\nA0. Two areas made in a row (RISC OS chooses where)\n");
+  e1 = area_create (FLAG_NOT_DRAGGABLE, 512 * MB, -1, 0, 0, "DAProbe A0",
+		    &a, &abase, &amax);
+  e2 = area_create (FLAG_NOT_DRAGGABLE, 512 * MB, -1, 0, 0, "DAProbe B0",
+		    &b, &bbase, &bmax);
+  if (e1 || e2)
+    say ("  %s / %s\n", errtext (e1), errtext (e2));
+  else
+    {
+      say ("  first  &%08X-&%08X\n  second &%08X-&%08X\n", abase,
+	   abase + amax, bbase, bbase + bmax);
+      if (bbase == abase + amax || abase == bbase + bmax)
+	say ("  RESULT A0: they are next to each other (one 256 MB range)\n");
+      else
+	say ("  RESULT A0: not next to each other (gap of %d MB)\n",
+	     (int) ((bbase > abase ? bbase - (abase + amax)
+		     : abase - (bbase + bmax)) / MB));
+    }
+  area_remove (b);
+  area_remove (a);
 }
 
 /* ---- A: adjacent areas ---- */
@@ -289,6 +321,7 @@ main (int argc, char **argv)
   if (argc > 1)
     logf = fopen (argv[1], "w");
   say ("DAProbe: can one heap block be bigger than 128 MB?\n");
+  probe_in_a_row ();
   probe_adjacent ();
   probe_pmp ();
   say ("\nDone. All test areas removed%s%s.\n",
