@@ -7,6 +7,23 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+## 5.0.3.1-rc9 (2026-10-01, pre-release, tag v5.0.3.1-rc9)
+
+- **Threads run in a Wimp program that polls often.** The Wimp filters
+  stopped the thread ticker in `Wimp_Poll` and restarted it afterwards,
+  which began a new 2 cs period each time, so a program polling more
+  often than that (SDL programs do) never switched threads: `Ticker` on
+  the Pi counted both threads 0. Now the ticker keeps running; a tick
+  while the program is in `Wimp_Poll` is held, and the post-filter
+  switches threads as `Wimp_Poll` returns. MODIFICATIONS.md K9,
+  docs/THREAD-TICKER.md.
+- PThreadTicker 0.03 (interface version 2) with the new routines.
+  UnixLib 5.0.3.1 uses only 0.03 and earlier UnixLib only 0.01/0.02;
+  otherwise a program runs its own copy. The pthread RMA block is 640
+  bytes (was 472).
+- `UnixLib$TickerStats` lines have `post_switches`.
+- RISC OS tests: `Ticker` reports FAIL if a thread never ran.
+
 - Pi 4 with rc8: `ForkOnly`, `ForkThreads` and `ForkExec` PASS (K8, X2);
   `ExitJoin` (X1), `FsyncRO` (F1) and `Sched` (P1, P2) PASS.
 

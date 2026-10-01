@@ -39,7 +39,10 @@ ExitJoin    a thread joined from an atexit() handler: must print PASS,
 FsyncRO     fsync() on a read-only file: must print PASS
 Ticker      two busy threads in a Wimp task for 20 s while other tasks run
             (have Alarm, a clock or Organizer running). Ends with an error
-            box saying PASS; no other program may crash. The log
+            box saying PASS: both threads counted more than 0 although the
+            task polls far more often than every 2 cs (5.0.3.1; before,
+            they got no time and were counted 0). No other program may
+            crash. The log
             <Wimp$ScrapDir>.tickertest also shows whether the task handle
             UnixLib saw at start-up matches Wimp_Initialise's.
 TickerEarly the same with the threads started before Wimp_Initialise: the
@@ -49,7 +52,10 @@ TickerStartTask
             which busy-waits 1 s) with Wimp_StartTask
             Run the three Ticker tests twice: first as they are (the
             lines end via=RMA), then after LoadTicker (the PThreadTicker
-            module from this folder: via=module). To keep the module,
+            module from this folder, 0.03: via=module; an older
+            PThreadTicker isn't used, so the lines stay via=RMA). The
+            post_switches count is how often the threads were switched
+            as Wimp_Poll returned. To keep the module,
             copy PThrTicker into !Boot.Resources.!System.310.Modules
             and RMEnsure it from a !Run file; it can't be killed while a
             program uses it.

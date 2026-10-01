@@ -1,5 +1,7 @@
 | Two busy threads in a Wimp task for 20 s while other tasks run.
-| Have Alarm, a clock or Organizer running. Nothing else should crash.
+| Have Alarm, a clock or Organizer running. Nothing else should crash, and
+| the box must say PASS: both threads counted more than 0 (5.0.3.1).
+| With LoadTicker first, the TickerStats line must end via=module.
 Set UST$Dir <Obey$Dir>
 Set UnixLib$TickerStats <Wimp$ScrapDir>.TickerStats
 WimpSlot -min 8000K

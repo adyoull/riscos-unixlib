@@ -16,6 +16,8 @@
                busy-waits 1 s).  The child runs while we're paged out, but
                we never called Wimp_Poll, so the pre-filter isn't called.
    -child      used by -starttask.
+   The task polls with null events, far more often than every 2 cs: both
+   threads must still run (5.0.3.1; before, they were counted 0).
    Have some other desktop programs running (Alarm, a clock, Organizer).
    Results go to <Wimp$ScrapDir>.tickertest and an error box at the end.
    With UnixLib$TickerStats set (the Obey files set it), UnixLib appends
@@ -125,10 +127,14 @@ int main (int argc, char **argv)
     stop = 1;
     for (i = 0; i < 2; i++)
       pthread_join (t[i], NULL);
+    /* 5.0.3.1: the threads must run even though this task polls far
+       more often than every 2 cs (they used to get no time at all).  */
     snprintf (msg, sizeof msg,
-	      "PASS: %lu polls, %lu child tasks, threads counted %lu and %lu. "
-	      "Did any other program crash?", polls, children,
-	      count[0], count[1]);
+	      "%s: %lu polls, %lu child tasks, threads counted %lu and %lu%s. "
+	      "Did any other program crash?",
+	      count[0] && count[1] ? "PASS" : "FAIL", polls, children,
+	      count[0], count[1],
+	      count[0] && count[1] ? "" : " (a thread never ran)");
   }
   fprintf (log, "%s\n", msg);
   if (log != stderr) fclose (log);
