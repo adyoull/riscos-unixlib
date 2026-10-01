@@ -47,7 +47,7 @@ static void __badr (void) __attribute__ ((__noreturn__));
 
 /* Only called externally from here - see comment below */
 extern void __dsp_exit(void);
-extern void __midi_exit(void);
+extern void __midi_exit(void);	/* 2026: sound/midi.c */
 
 static struct proc ___u;
 struct proc *__u = &___u;	/* current process */
@@ -387,7 +387,7 @@ _exit (int return_code)
 
   /* De-register with DigitalRenderer in case of an exception */
   __dsp_exit();
-  __midi_exit();
+  __midi_exit();	/* 2026: notes off, if this program used /dev/midi */
 
   /* Convert the 16-bit return code into an 8-bit equivalent
      for compatibility with RISC OS.

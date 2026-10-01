@@ -9,6 +9,9 @@
 #include <internal/local.h>
 #include <internal/os.h>
 
+/* 2026: these wrappers list "memory" (the SWIs read the strings) and give
+   R0 as an output too (an X SWI returns its error pointer there).  */
+
 static __inline__ size_t __attribute__ ((always_inline))
 get_var_len (const char *name)
 {

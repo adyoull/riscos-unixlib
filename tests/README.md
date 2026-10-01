@@ -13,10 +13,10 @@ say SKIP; they run on a machine that has them.
 
 | Directory | Tests | Checks |
 |---|---|---|
-| `host/dsp` | `sound/dsp.c`: SharedSoundBuffer output (formats, partial frames, blocking/non-blocking, latency, fragments, reset, a stalled stream, exit), a second open sharing the first, the `SOUND_PCM_READ_*` requests, a fork child's exit, and the DigitalRenderer path, including the exit bug and a takeover by another program (`UnixLib$DSPOwner`), with request numbers in both `<sys/soundcard.h>` encodings | 156 |
-| `host/midi` | `sound/midi.c`: MIDISynth module and MIDI module paths, sharing, exit (and a fork child's exit), env overrides | 24 |
+| `host/dsp` | `sound/dsp.c`: SharedSoundBuffer output (formats, partial frames, blocking/non-blocking, latency, fragments, reset, a stalled stream, exit), a second open sharing the first, the `SOUND_PCM_READ_*` requests, a fork child's exit, and the DigitalRenderer path, including the exit bug and a takeover by another program (`UnixLib$DSPOwner`), with request numbers in both `<sys/soundcard.h>` encodings; fragment-size limits and `GETOPTR` after `RESET` | 162 |
+| `host/midi` | `sound/midi.c`: MIDISynth module and MIDI module paths, sharing, exit (and a fork child's exit), env overrides, a full MIDISynth (`EAGAIN`, waiting, `EIO`), close not resetting hardware it never used | 28 |
 | `host/ticker` | `pthread/ticker.c`: the PThreadTicker module's routines (found by name, attach/detach, a wrong magic ignored) or the RMA copy, the Wimp filters following the task handle (and removed with the handle they were registered with), threads before `Wimp_Initialise`, registration failures, the `UnixLib$TickerStats` line, a fork child not detaching. Has its own `fake/` for the few UnixLib internals used | 38 |
-| `host/wchar` | `swprintf`/`wcsftime` from `wchar/wmissing.c`, compiled for the PC with their names changed: formats, truncation, a large `n`, and formats with characters above 0xFF refused | 8 |
+| `host/wchar` | `swprintf`/`wcsftime` and the `wcsto*` conversions from `wchar/wmissing.c`, compiled for the PC with their names changed: formats, truncation, a large `n`, formats with characters above 0xFF refused, numbers longer than 127 characters | 12 |
 | `host/fake` | The fake RISC OS, shared by both: `swis.h`/`kernel.h` (a variadic `_swix`), `internal/*.h` (the few UnixLib internals used), `DRender.h` (fake DigitalRenderer), `riscos.c`/`riscos.h` (SharedSoundBuffer and StreamManager playing in simulated time, `clock`, `pthread_yield`, `getenv`, `getpid`, the `UnixLib$DSPOwner` system variable), `sys/soundcard.h` (UnixLib's own, not the PC's), `prelude.h` (renames those calls to the fakes) | |
 
 Run one with `host/dsp/run.sh`, `host/midi/run.sh`, `host/ticker/run.sh` or `host/wchar/run.sh`. The midi test has its
@@ -32,18 +32,21 @@ Read the "Traps" section of `docs/MAINTAINING.md` before editing the fakes
 `emu/ticker_test.py` runs the thread ticker routines from a build (the
 PThreadTicker module `build/work/build/pthticker` and UnixLib's
 `_context.o`) in the Unicorn ARM emulator with faked SWIs: the module's
-header and interface table, its workspace, attach/detach and refusing to
-be killed while in use, the handler with our task and another task paged
+header and interface table, its workspace, attach/detach (with IRQs off
+via `OS_IntOff`/`OS_IntOn`, flags restored) and refusing to be killed
+while in use, the handler with our task and another task paged
 in, the filters (registers and flags preserved), and UnixLib's copy run
-from another address. 77 checks.
+from another address. 82 checks.
 
 `emu/swi_test.py` links `emu/swi_stub.c` with the built `libunixlib.a` and
 runs library functions that call SWIs, with the SWIs faked as RISC OS
 behaves: `__standard_time` (`ctime`, `asctime`) must return its buffer
 although Territory_ConvertDateAndTime changes R2, and `__fsread`
 (`read()`) must touch every page of a stack buffer before OS_GBPB writes
-to it, and leave other buffers alone. 20 checks; the library before these
-fixes fails 6 of them (`ctime` returns &27, as in Warzone 2100's crash).
+to it (also in a stack below the stack pointer, as another thread's can
+be), and leave other buffers alone. 22 checks; 5.0.2 fails 6 of the 19
+it had then (`ctime` returns &27, as in Warzone 2100's crash), and 5.0.3
+fails the 2 for a stack below the stack pointer.
 
 `make check` runs them when there's a build, the cross toolchain and the
 Python `unicorn` module (`pip install unicorn`); otherwise it says SKIP.

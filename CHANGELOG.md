@@ -64,6 +64,12 @@ How to release: docs/MAINTAINING.md.
   Latent: no wrong code was found from either. MODIFICATIONS.md R1 no
   longer says every wrapper was checked (the 18 in `DRender.h` weren't).
 
+- libtool `-version-info` 6:0:1 (interfaces were added since the
+  import; the shared library's major version stays 5).
+- Docs: `2026:` markers added where seven files lacked them;
+  `docs/TODO.md` renumbered and the fixed items removed; test counts in
+  `tests/README.md` updated.
+
 ## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
 
 Fixes for problems in 5.0.3 (and earlier) found by an independent review

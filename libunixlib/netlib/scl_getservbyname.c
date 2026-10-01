@@ -12,6 +12,7 @@ getservbyname (const char *__name, const char *__proto)
   register const char *name __asm ("r0") = __name;
   register const char *proto __asm ("r1") = __proto;
   struct servent *rtrn;
+  /* 2026: R0 is an output too (the error pointer), and "memory".  */
   __asm volatile ("SWI\t%[SWI_XInetServices_GetServiceByName]\n\t"
 		  "MOVVC\t%[rtrn], r2\n\t"
 		  "MOVVS\t%[rtrn], #0\n\t"

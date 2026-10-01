@@ -60,6 +60,13 @@ worked around in the program or SDL today. Ordered by how much they hurt.
 port; added in 5.0.1. The scheduler still has no real-time policies:
 `pthread_setschedparam` refuses them with ENOTSUP.)
 
+## 6. Small things in the merged code
+
+- The keyboard: SDL's key-up detection polls `OS_Byte 121`; not a UnixLib
+  issue, listed in the SDL notes.
+- (Fixed in 5.0.3.1-rc2: the missing 0–255 guard in `wchar/wctype_l.c`,
+  and the unlocked `hr_last_ns` in `__ul_monotonic_ns`.)
+
 ## 7. Sound: not done yet
 
 - `/dev/dsp` recording (no input).
@@ -72,17 +79,6 @@ port; added in 5.0.1. The scheduler still has no real-time policies:
   here); `SNDCTL_DSP_RESET` closes the stream and the next write reopens it.
 - GCCSDK's GCC 4.7.4 UnixLib (used by PackMan programs such as ffplay) needs
   the same change upstream; see README "Which programs get the changes".
-
-## 6. Small things in the merged code
-
-- `wchar/wctype_l.c` (`iswalnum_l` …, from GCCSDK) doesn't have the 0–255
-  guard that `wctype.c` now has; a wide character above 255 reads past the
-  ctype tables. Same one-line fix.
-- `__ul_monotonic_ns` keeps `hr_last_ns` in a static without a lock; two
-  threads reading at the same moment could each see the other's value. It
-  can't go backwards by more than the race window. Harmless so far.
-- The keyboard: SDL's key-up detection polls `OS_Byte 121`; not a UnixLib
-  issue, listed in the SDL notes.
 
 ## 8. Thread ticker: loose ends
 

@@ -14,6 +14,7 @@ getservbyport (int __port, const char *__proto)
   register int port __asm ("r0") = ntohs (__port);
   register int proto __asm ("r1") = (int) __proto;
   struct servent *rtrn;
+  /* 2026: R0 is an output too (the error pointer), and "memory".  */
   __asm volatile ("SWI\t%[SWI_XInetServices_GetServiceByPort]\n\t"
 		  "MOVVC\t%[rtrn], r2\n\t"
 		  "MOVVS\t%[rtrn], #0\n\t"
