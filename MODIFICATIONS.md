@@ -358,7 +358,8 @@ placement above. The end-to-end heap (rc4) passed: `BigHeap` filled
 "... Heap 3" (320 MB in 16 MB blocks, data intact), then got **one 200 MB
 block** across the areas, intact. `HeapCheck`: no area left after exit.
 `HeapProbe` again placed two areas side by side and one at the base
-asked for.
+asked for. OpenTTD 14.1 relinked with rc4 runs with its heap across
+several areas and loads a 4096x4096 map (tile array 128 MB + 16 bytes).
 
 ### F1. `fsync` on read-only files; `fdatasync` (`unix/sync.c`, `include/unistd.h`) - commit `751de68`
 
@@ -1163,8 +1164,7 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 - R1 and R2 (on the machine where Warzone 2100 crashed).
 - K5-K7, S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
   from the 2026-10-01 review);
-- A2 in OpenTTD (`!MemCheck`, a 4096x4096 map); `BigHeap` and
-  `HeapCheck` passed on the Pi with rc4;
+
 - `*RMKill PThreadTicker` while a threaded program runs: must refuse. This
   also settles a point the review disputed (whether `OS_Module 18` returns
   the module's private word or its address in R4).

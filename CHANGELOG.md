@@ -8,7 +8,8 @@ How to release: docs/MAINTAINING.md.
 ## Unreleased
 
 - Pi 4 result for 5.0.3.1-rc4: `BigHeap` PASS (two full 128 MB areas and
-  a third, then one 200 MB block across them), `HeapCheck` PASS.
+  a third, then one 200 MB block across them), `HeapCheck` PASS. OpenTTD
+  relinked with rc4 loads a 4096x4096 map.
 
 ## 5.0.3.1-rc4 (2026-10-01, pre-release, tag v5.0.3.1-rc4)
 
