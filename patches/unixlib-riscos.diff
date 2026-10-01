@@ -668,12 +668,17 @@ index 0000000..af20ac3
 +\p\()_end:
 +.endm
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
-index 9f57871..bcf5da2 100644
+index 9f57871..fd30273 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
-@@ -428,7 +428,7 @@ extern void __free_process (struct __sul_process *process)
+@@ -427,8 +427,12 @@ extern void __unixinit (void);
+ extern void __free_process (struct __sul_process *process)
  	__nonnull ((1));
  
++/* 2026: end the process with a wait status (<sys/wait.h> encoding);
++   _exit takes a plain exit code.  */
++extern void __exit_status (int __status) __attribute__ ((__noreturn__));
++
  extern pid_t __fork_post (pid_t pid, int isfork);
 -extern int __fork_pre (int isfork, void **sul_fork, pid_t *pid);
 +extern int __fork_pre (int isfork, void **sul_fork, pid_t *pid, void *sp);
@@ -2403,6 +2408,26 @@ index 0000000..09a1e5a
 +    return __set_errno (EINVAL);
 +  return 0;
 +}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/signal/post.c b/gcc4/recipe/files/gcc/libunixlib/signal/post.c
+index cb0fc62..ae6e701 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/signal/post.c
++++ b/gcc4/recipe/files/gcc/libunixlib/signal/post.c
+@@ -723,7 +723,7 @@ death:
+ 	  }
+ 
+ 	/* Die, returning information about how we died.  */
+-	_exit (status);
++	__exit_status (status);	/* 2026: was _exit */
+ 	/* Never reached.  */
+ 	break;
+       }
+@@ -903,5 +903,5 @@ error:
+   __os_print (err);
+   __os_print ("  Exiting.");
+   __os_nl ();
+-  _exit (W_EXITCODE (0, signo));
++  __exit_status (W_EXITCODE (0, signo));	/* 2026: was _exit */
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c b/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c
 index d9221ef..da1d370 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c
@@ -4118,7 +4143,7 @@ index 79e92bd..266b0fc 100644
  
  #ifndef __TARGET_SCL__
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
-index 3f7c274..b6d8867 100644
+index 3f7c274..879fad7 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
 @@ -835,6 +835,7 @@ __dynamic_area_exit:
@@ -4129,6 +4154,24 @@ index 3f7c274..b6d8867 100644
  
  	LDR	a2, .L1+4		@=__ul_global
   PICEQ "LDR	a2, [v4, a2]"
+@@ -1134,7 +1135,7 @@ raise_sigstak:
+ 	MOV	a1, #0
+ 	MOV	a2, #SIGSTAK
+ 	BL	__unixlib_raise_signal
+-	B	_exit		@ __unixlib_raise_signal shouldn't return
++	B	__exit_status	@ __unixlib_raise_signal shouldn't return (2026: was _exit)
+ 
+ #if __UNIXLIB_EXTREMELY_PARANOID || __UNIXLIB_STACK_CHECK_MAGIC
+ stack_corrupt_msg:
+@@ -1455,7 +1456,7 @@ __unixlib_fatal_got_msg:
+ 	SWI	XOS_Write0
+ 	SWI	XOS_NewLine
+ 	MOV	a1, #1
+-	BL	_exit
++	BL	__exit_status	@ 2026: was _exit
+ 	@ Should never return
+ #ifdef __ARM_EABI__
+ 	LDMIA	sp!, {v1, fp, pc}
 @@ -1537,3 +1538,12 @@ __ul_memory:
  	.word	0			@ appspace_limit	offset = 44
  	.word	0			@ old_himem		offset = 48
@@ -5414,7 +5457,7 @@ index dee2f50..57bf85f 100644
    return lseek (fd, (__off_t) offset, whence);
  }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
-index 7f47f19..d92c6ae 100644
+index 7f47f19..43df299 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
 @@ -47,6 +47,7 @@ static void __badr (void) __attribute__ ((__noreturn__));
@@ -5425,7 +5468,36 @@ index 7f47f19..d92c6ae 100644
  
  static struct proc ___u;
  struct proc *__u = &___u;	/* current process */
-@@ -386,6 +387,7 @@ _exit (int return_code)
+@@ -359,14 +360,25 @@ _Exit (int status)
+      reserved for the run-time library internals.  */
+   status = status & 0x7f;
+ 
+-  _exit (__W_EXITCODE (status, 0));
++  __exit_status (__W_EXITCODE (status, 0));
++}
++
++/* POSIX _exit: 'status' is a plain exit code, as for exit().
++   2026: in GCCSDK UnixLib _exit itself took a wait status
++   (<sys/wait.h> encoding), so a program's _exit(1) was reported to its
++   parent as death by signal 1, and _exit(3) as signal 3.  */
++void
++_exit (int status)
++{
++  __exit_status (__W_EXITCODE (status & 0xff, 0));
+ }
+ 
+ /* Final process termination. 'return_code' is a 16-bit
+    encoded quantity as defined by <sys/wait.h>.
+-   Also called via __unixlib_fatal() so don't assume too much.  */
++   Also called via __unixlib_fatal() so don't assume too much.
++   2026: was _exit.  */
+ void
+-_exit (int return_code)
++__exit_status (int return_code)
+ {
+   struct ul_global *gbl = &__ul_global;
+   struct __sul_process *sulproc = gbl->sulproc;
+@@ -386,6 +398,7 @@ _exit (int return_code)
  
    /* De-register with DigitalRenderer in case of an exception */
    __dsp_exit();
@@ -5434,10 +5506,10 @@ index 7f47f19..d92c6ae 100644
    /* Convert the 16-bit return code into an 8-bit equivalent
       for compatibility with RISC OS.
 diff --git a/gcc4/recipe/files/gcc/libunixlib/vscript b/gcc4/recipe/files/gcc/libunixlib/vscript
-index 606421f..4d833bf 100644
+index 606421f..27b2ff2 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/vscript
 +++ b/gcc4/recipe/files/gcc/libunixlib/vscript
-@@ -16,7 +16,13 @@ VERSION {
+@@ -16,12 +16,19 @@ VERSION {
       __close;
       __custom*;
       __dsp*;
@@ -5451,7 +5523,13 @@ index 606421f..4d833bf 100644
       __dynamic_area_refcount;
       __env_read;
       __env_riscos;
-@@ -126,6 +132,10 @@ VERSION {
+      __env_unixlib;
+      __exit_with_error_num;
++     __exit_status;
+      __fd_to_name;
+      __fork_pre;
+      __fork_post;
+@@ -126,6 +133,10 @@ VERSION {
       _vsnprintf;
  
       __pthread_prog_init;
