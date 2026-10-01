@@ -7,6 +7,19 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+## 5.0.3.1-rc5 (2026-10-01, pre-release, tag v5.0.3.1-rc5)
+
+- **A fork/vfork child's exit no longer frees its parent's stack** (EABI).
+  SharedUnixLibrary frees the stack named in an exiting process's
+  structure, and a child's structure is a copy of its parent's, so the
+  child's exit (after a fork, a failed exec, or a command run by
+  `system()`/`popen()`) freed the parent's stack and the parent aborted
+  later. Found by the new `ForkExec` test on the Pi. MODIFICATIONS.md K8.
+- RISC OS tests: `ForkExec` no longer expects an exec of a missing file to
+  fail inside the child (on RISC OS it runs as a command, which fails, so
+  the child exits non-zero); fork moved to the new `ForkOnly` (no threads)
+  and `ForkThreads`.
+
 - Pi 4: `*RMKill PThreadTicker` is refused while a UnixLib program uses
   the module, which settles the review's disputed point (OS_Module 18's
   R4 is the private word's contents).

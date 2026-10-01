@@ -1,0 +1,5 @@
+| fork without threads: is fork itself safe here? Must print PASS.
+| (fork from the threaded ForkExec test aborted on the Pi.)
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.fxtest -fork -nothreads

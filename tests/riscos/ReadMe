@@ -71,12 +71,16 @@ BigHeap     a heap past 128 MB: allocates up to 320 MB in 16 MB blocks,
             Needs about 350 MB free.
 HeapCheck   run after BigHeap has quit: must print PASS (no "UnixLibTest
             Heap" area left behind; the Task Manager should agree)
-ForkExec    fork, vfork + a failing exec, and system() from a program
+ForkExec    vfork + an exec that fails, and system(), from a program
             with two busy threads, three times each: the threads must keep
             running. With the PThreadTicker module loaded (LoadTicker), it
             also checks the module still counts the program, and that
             *RMKill PThreadTicker is refused while it runs. Must print
             PASS. Run it once before LoadTicker and once after.
+ForkOnly    fork() three times, no threads: must print PASS.
+ForkThreads fork() from a program with two busy threads (as ForkExec, with
+            fork added): must print PASS. With 5.0.3.1-rc4 this aborted
+            ("abort on data transfer") as fork returned in the parent.
 HeapProbe   a probe, not a pass/fail test: can one heap block be bigger
             than 128 MB? Tries (A) a second dynamic area placed right
             after the first, and (B) "physical memory pool" areas of

@@ -1,0 +1,5 @@
+| fork from a program with two busy threads (aborted on the Pi with
+| 5.0.3.1-rc4). Run ForkOnly first.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.fxtest -fork

@@ -7,11 +7,16 @@
    vfork + exec fails, or that calls system().
 
    With two busy threads running, this does:
-     1. vfork + exec of a program that doesn't exist (the child _exits),
-     2. fork + _exit,
-     3. system("Echo ..."), a vfork + exec that works,
+     1. vfork + exec of a program that doesn't exist (on RISC OS the exec
+        runs it as a command, which fails, so the child exits non-zero),
+     2. system("Echo ..."), a vfork + exec that works,
    three times each, and after every one checks that the threads still
-   get the processor.  If the PThreadTicker module is loaded (run
+   get the processor.
+
+     fxtest -fork            also fork + _exit (with the threads)
+     fxtest -fork -nothreads only fork + _exit, no threads: is fork itself
+                             safe? (On the Pi, fork from the threaded test
+                             aborted in the parent as it came back.)  If the PThreadTicker module is loaded (run
    LoadTicker first), it also checks that the module still counts this
    program as a user, and at the end that it refuses to be killed
    (OS_Module 4) while this program runs.  Must print PASS.  */
@@ -63,7 +68,7 @@ threads_run (const char *after)
 static int
 ticker_users (unsigned int *ws_out)
 {
-  unsigned int ws = 0;
+  static unsigned int ws = 0;
   if (_swix (OS_Module, _INR(0,1) | _OUT(4), 18, "PThreadTicker", &ws))
     return -1;
   if (ws_out)
@@ -73,15 +78,56 @@ ticker_users (unsigned int *ws_out)
   return *(volatile int *) ws;
 }
 
+static void
+step (const char *what)
+{
+  printf ("  %s\n", what);
+  fflush (stdout);
+}
+
 int
-main (void)
+main (int argc, char **argv)
 {
   pthread_t t[2];
-  int i, status, users0, users;
-  unsigned int ws = 0;
-  pid_t pid;
+  static int i, status, users0, users, do_fork = 0, threads = 1;
+  /* static: a vfork child shares (and may change) this stack frame.  */
+  static unsigned int ws = 0;
+  static pid_t pid;
 
-  printf ("fxtest: fork/vfork/exec from a threaded program\n");
+  for (i = 1; i < argc; i++)
+    if (!strcmp (argv[i], "-fork"))
+      do_fork = 1;
+    else if (!strcmp (argv[i], "-nothreads"))
+      threads = 0;
+
+  if (!threads)
+    {
+      printf ("fxtest: fork without threads\n");
+      for (i = 0; i < 3; i++)
+	{
+	  step ("fork");
+	  pid = fork ();
+	  if (pid == 0)
+	    _exit (3);
+	  if (pid < 0)
+	    {
+	      printf ("fork failed: %s\n", strerror (errno));
+	      return 1;
+	    }
+	  step ("back in the parent; waiting");
+	  waitpid (pid, &status, 0);
+	  if (!WIFEXITED (status) || WEXITSTATUS (status) != 3)
+	    {
+	      printf ("FAIL: fork child status %d\n", status);
+	      return 1;
+	    }
+	}
+      printf ("PASS: fork without threads\n");
+      return 0;
+    }
+
+  printf ("fxtest: vfork/exec%s from a threaded program\n",
+	  do_fork ? " and fork" : "");
   for (i = 0; i < 2; i++)
     if (pthread_create (&t[i], NULL, spin, (void *) (long) i))
       {
@@ -108,6 +154,7 @@ main (void)
   for (i = 0; i < 3; i++)
     {
       /* 1. vfork + exec that fails.  */
+      step ("vfork + exec of a program that doesn't exist");
       pid = vfork ();
       if (pid == 0)
 	{
@@ -122,32 +169,38 @@ main (void)
       else
 	{
 	  waitpid (pid, &status, 0);
-	  if (!WIFEXITED (status) || WEXITSTATUS (status) != 127)
+	  if (!WIFEXITED (status) || WEXITSTATUS (status) == 0)
 	    {
-	      printf ("FAIL: vfork child status %d\n", status);
+	      printf ("FAIL: vfork child status %d (should be an exit with "
+		      "a non-zero code)\n", status);
 	      fails++;
 	    }
 	}
       threads_run ("a vfork whose exec failed");
 
-      /* 2. fork + _exit.  */
-      pid = fork ();
-      if (pid == 0)
-	_exit (3);
-      if (pid < 0)
-	printf ("(fork not available here: %s)\n", strerror (errno));
-      else
+      /* fork + _exit, only with -fork.  */
+      if (do_fork)
 	{
-	  waitpid (pid, &status, 0);
-	  if (!WIFEXITED (status) || WEXITSTATUS (status) != 3)
+	  step ("fork");
+	  pid = fork ();
+	  if (pid == 0)
+	    _exit (3);
+	  if (pid < 0)
+	    printf ("(fork not available here: %s)\n", strerror (errno));
+	  else
 	    {
-	      printf ("FAIL: fork child status %d\n", status);
-	      fails++;
+	      waitpid (pid, &status, 0);
+	      if (!WIFEXITED (status) || WEXITSTATUS (status) != 3)
+		{
+		  printf ("FAIL: fork child status %d\n", status);
+		  fails++;
+		}
 	    }
+	  threads_run ("a fork child's exit");
 	}
-      threads_run ("a fork child's exit");
 
-      /* 3. system(): vfork + exec that works.  */
+      /* 2. system(): vfork + exec that works.  */
+      step ("system()");
       if (system ("Echo   (a command run by system)") != 0)
 	{
 	  printf ("FAIL: system()\n");
