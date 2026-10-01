@@ -8,9 +8,11 @@ various documents elsewhere in this distribution, the source, and a proper
 manual (like <URL:http://www.opengroup.org/onlinepubs/007904975/download/>
 and <URL:http://www.opengroup.org/onlinepubs/007908799/>).
 
-The UnixLib is part of the RISC OS GCCSDK and its home page is at
-<URL:http://gccsdk.riscos.info/>. This should be checked for
-updates and bug-fixes.
+This is riscos-unixlib, an unofficial fork of the UnixLib that is part of
+the RISC OS GCCSDK (home page <URL:http://gccsdk.riscos.info/>). It is not
+released or supported by the GCCSDK developers: report problems with this
+version at <URL:https://github.com/adyoull/riscos-unixlib>, where its
+changes from GCCSDK's UnixLib are listed (MODIFICATIONS.md).
 
 
 What

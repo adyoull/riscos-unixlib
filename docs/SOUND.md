@@ -50,7 +50,22 @@ short instead of hanging.
 
 **The exit bug.** Every UnixLib program used to stop DigitalRenderer when it
 quit, even if it never made a sound, so quitting any UnixLib program cut off
-another one's sound. Fixed on both paths.
+another one's sound. Now a program only stops what it started:
+
+- A program that never played leaves DigitalRenderer alone.
+- If another program took DigitalRenderer over, the first one's exit
+  leaves the new owner alone. The owner's pid is kept in the system
+  variable `UnixLib$DSPOwner`; a program built with an older UnixLib
+  doesn't set it, so this only works when both programs use this one.
+- A fork/vfork child's exit leaves the parent's stream or session alone.
+
+**More than one open.** The device is per program: a second `open` of
+`/dev/dsp` shares the first one's stream and settings (changing a setting
+on one changes it for both), and only the last `close` drains and closes
+the stream.
+
+**Reading settings.** `SOUND_PCM_READ_RATE`, `SOUND_PCM_READ_CHANNELS` and
+`SOUND_PCM_READ_BITS` report the current settings without changing them.
 
 ## /dev/midi (raw MIDI out)
 

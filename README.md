@@ -1,5 +1,13 @@
 # riscos-unixlib
 
+> **This is an unofficial fork of GCCSDK's UnixLib.** It is not made,
+> released or supported by the GCCSDK developers. Its version numbers
+> (5.0.1, 5.0.2, ...) continue from the GCCSDK UnixLib 5.0 it is based on,
+> but they are this fork's releases, not GCCSDK's. Please report problems
+> with it [here](https://github.com/adyoull/riscos-unixlib/issues), not to
+> GCCSDK. The official UnixLib is part of GCCSDK:
+> <http://gccsdk.riscos.info/>.
+
 UnixLib (the C library of the GCCSDK GCC 10 `arm-riscos-gnueabihf` toolchain)
 with the fixes made while porting programs to RISC OS: OpenTTD 14.1,
 Warzone 2100 2.3.9 and the riscos-mesa SDL2 work. One place for all UnixLib

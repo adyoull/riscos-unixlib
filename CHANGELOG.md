@@ -7,6 +7,42 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+Found by an independent review of all the changes (2026-10-01). Not yet
+run on RISC OS.
+
+- **Thread ticker: a fork/vfork child's exit no longer tears down the
+  parent's ticker.** `_exit()` in the child (e.g. after a failed `exec`)
+  freed the parent's pthread RMA block and detached it from PThreadTicker;
+  the parent then restarted its ticker on the freed block, which now holds
+  running code and counters. Only the process that set the ticker up
+  (`__pthread_ticker_owner`) frees it now.
+- **Sound: a fork/vfork child's exit no longer closes the parent's
+  SharedSoundBuffer stream or MIDISynth connection, or stops its
+  DigitalRenderer session.**
+- **`/dev/dsp` opened a second time no longer breaks the first
+  descriptor** (it closed its stream, reset its settings, and closing it
+  switched the first to DigitalRenderer; SDL's device probing does this).
+  Further opens share the first one's stream and settings.
+- **`SOUND_PCM_READ_RATE` no longer sets the rate to 4000 Hz**
+  (`READ_CHANNELS` and `READ_BITS` had the same problem): they are told
+  apart from SPEED/CHANNELS/SETFMT by the full request now.
+- **DigitalRenderer takeover:** a program whose DigitalRenderer session
+  another program took over no longer stops that program's sound when it
+  exits. The owner's pid is kept in the system variable
+  `UnixLib$DSPOwner`.
+- **`swprintf` and `wcsftime` refuse formats with characters above 0xFF**
+  (EILSEQ / 0). Characters such as U+FF25 were narrowed to `%` and started
+  conversions with no argument behind them.
+- **`glob()` with `GLOB_ALTDIRFUNC` in programs built with
+  `_FILE_OFFSET_BITS=64`** no longer overruns a stack buffer by 8 bytes
+  (new in 5.0.2: the program's `gl_stat` fills the larger struct stat).
+- Docs: README, `doc/UnixLib/Help`, MODIFICATIONS, the PThreadTicker
+  ReadMe and MAINTAINING say that riscos-unixlib is an **unofficial fork**
+  of GCCSDK's UnixLib, not a GCCSDK release; `configure.ac`'s bug-report
+  address is this repo's issues page.
+- Tests: host tests for all of the above (dsp 151 checks, midi 24, ticker
+  38, new `tests/host/wchar` 8); the previous code fails them.
+
 ## 5.0.3 (2026-09-30, tag v5.0.3)
 
 Fixes found by Warzone 2100 (on another user's Pi 4) and riscos-plex. The

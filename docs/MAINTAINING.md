@@ -88,6 +88,13 @@ Anything not yet run on RISC OS is released as a **pre-release**
 (`vX.Y.Z-rcN`, marked "pre-release" on GitHub) and re-released without
 the suffix after the Pi tests pass.
 
+**This is an unofficial fork; say so.** README, `doc/UnixLib/Help`, the
+`configure.ac` bug-report address, the PThreadTicker ReadMe and every
+release note and announcement must make clear that this is riscos-unixlib,
+an unofficial fork of GCCSDK's UnixLib, not a GCCSDK release, and send
+problem reports to this repo. Don't describe a release as tested on RISC OS
+unless its own changes were.
+
 1. Move "Unreleased" to a version heading with the date; commit.
 2. Set the version in `configure.ac` and `doc/UnixLib/Help`; `git tag -a vX.Y.Z -m "UnixLib X.Y.Z (riscos-unixlib)"`.
 3. `make release TAG=vX.Y.Z`: builds from clean, runs `make check`, and

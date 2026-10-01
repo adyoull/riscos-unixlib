@@ -5,18 +5,21 @@
 Runs everything that doesn't need RISC OS or the cross compiler: the host
 tests below, a check that `patches/` matches the git history, a dry run of
 both patches against unchanged GCCSDK UnixLib, and a syntax check of the
-scripts. GitHub Actions runs it on every push.
+scripts. GitHub Actions runs it on every push, but without the cross
+compiler or the `unicorn` module, so there the emulator and ABI checks
+say SKIP; they run on a machine that has them.
 
 ## `host/`: UnixLib code on a PC with a fake RISC OS
 
 | Directory | Tests | Checks |
 |---|---|---|
-| `host/dsp` | `sound/dsp.c`: SharedSoundBuffer output (formats, partial frames, blocking/non-blocking, latency, fragments, reset, a stalled stream, exit) and the DigitalRenderer path, including the exit bug | 124 |
-| `host/midi` | `sound/midi.c`: MIDISynth module and MIDI module paths, sharing, exit, env overrides | 20 |
-| `host/ticker` | `pthread/ticker.c`: the PThreadTicker module's routines (found by name, attach/detach, a wrong magic ignored) or the RMA copy, the Wimp filters following the task handle (and removed with the handle they were registered with), threads before `Wimp_Initialise`, registration failures, the `UnixLib$TickerStats` line. Has its own `fake/` for the few UnixLib internals used | 34 |
-| `host/fake` | The fake RISC OS, shared by both: `swis.h`/`kernel.h` (a variadic `_swix`), `internal/*.h` (the few UnixLib internals used), `DRender.h` (fake DigitalRenderer), `riscos.c`/`riscos.h` (SharedSoundBuffer and StreamManager playing in simulated time, `clock`, `pthread_yield`, `getenv`), `prelude.h` (renames those calls to the fakes) | |
+| `host/dsp` | `sound/dsp.c`: SharedSoundBuffer output (formats, partial frames, blocking/non-blocking, latency, fragments, reset, a stalled stream, exit), a second open sharing the first, the `SOUND_PCM_READ_*` requests, a fork child's exit, and the DigitalRenderer path, including the exit bug and a takeover by another program (`UnixLib$DSPOwner`) | 151 |
+| `host/midi` | `sound/midi.c`: MIDISynth module and MIDI module paths, sharing, exit (and a fork child's exit), env overrides | 24 |
+| `host/ticker` | `pthread/ticker.c`: the PThreadTicker module's routines (found by name, attach/detach, a wrong magic ignored) or the RMA copy, the Wimp filters following the task handle (and removed with the handle they were registered with), threads before `Wimp_Initialise`, registration failures, the `UnixLib$TickerStats` line, a fork child not detaching. Has its own `fake/` for the few UnixLib internals used | 38 |
+| `host/wchar` | `swprintf`/`wcsftime` from `wchar/wmissing.c`, compiled for the PC with their names changed: formats, truncation, a large `n`, and formats with characters above 0xFF refused | 8 |
+| `host/fake` | The fake RISC OS, shared by both: `swis.h`/`kernel.h` (a variadic `_swix`), `internal/*.h` (the few UnixLib internals used), `DRender.h` (fake DigitalRenderer), `riscos.c`/`riscos.h` (SharedSoundBuffer and StreamManager playing in simulated time, `clock`, `pthread_yield`, `getenv`, `getpid`, the `UnixLib$DSPOwner` system variable), `prelude.h` (renames those calls to the fakes) | |
 
-Run one with `host/dsp/run.sh`, `host/midi/run.sh` or `host/ticker/run.sh`. The midi test has its
+Run one with `host/dsp/run.sh`, `host/midi/run.sh`, `host/ticker/run.sh` or `host/wchar/run.sh`. The midi test has its
 own fake SWIs in `test_midi.c`; it only uses the headers from `fake/`.
 
 Before trusting a new check, break the code it guards and see it fail.

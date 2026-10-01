@@ -1,5 +1,9 @@
 # riscos-unixlib - every change from GCCSDK UnixLib, and why
 
+riscos-unixlib is an **unofficial fork** of the UnixLib in GCCSDK. It is
+not made, released or supported by the GCCSDK developers, and its version
+numbers (5.0.1 onwards) are its own releases, not GCCSDK's.
+
 This document lists **every** difference between `libunixlib/` and the
 UnixLib in GCCSDK. For each change it gives the problem, the evidence, what
 was changed, why it was done that way, what it means for programs, and how
@@ -7,7 +11,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 48 modified files and 7 added files).
+diff against unchanged GCCSDK UnixLib: 49 modified files and 7 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S5) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -29,32 +33,33 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1279 |
-| Modified (listed below) | 48 |
+| Byte-identical to GCCSDK `64c6f81` | 1278 |
+| Modified (listed below) | 49 |
 | Added | 7 |
 | Removed relative to upstream | 0 |
 
 | File | Change |
 |---|---|
-| `wchar/wctype.c`, `wchar/wmissing.c` | W1 wide-character functions |
+| `wchar/wctype.c`, `wchar/wmissing.c` | W1 wide-character functions, W2 `swprintf`/`wcsftime` formats |
 | `time/clk_gettime.c` | T1 high-resolution `CLOCK_MONOTONIC` |
 | `signal/sleep.c` | T2 `nanosleep` accuracy |
 | `stdlib/alloc.c` | A1 no `mmap` for large blocks on EABI |
-| `sound/dsp.c` | S1 exit bug, S2 default format, S3 SharedSoundBuffer output, S4 empty block |
-| `sound/midi.c` (**new**), `common/__stat.c`, `unix/unix.c` | S5 `/dev/midi` |
+| `sound/dsp.c` | S1 exit bug, S2 default format, S3 SharedSoundBuffer output, S4 empty block, S6-S9 (fork children, second opens, READ ioctls, takeover) |
+| `sound/midi.c` (**new**), `common/__stat.c`, `unix/unix.c` | S5 `/dev/midi`, S6 (fork children) |
 | `unix/sync.c` | F1 `fsync` on read-only files, `fdatasync` |
 | `stdlib/atexit.c` | X1 atexit handlers with thread switching allowed |
 | `sched/sched_prio.c` (**new**), `include/sched.h` | P1 `sched_get_priority_min/max` |
 | `pthread/schedparam.c`, `pthread/newnode.c` | P2 `pthread_setschedparam` |
-| `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s` | K1-K4 thread ticker |
+| `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s` | K1-K5 thread ticker |
 | `include/sys/stat.h`, `incl-local/sys/stat.h`, `unix/stat64.c` (**new**), `unix/stat.c`, `unix/lstat.c`, `unix/fstat.c`, `unix/scl_fstat.c` | L1 `struct stat64` with a 64-bit size |
 | `unix/ul_lseek.c`, `stdio/fseeko.c`, `stdio/ftello.c`, `stdio/fgetpos.c`, `stdio/fsetpos.c` | L2 64-bit seeking to 4GB-1 |
 | `unix/truncate.c` | L3 `truncate64`, `ftruncate64` |
 | `sys/mmap64.c` (**new**), `include/sys/mman.h` | L4 `mmap64` |
+| `unix/glob.c` | L5 `glob()` with `GLOB_ALTDIRFUNC` |
 | `include/unistd.h` | F1 (`fdatasync`), L3 (declarations and redirects) |
 | `unix/dev.c`, `incl-local/internal/dev.h` | S5 (device table), L2 (`__fslseek64`), R2 (`read()` into a stack) |
 | `time/stdtime.c`, `incl-local/internal/os.h`, `incl-local/sys/socket.h`, `common/env.c`, `locale/iconv.c`, `stdio/err.c`, `netlib/scl_getservbyname.c`, `netlib/scl_getservbyport.c`, `resolv/scl_gethostbyname.c` | R1 inline SWI wrappers (`ctime` bad pointer) |
-| `configure.ac`, `doc/UnixLib/Help` | V1 version number |
+| `configure.ac`, `doc/UnixLib/Help` | V1 version number, D1 unofficial fork |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
 
 The modified files keep their original copyright lines. Code added to them
@@ -81,6 +86,7 @@ library:
   behind R1 and R2.
 - riscos-mesa (SDL2, OpenAL Soft): P1, P2.
 - Sound (S1-S5) and large files (L1-L4) were written here.
+- An independent review of all the changes (2026-10-01): K5, S6-S9, W2, L5.
 
 L1-L4 were written from UnixLib's own existing LFS declarations and stubs,
 following the glibc conventions UnixLib's headers already use. The only
@@ -114,6 +120,29 @@ would need tables UnixLib doesn't have, and nothing in the ports needed it.
 above 255 are classified as "none of the above".
 
 **Verification.** In use in the OpenTTD 14.1 port on RISC OS.
+
+### W2. `swprintf` / `wcsftime`: Latin-1 formats only (`wchar/wmissing.c`) - commit `817b839`
+
+**Problem.** W1 narrowed the wide format with `(char) format[i]`, which
+keeps only the low byte. Any character whose low byte is 0x25 (U+0125,
+U+2025, U+FF25 fullwidth E...) became `%` and started a conversion with no
+argument behind it, so `swprintf` read arguments that weren't there.
+
+**Evidence.** Found in review. On the PC, the old code gives
+`swprintf(buf, 64, L"\xff25d|", 7)` = 2 and `"7|"`: the fullwidth E consumed
+the argument as `%d`.
+
+**Change.** A format with a character above 0xFF is refused: `swprintf`
+returns -1 with `EILSEQ`, `wcsftime` returns 0. `swprintf` also measures
+the output first, so a large `n` (e.g. `INT_MAX` as "no limit") doesn't make
+it allocate that much.
+
+**Why this way.** UnixLib's wide functions are Latin-1 only (W1). Passing
+other characters through as literal text would need the format split at
+each conversion, which `vsnprintf` can't do with one `va_list`.
+
+**Verification.** `tests/host/wchar`, in `make check`: the two functions,
+compiled for the PC from the real file, 8 checks. The previous code fails 3.
 
 ### T1. High-resolution `CLOCK_MONOTONIC` (`time/clk_gettime.c`) - commit `fa59226`
 
@@ -488,9 +517,74 @@ frame of space is free.
   expected.
 - Not yet played through a MIDI module on RISC OS.
 
+### S6. A fork/vfork child's exit left the parent without sound (`sound/dsp.c`, `sound/midi.c`) - commit `401f52a`
+
+**Problem.** `_exit()` calls `__dsp_exit` and `__midi_exit` in every
+process. A fork()/vfork() child has a copy of, or shares, the parent's
+variables, so its exit closed the parent's SharedSoundBuffer stream and
+MIDISynth connection and stopped its DigitalRenderer session.
+
+**Change.** Each records the process that opened the stream or connection
+or activated DigitalRenderer (`getpid()`). In any other process the exit
+functions do nothing. A child's descriptor closes never reach the device:
+SUL increments the refcounts at fork.
+
+### S7. A second open of `/dev/dsp` (`sound/dsp.c`) - commit `401f52a`
+
+**Problem.** The device state is per program. A second `open` closed the
+first descriptor's stream and reset its settings, and closing the second
+set the back end to "none", so the first descriptor's next write went to
+DigitalRenderer. SDL's device probing opens and closes the device like this.
+
+**Change.** Further opens share the first one's stream and settings; only
+the last close drains and closes the stream. A real OSS device would keep
+separate settings per open, or return `EBUSY`. Sharing is the change least
+likely to break a program that probes while it plays.
+
+### S8. `SOUND_PCM_READ_*` (`sound/dsp.c`) - commit `401f52a`
+
+**Problem.** Requests are matched on their low 16 bits, and
+`SOUND_PCM_READ_RATE`, `READ_CHANNELS` and `READ_BITS` have the same low bits
+as `SNDCTL_DSP_SPEED`, `CHANNELS` and `SETFMT`. `READ_RATE` with 0 set the
+rate to 4000 Hz. On the old DigitalRenderer path a rate of 0 was ignored,
+so this was a regression from S3.
+
+**Change.** They are answered from the full request on both paths, without
+changing anything. `SNDCTL_DSP_PROFILE` (same low bits as `GETODELAY`) is
+accepted and its argument left alone.
+
+### S9. DigitalRenderer taken over by another program (`sound/dsp.c`) - commit `401f52a`
+
+**Problem.** S1's "only the program that started it stops it" didn't cover
+a takeover. When program B took DigitalRenderer over from A, A still
+believed it owned it: A's exit stopped B's sound, and A's next write pushed
+samples into B's session.
+
+**Change.** DigitalRenderer doesn't say who is using it, so a program that
+activates it puts its pid in the system variable `UnixLib$DSPOwner`. It
+only deactivates if the variable still holds its pid, and a write after a
+takeover takes it back properly. The variable is removed when the owner
+deactivates. If the variable is missing (for example, a program built
+with an older UnixLib took over and didn't set it), the old behaviour
+applies.
+
+**Verification of S6-S9.** Host tests, with fakes for `getpid` and system
+variables:
+- dsp: 151 checks;
+- midi: 24 checks.
+
+Against the previous `dsp.c`:
+- the second-open test hangs (the first descriptor ends up waiting on
+  DigitalRenderer);
+- 9 of the other new checks fail: `READ_RATE` gives 4000, the child's exit
+  closes the stream, and the takeover cases.
+
+Against the previous `midi.c`, the child's exit closes the parent's
+connection. Not yet run on RISC OS.
+
 ---
 
-## 4. Thread ticker (K1-K4)
+## 4. Thread ticker (K1-K5)
 
 Background, the investigation and the `UnixLib$TickerStats` fields are in
 `docs/THREAD-TICKER.md`. In short: UnixLib switches threads with an
@@ -601,9 +695,37 @@ move.
 - **Not yet run on RISC OS:** without the module (the RMA copy, which is the
   same code Warzone riscos16/17 ran), and refusing `*RMKill` while in use.
 
+### K5. A fork/vfork child's exit freed the parent's ticker block (`pthread/pthinit.c`, `pthread/ticker.c`) - commit `0096397`
+
+**Problem.** `_exit()` calls `__pthread_prog_fini` in every process. A
+fork()/vfork() child has a copy of, or shares, the parent's pointer to the
+pthread RMA block and its PThreadTicker attachment. A child that exited
+(typically `_exit(127)` after a failed `exec`) freed the parent's block
+and detached the parent from the module. The parent then restarted its
+ticker on the freed block (`__fork_post`). The free itself was an upstream
+bug. Since K1/K4, though, the block holds running code (the RMA copy) and
+counters the handler writes every 2 cs, and the module could be killed
+while the parent still used it.
+
+**Evidence.** Found in review, by reading the code path. Not seen on a
+machine.
+
+**Change.**
+- `__pthread_ticker_init` records the owning process (`getpid()`, SUL's
+  pid, unique while the process exists), and `__pthread_ticker_owner()`
+  says whether this is it.
+- In a child, `__pthread_prog_fini` only stops a ticker the child may have
+  started, then returns without writing stats, detaching or freeing the
+  block.
+- `__pthread_ticker_fini` and the stats writer refuse in a child too.
+
+**Verification.** `tests/host/ticker` (38 checks): a child's fini doesn't
+detach, and the parent's does. `__pthread_prog_fini` itself isn't in a
+host test, because it needs the whole start-up. Not yet run on RISC OS.
+
 ---
 
-## 5. Files over 2GB (L1-L4)
+## 5. Files over 2GB (L1-L5)
 
 Background and the compatibility table are in `docs/LARGE-FILES.md`.
 
@@ -681,6 +803,21 @@ in 32 bits, otherwise `EOVERFLOW`.
 `_FILE_OFFSET_BITS=64` that call `mmap` still pass the offset wrongly, as
 before, until they are recompiled.
 
+### L5. `glob()` with `GLOB_ALTDIRFUNC` under `_FILE_OFFSET_BITS=64` (`unix/glob.c`) - commit `5da8c32`
+
+**Problem.** New with L1. A program built with `_FILE_OFFSET_BITS=64`
+has a 72-byte `struct stat`. With `GLOB_ALTDIRFUNC` it gives `glob()` its own
+`gl_stat`/`gl_lstat`, which fill that layout. `glob.c` is built without
+large files, though, and passed a 64-byte `struct stat` on its stack, so 8
+bytes were overrun. GNU make does this.
+
+**Change.** `glob2` passes a buffer big enough for either layout (a union of
+`struct stat` and `struct stat64`). It only reads `st_mode`, which comes
+before `st_size` and so is at the same offset in both.
+
+**Verification.** `glob2`'s stack frame grows from 92 to 100 bytes (from
+the disassembly). No runtime test.
+
 ### Verification of L1-L4
 
 `tests/abi/check.sh` runs as part of `make check`. It checks:
@@ -707,6 +844,16 @@ file:
 `AC_INIT` and the Help file say **5.0.3**. Releases continue UnixLib's own
 numbering from GCCSDK's 5.0. The libtool version stays `5:0:0`, because no
 interface was removed.
+
+### D1. Unofficial fork (`doc/UnixLib/Help`, `configure.ac`; README and other docs)
+
+The Help file used to say "The UnixLib is part of the RISC OS GCCSDK … This
+should be checked for updates and bug-fixes", and `configure.ac`'s
+bug-report address was GCCSDK's. Both now say that this is riscos-unixlib,
+an unofficial fork, not released or supported by the GCCSDK developers.
+They send reports to this repo, and the Help file still points to GCCSDK
+for the official UnixLib. README, this file, MAINTAINING and the
+PThreadTicker ReadMe say the same.
 
 ### B1. `Makefile.am`, `vscript`
 
@@ -746,6 +893,10 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 - a threaded program without PThreadTicker;
 - `*RMKill PThreadTicker` refusal;
 - R1 and R2 (on the machine where Warzone 2100 crashed).
+- K5, S6-S9, W2, L5 (the fixes from the 2026-10-01 review);
+- `*RMKill PThreadTicker` while a threaded program runs: must refuse. This
+  also settles a point the review disputed (whether `OS_Module 18` returns
+  the module's private word or its address in R4).
 
 **Stack pages and other SWIs (R2):** only `read()` on RISC OS files maps a
 stack buffer's pages first. Socket reads, OS_File loads, `readlink` and
