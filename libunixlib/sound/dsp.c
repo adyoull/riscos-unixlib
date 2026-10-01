@@ -559,6 +559,7 @@ dr_ioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
 #define SSB_FORMATS (AFMT_S16_LE | AFMT_S16_BE | AFMT_U8 | AFMT_S8 | AFMT_MU_LAW)
 #define SSB_OUT_FRAG_DEFAULT 4096	/* output bytes: 1024 frames */
 #define SSB_NFRAGS_DEFAULT   8		/* ~190 ms at 44.1 kHz */
+#define SSB_CONV_SIZE        8192	/* conversion buffer, output bytes */
 
 /* 2026: <sys/soundcard.h> encodes requests one of two ways: with its own
    _SIOR (direction "out" = 0x20000000) or, when <sys/ioctl.h> was included
@@ -591,8 +592,9 @@ static struct
   unsigned int last_frag;
   unsigned char carry[4];	/* incomplete input frame */
   int carry_len;
-  unsigned char conv[8192] __attribute__ ((aligned (4)));
-				/* conversion buffer, output bytes */
+  unsigned char *conv;		/* SSB_CONV_SIZE output bytes; 2026:
+				   allocated on first use rather than
+				   static in every program */
 } ssb;
 
 static int
@@ -653,6 +655,9 @@ ssb_close_stream (void)
   ssb.handle = ssb.stream = 0;
   ssb.started = 0;
   ssb.carry_len = 0;
+  /* 2026: GETOPTR after RESET counts from zero again (it returned the
+     closed stream's count minus nothing sensible).  */
+  ssb.played_base = ssb.last_frag = 0;
 }
 
 static const _kernel_oserror *
@@ -681,7 +686,7 @@ ssb_open_stream (void)
     }
   /* Room for well over what we queue, so AddBlock never refuses.  */
   _swix (XStreamManager_SetBuffer, _INR(0,1), ssb.stream,
-	 ssb.cap_out * 2 + (int) sizeof (ssb.conv) * 2);
+	 ssb.cap_out * 2 + SSB_CONV_SIZE * 2);
   _swix (XSharedSoundBuffer_SampleRate, _INR(0,1), ssb.handle,
 	 ssb.rate * 1024);
   _swix (XSharedSoundBuffer_Volume, _INR(0,1), ssb.handle, 0xFFFFFFFF);
@@ -786,6 +791,8 @@ ssb_write (struct __unixlib_fd *fd, const void *data, int nbyte)
   int last_q = -1;
   clock_t since = clock ();
 
+  if (ssb.conv == NULL && (ssb.conv = malloc (SSB_CONV_SIZE)) == NULL)
+    return __set_errno (ENOMEM);
   if (!ssb.handle && (err = ssb_open_stream ()) != NULL)
     return __ul_seterr (err, EOPSYS);
 
@@ -815,8 +822,8 @@ ssb_write (struct __unixlib_fd *fd, const void *data, int nbyte)
 	return done ? done : __set_errno (EIO);
       space = ssb.cap_out - q;
       frames = left / fs;
-      if (frames > (int) sizeof (ssb.conv) / 4)
-	frames = sizeof (ssb.conv) / 4;
+      if (frames > SSB_CONV_SIZE / 4)
+	frames = SSB_CONV_SIZE / 4;
       out = frames * 4;
       if (space < out)
 	{
@@ -957,17 +964,23 @@ ssb_ioctl (struct __unixlib_fd *fd, unsigned long full_request, void *arg)
     case SNDCTL_DSP_SETFRAGMENT & 0xffff:
       {
 	int frags = (*iarg >> 16) & 0x7fff;
-	int size = 1 << (*iarg & 0xffff);
+	int shift = *iarg & 0xffff, size;
 	int fs = ssb_in_frame ();
 	int min_cap = ssb.rate * 4 / 50;	/* 20 ms */
 	int max_cap = ssb.rate * 4 * 2;		/* 2 s */
 
-	if ((*iarg & 0xffff) > 16)
-	  size = 65536;
-	if (size < 128)
-	  size = 128;
+	/* 2026: check the exponent before shifting (1 << 40 is undefined),
+	   and keep at least two fragments within the 2 s cap: a fragment
+	   bigger than the cap made GETOSPACE report 0 fragments for ever.  */
+	if (shift > 16)
+	  shift = 16;
+	if (shift < 7)
+	  shift = 7;
+	size = 1 << shift;
 	/* Program bytes -> output bytes, whole frames.  */
 	ssb.frag_out = (size / fs) * 4;
+	if (ssb.frag_out > ((max_cap / 2) & ~3))
+	  ssb.frag_out = (max_cap / 2) & ~3;
 	if (ssb.frag_out < 64)
 	  ssb.frag_out = 64;
 	if (frags == 0 || frags == 0x7fff)
@@ -981,7 +994,7 @@ ssb_ioctl (struct __unixlib_fd *fd, unsigned long full_request, void *arg)
 	  ssb.cap_out = max_cap;
 	if (ssb.handle)
 	  _swix (XStreamManager_SetBuffer, _INR(0,1), ssb.stream,
-		 ssb.cap_out * 2 + (int) sizeof (ssb.conv) * 2);
+		 ssb.cap_out * 2 + SSB_CONV_SIZE * 2);
 	return 0;
       }
 

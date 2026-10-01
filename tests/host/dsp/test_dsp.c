@@ -139,6 +139,28 @@ static void test_fragment_setting (void)
   __dspclose (&FD);
 }
 
+/* 2026 review: a fragment bigger than the 2 s cap left GETOSPACE at 0
+   fragments for ever; an exponent above 31 was an undefined shift.  */
+static void test_fragment_limits (void)
+{
+  fake_reset ();
+  dsp_open (O_WRONLY);
+  ioc (SNDCTL_DSP_SPEED, 8000);
+  ioc (SNDCTL_DSP_SETFMT, AFMT_U8);
+  ioc (SNDCTL_DSP_CHANNELS, 1);			/* 1 byte/frame: 64 KB = 8 s */
+  int fr = (2 << 16) | 16;
+  CHECK (__dspioctl (&FD, SNDCTL_DSP_SETFRAGMENT, &fr) == 0, "SETFRAGMENT 2 x 64K");
+  audio_buf_info bi;
+  __dspioctl (&FD, SNDCTL_DSP_GETOSPACE, &bi);
+  CHECK (bi.fragstotal >= 2 && bi.fragments >= 2, "big fragments: GETOSPACE %d of %d", bi.fragments, bi.fragstotal);
+  CHECK (bi.fragsize * bi.fragstotal <= bi.bytes, "fragments fit the space (%d x %d > %d)", bi.fragsize, bi.fragstotal, bi.bytes);
+  int blk16 = ioc (SNDCTL_DSP_GETBLKSIZE, 0);
+  fr = (2 << 16) | 40;
+  CHECK (__dspioctl (&FD, SNDCTL_DSP_SETFRAGMENT, &fr) == 0
+	 && ioc (SNDCTL_DSP_GETBLKSIZE, 0) == blk16, "exponent 40 treated as 16 (%d, %d)", ioc (SNDCTL_DSP_GETBLKSIZE, 0), blk16);
+  __dspclose (&FD);
+}
+
 static void test_nonblock (void)
 {
   fake_reset ();
@@ -175,7 +197,13 @@ static void test_reset (void)
   dsp_open (O_WRONLY);
   static short buf[8000];
   __dspwrite (&FD, buf, sizeof buf);
+  ioc (SNDCTL_DSP_SYNC, 0);
+  count_info ci;
+  __dspioctl (&FD, SNDCTL_DSP_GETOPTR, &ci);
+  CHECK (ci.blocks > 0, "blocks played before RESET (%d)", ci.blocks);
   CHECK (ioc (SNDCTL_DSP_RESET, 0) == 0 && !F.open, "RESET drops the queue");
+  CHECK (__dspioctl (&FD, SNDCTL_DSP_GETOPTR, &ci) == 0 && ci.bytes == 0 && ci.blocks == 0,
+	 "GETOPTR after RESET starts again (%d bytes, %d blocks)", ci.bytes, ci.blocks);
   CHECK (__dspwrite (&FD, buf, sizeof buf) == (int) sizeof buf && F.open && F.opens == 2, "writing again reopens");
   __dspclose (&FD);
 }
@@ -399,6 +427,7 @@ int main (void)
   test_partial_frames ();
   test_blocking_and_latency ();
   test_fragment_setting ();
+  test_fragment_limits ();
   test_nonblock ();
   test_short_sound_starts ();
   test_reset ();

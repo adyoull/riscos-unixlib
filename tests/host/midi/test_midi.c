@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include "swis.h"
 #include "internal/dev.h"
+#include "internal/unix.h"
 #include <sys/soundcard.h>
 
 char *program_invocation_short_name = "midiprog";
@@ -18,6 +19,11 @@ static _kernel_oserror e = { 1, "x" };
 int __ul_seterr (const _kernel_oserror *er, int en) { (void) er; errno = en; return -1; }
 int fake_pid = 100;
 int fake_getpid (void) { return fake_pid; }
+static struct fake_callevery_block cb;
+struct ul_global __ul_global = { 1, &cb };
+static long now_cs; static int yields, frees_after = -1;
+int fake_yield (void) { now_cs++; yields++; return 0; }
+long fake_clock (void) { return now_cs++; }
 char *fake_getenv (const char *n) { return strcmp (n, "UnixLib$MIDI") == 0 ? env_midi : NULL; }
 
 /* SWI numbers the fake hands out: 0x100.. */
@@ -45,6 +51,7 @@ const _kernel_oserror *_swix (int swi, unsigned mask, ...)
     case 0x102:
       {
         if (in[0] != 0x55) return &e;
+        if (frees_after >= 0 && yields >= frees_after) synth_limit = 1 << 20;
         int n = in[2] < synth_limit ? in[2] : synth_limit;
         memcpy (synth_buf + synth_len, (void *) (long) in[1], n); synth_len += n; *out[0] = n; return NULL;
       }
@@ -86,8 +93,18 @@ int main (void)
   CHECK (hw_len == 0, "synth preferred over MIDI hardware");
   synth_limit = 5; synth_len = 0;
   CHECK (__midiwrite (&FD, song, sizeof song) == (int) sizeof song && synth_len == (int) sizeof song, "partial accepts are retried");
-  synth_limit = 0;
-  CHECK (__midiwrite (&FD, song, sizeof song) == 0, "module full -> short write");
+  /* Module full and nothing written: it used to return 0, which a
+     write-all loop retries for ever.  */
+  synth_limit = 0; errno = 0; FD.fflag = O_WRONLY | O_NONBLOCK;
+  CHECK (__midiwrite (&FD, song, sizeof song) == -1 && errno == EAGAIN, "module full, non-blocking -> EAGAIN");
+  FD.fflag = O_WRONLY; yields = 0; frees_after = 3; synth_len = 0;
+  CHECK (__midiwrite (&FD, song, sizeof song) == (int) sizeof song && yields == 3, "module full, blocking -> waits for room (%d yields)", yields);
+  synth_limit = 0; frees_after = -1; now_cs = 0; errno = 0;
+  CHECK (__midiwrite (&FD, song, sizeof song) == -1 && errno == EIO && now_cs > 200, "stuck module -> EIO after 2 s");
+  cb.pthread_worksemaphore = 1; yields = 0; now_cs = 0;
+  __midiwrite (&FD, song, sizeof song);
+  CHECK (yields == 0, "no pthread_yield with thread switching held off");
+  cb.pthread_worksemaphore = 0;
   synth_limit = 1 << 20;
   CHECK (__midiioctl (&FD, SNDCTL_SEQ_RESET, NULL) == 0 && synth_resets == 1, "SEQ_RESET -> MIDISynth_Reset");
   CHECK (op (O_WRONLY) == (void *) 1 && synth_opens == 1, "second open shares the connection");
@@ -107,6 +124,9 @@ int main (void)
   CHECK (__midiwrite (&FD, song, 5) == 5 && hw_len == 5 && memcmp (hw_buf, song, 5) == 0, "MIDI_TxByte per byte");
   hw_len = 0; __midiclose (&FD);
   CHECK (hw_len == 16 * 6 && hw_buf[0] == 0xB0 && hw_buf[1] == 123 && hw_buf[4] == 121, "close sends all notes off / reset controllers");
+  reset (); have_hw = 1;
+  op (O_WRONLY); __midiclose (&FD);
+  CHECK (hw_len == 0, "close without writing leaves the hardware alone (%d bytes sent)", hw_len);
 
   reset (); have_synth = have_hw = 1; env_midi = "MIDI";
   op (O_WRONLY); __midiwrite (&FD, song, 3);

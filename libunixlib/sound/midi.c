@@ -28,11 +28,14 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <swis.h>
+#include <time.h>
+#include <pthread.h>
 #include <sys/types.h>
 #include <sys/soundcard.h>
 
 #include <internal/os.h>
 #include <internal/dev.h>
+#include <internal/unix.h>
 
 enum { MIDI_NONE, MIDI_SYNTH, MIDI_HW };
 
@@ -44,6 +47,9 @@ static int synth_handle;
    a copy of (or shares) these variables but must not close the parent's
    connection when it exits.  */
 static pid_t midi_owner_pid;
+/* 2026: something was sent to MIDI hardware since the connection was made
+   (close only resets the 16 channels then).  */
+static int hw_written;
 
 /* Avoid warnings, but don't advertise.  */
 void __midi_exit (void);
@@ -140,11 +146,12 @@ midi_disconnect (void)
 {
   if (midi_kind == MIDI_SYNTH)
     _swix (swi_close, _IN(0), synth_handle);
-  else if (midi_kind == MIDI_HW)
+  else if (midi_kind == MIDI_HW && hw_written)
     hw_panic ();
   midi_kind = MIDI_NONE;
   midi_opens = 0;
   synth_handle = 0;
+  hw_written = 0;
 }
 
 int
@@ -156,6 +163,16 @@ __midiclose (struct __unixlib_fd *fd)
   return 0;
 }
 
+/* Let other threads run while waiting, when that's allowed (pthread_yield
+   is a fatal error with thread switching held off).  */
+static void
+midi_yield (void)
+{
+  if (__ul_global.pthread_system_running
+      && __ul_global.pthread_callevery_rma->pthread_worksemaphore == 0)
+    pthread_yield ();
+}
+
 int
 __midiwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
 {
@@ -163,26 +180,41 @@ __midiwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
   const unsigned char *p = data;
   int i;
 
-  (void) fd;
   switch (midi_kind)
     {
     case MIDI_SYNTH:
       {
 	int done = 0, n;
+	clock_t since = clock ();
 	while (done < nbyte)
 	  {
 	    err = _swix (swi_write, _INR(0,2) | _OUT(0), synth_handle,
 			 p + done, nbyte - done, &n);
 	    if (err)
 	      return done ? done : __ul_seterr (err, EOPSYS);
-	    if (n <= 0)
-	      break;		/* the module is full: report a short write */
-	    done += n;
+	    if (n > 0)
+	      {
+		done += n;
+		since = clock ();
+		continue;
+	      }
+	    /* The module is full.  Some bytes written: a short write.
+	       2026: none written used to return 0, which a write-all loop
+	       retries for ever; now non-blocking writes fail with EAGAIN,
+	       and blocking ones wait for room (up to 2 s, then EIO).  */
+	    if (done)
+	      break;
+	    if (fd->fflag & O_NONBLOCK)
+	      return __set_errno (EAGAIN);
+	    if (clock () - since > 200)
+	      return __set_errno (EIO);
+	    midi_yield ();
 	  }
 	return done;
       }
 
     case MIDI_HW:
+      hw_written = 1;
       for (i = 0; i < nbyte; i++)
 	if ((err = _swix (swi_txbyte, _IN(0), p[i])) != NULL)
 	  return i ? i : __ul_seterr (err, EOPSYS);

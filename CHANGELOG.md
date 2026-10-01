@@ -31,6 +31,18 @@ How to release: docs/MAINTAINING.md.
   thread's stack pointer (it was skipped). This costs one SWI per `read()`
   of a RISC OS file for buffers that were skipped before.
 
+- **`/dev/dsp`:** `SNDCTL_DSP_SETFRAGMENT` checks the size before using it
+  (a size exponent above 31 was undefined) and keeps fragments to at most
+  half the 2 s limit (a bigger one made `GETOSPACE` report 0 fragments for
+  ever); `GETOPTR` after `SNDCTL_DSP_RESET` counts from zero instead of
+  returning a huge block count; the 8 KB conversion buffer is allocated on
+  first use instead of being in every program's static data.
+- **`/dev/midi`:** when MIDISynth is full, a write that sent nothing no
+  longer returns 0 (which write-all loops retry for ever): `O_NONBLOCK`
+  writes fail with `EAGAIN`, blocking ones wait up to 2 s for room, then
+  fail with `EIO`. Closing `/dev/midi` resets MIDI hardware only if the
+  program sent something.
+
 ## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
 
 Fixes for problems in 5.0.3 (and earlier) found by an independent review

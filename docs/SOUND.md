@@ -34,7 +34,8 @@ and unsigned, µ-law; mono or stereo; 4000–96000 Hz. UnixLib converts to
 LE, and the ioctl says so, as OSS does.
 
 **Buffering.** 8 fragments of 1024 frames by default (about 190 ms at
-44.1 kHz). `SNDCTL_DSP_SETFRAGMENT` sets it (20 ms – 2 s). Playing starts
+44.1 kHz). `SNDCTL_DSP_SETFRAGMENT` sets it (20 ms – 2 s in all; a
+fragment is at most half of that, so at least two fit). Playing starts
 once a fragment is queued, or on `SNDCTL_DSP_POST`/`SYNC`/`close()`.
 `GETOSPACE`, `GETODELAY` and `GETOPTR` report the real queue, so programs can
 keep sound and pictures in step.
@@ -46,7 +47,8 @@ short instead of hanging.
 
 **Closing.** `close()` waits until what was written has played (not with
 `O_NONBLOCK`). At exit, a stream still open is closed at once.
-`SNDCTL_DSP_RESET` drops what's queued.
+`SNDCTL_DSP_RESET` drops what's queued, and `GETOPTR` counts from zero
+again.
 
 **The exit bug.** Every UnixLib program used to stop DigitalRenderer when it
 quit, even if it never made a sound, so quitting any UnixLib program cut off
@@ -77,9 +79,27 @@ module (`MIDI_TxByte`: external MIDI or USB MIDI). `UnixLib$MIDI` =
 `MIDISynth` or `MIDI` allows only that one. Nothing loaded: `ENODEV`.
 
 `SNDCTL_SEQ_RESET` / `SNDCTL_SEQ_PANIC` turn all notes off. Notes are also
-turned off when the program closes `/dev/midi` or exits.
+turned off when the program closes `/dev/midi` or exits (on MIDI hardware,
+only if the program sent anything).
+
+When MIDISynth can't take more bytes, a blocking write waits for room (up to
+2 s, then `EIO`), and an `O_NONBLOCK` write fails with `EAGAIN`.
 
 There's no `/dev/sequencer` (timed events) and no MIDI in.
+
+## Known limitations
+
+- **Short sounds wait.** Less than one fragment written doesn't start
+  playing until more is written, or `SNDCTL_DSP_POST`, `SYNC` or `close()`.
+  A program that writes a short beep and then waits should call
+  `SNDCTL_DSP_POST` (OSS programs normally do).
+- **Module versions aren't checked.** UnixLib only checks that the SWIs
+  exist; load the modules with the `RMEnsure` lines above to get the right
+  versions.
+- **`MIDI_TxByte` "buffer full"** isn't checked; bytes are sent one at a
+  time and the MIDI module's own buffering is relied on.
+- The 8 KB conversion buffer is allocated on the first write to the
+  SharedSoundBuffer path (it used to be in every program's static data).
 
 ## Tests
 
