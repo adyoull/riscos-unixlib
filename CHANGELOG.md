@@ -7,6 +7,16 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+## 5.0.3.1-rc7 (2026-10-01, pre-release, tag v5.0.3.1-rc7)
+
+- **`_exit (n)` exits with code n.** It used to take a wait status, so
+  `_exit (1)` looked to the parent like death by signal 1 (and `system()`
+  and `popen()` children whose exec failed did this). Found by `ForkOnly`
+  on the Pi with rc6, which otherwise worked: no abort, the parent came
+  back. MODIFICATIONS.md X2.
+- Pi 4 with rc6: `ForkExec` PASS; `ForkOnly` and `ForkThreads` no longer
+  abort.
+
 ## 5.0.3.1-rc6 (2026-10-01, pre-release, tag v5.0.3.1-rc6)
 
 - **fork() works on EABI.** A fork child's exit aborted in ARMEABISupport
