@@ -1034,6 +1034,25 @@ index 7d5e3e9..7719f89 100644
  __END_DECLS
  
  #endif
+diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/unistd.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/unistd.h
+index 81bf3f8..3d262f6 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/incl-local/unistd.h
++++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/unistd.h
+@@ -16,6 +16,14 @@ __BEGIN_DECLS
+ extern void __unlinksuffix (char *__file);
+ 
+ extern void *__internal_sbrk (int __incr);
++/* 2026: number of extra heap dynamic areas made (sys/brk.c).  */
++extern int __heap_areas_made;
++/* 2026: set while __internal_sbrk may start a new heap area.  */
++extern int __heap_new_area_ok;
++/* 2026: remove them at exit (called by __dynamic_area_exit).  */
++extern void __dynamic_area_extra_exit (void);
++/* 2026: will __internal_sbrk (INCR) start a new heap area?  */
++extern int __heap_needs_new_area (int __incr);
+ 
+ __END_DECLS
+ 
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/sched.h b/gcc4/recipe/files/gcc/libunixlib/include/sched.h
 index 2e424fb..b2d483d 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/sched.h
@@ -3934,7 +3953,7 @@ index 1759e21..777f924 100644
 -#endif
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c
-index 46a40ba..de75f5a 100644
+index 46a40ba..245586c 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c
 @@ -1300,6 +1300,15 @@ void     public_mSTATs(void);
@@ -3953,6 +3972,87 @@ index 46a40ba..de75f5a 100644
  #ifndef DEFAULT_MMAP_MAX
  #if HAVE_MMAP
  #define DEFAULT_MMAP_MAX       (65536)
+@@ -2406,6 +2415,8 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
+   CHUNK_SIZE_T    sum;            /* for updating stats */
+ 
+   size_t          pagemask  = av->pagesize - 1;
++  int             areas_made_before = __heap_areas_made; /* 2026 */
++  int             new_area_contiguous = 0;               /* 2026 */
+ 
+   /*
+     If there is space available in fastbins, consolidate and retry
+@@ -2528,6 +2539,12 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
+   if (contiguous(av))
+     size -= old_size;
+ 
++  /* 2026: if the heap's dynamic area is full, the space comes from a new
++     area and can't be merged with the old top, so ask for all of it.  */
++  if (contiguous(av) && old_size != 0
++      && __heap_needs_new_area((int)((size + pagemask) & ~pagemask)))
++    size += old_size;
++
+   /*
+     Round to a multiple of page size.
+     If MORECORE is not contiguous, this ensures that we only call it
+@@ -2544,8 +2561,20 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
+     below even if we cannot call MORECORE.
+   */
+ 
+-  if (size > 0)
++  if (size > 0) {
++    __heap_new_area_ok = 1;	/* 2026: only this call may start a new area */
+     fst_brk = (char*)(MORECORE(size));
++    __heap_new_area_ok = 0;
++  }
++
++  /* 2026: the space is in a new heap area.  Handle it as non-contiguous
++     for this call (no follow-up sbrk to merge with the old top; it gets
++     fenceposts), then carry on as contiguous within the new area.  */
++  if (__heap_areas_made != areas_made_before
++      && fst_brk != (char*)(MORECORE_FAILURE)) {
++    new_area_contiguous = contiguous(av);
++    set_noncontiguous(av);
++  }
+ 
+   /*
+     If have mmap, try using it as a backup when MORECORE fails or
+@@ -2557,7 +2586,11 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
+   */
+ 
+ #if HAVE_MMAP
+-  if (fst_brk == (char*)(MORECORE_FAILURE)) {
++  /* 2026: not when the heap is in dynamic areas: __internal_sbrk carries
++     on in a new area when one is full, and the ARMEABISupport "mmap#N"
++     areas this made were left behind (OpenTTD, 2026-10-01).  */
++  if (fst_brk == (char*)(MORECORE_FAILURE)
++      && __ul_global.dynamic_num == -1) {
+ 
+     /* Cannot merge with old top, so add its size back in */
+     if (contiguous(av))
+@@ -2768,6 +2801,9 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
+       }
+     }
+ 
++    if (new_area_contiguous)	/* 2026, see above */
++      set_contiguous(av);
++
+     /* Update statistics */
+     sum = av->sbrked_mem;
+     if (sum > (CHUNK_SIZE_T)(av->max_sbrked_mem))
+@@ -2797,6 +2833,13 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
+ 
+   }
+ 
++  /* 2026: the heap carried on in a new dynamic area (see sys/brk.c).
++     The space asked for didn't include the old top, which can't be
++     merged with the new area, so it may be short: try again, now growing
++     the new area.  Once per new area.  */
++  if (__heap_areas_made != areas_made_before)
++    return sysmalloc(nb, av);
++
+   /* catch all failure paths */
+   MALLOC_FAILURE_ACTION;
+   return 0;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c
 index 79e92bd..266b0fc 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c
@@ -4019,10 +4119,18 @@ index 79e92bd..266b0fc 100644
  
  #ifndef __TARGET_SCL__
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
-index 3f7c274..dce7b87 100644
+index 3f7c274..b6d8867 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
-@@ -1537,3 +1537,12 @@ __ul_memory:
+@@ -835,6 +835,7 @@ __dynamic_area_exit:
+  PICEQ "LDMFDNE	sp!, {v4, pc}"
+ 
+ 	BL	__munmap_all
++	BL	__dynamic_area_extra_exit	@ 2026: the heap's other areas
+ 
+ 	LDR	a2, .L1+4		@=__ul_global
+  PICEQ "LDR	a2, [v4, a2]"
+@@ -1537,3 +1538,12 @@ __ul_memory:
  	.word	0			@ appspace_limit	offset = 44
  	.word	0			@ old_himem		offset = 48
  	DECLARE_OBJECT __ul_memory
@@ -4035,6 +4143,172 @@ index 3f7c274..dce7b87 100644
 +__pthread_callevery_block_size:
 +	.word	PTHREAD_CALLEVERY_STRUCT_SIZE
 +	DECLARE_OBJECT __pthread_callevery_block_size
+diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/brk.c b/gcc4/recipe/files/gcc/libunixlib/sys/brk.c
+index bce2b55..2fe7277 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/sys/brk.c
++++ b/gcc4/recipe/files/gcc/libunixlib/sys/brk.c
+@@ -59,6 +59,108 @@
+ 
+ #define align(x) ((x + 3) & ~3)
+ 
++/* 2026: a heap of several dynamic areas.
++
++   RISC OS 5 gives a dynamic area created with OS_DynamicArea 0 a maximum
++   of 128 MB, whatever maximum is asked for (measured on a Pi 4 by the
++   OpenTTD port, 2026-10-01), so a heap in one area stopped at 128 MB
++   however much memory was free.  When malloc's sbrk (__internal_sbrk)
++   finds the current area full, another area is created, named after the
++   first ("OpenTTD Heap 2", "OpenTTD Heap 3"...), and the heap carries on
++   there.  malloc copes with the gap: it is the same as a foreign sbrk
++   (fenceposts around the old top).  brk() and sbrk() work on the newest
++   area.  All the areas are removed at exit with the first (see
++   __dynamic_area_exit in _syslib.s).
++
++   One allocation still has to fit in one area.  An area is first asked
++   for with the usual maximum (__dynamic_da_max_size, else the first
++   area's), and if what RISC OS gives isn't enough for the request, once
++   more with a maximum of just the request.  */
++#define HEAP_AREAS_MAX 32
++static int heap_areas[HEAP_AREAS_MAX];	/* [0] is the first area */
++static int heap_area_count;		/* 0 until a second area is made */
++static char heap_area_name[48];
++
++/* Number of areas made so far (malloc retries once after a new one).  */
++int __heap_areas_made;
++/* Set by malloc around the one sbrk call that may start a new area (not
++   its follow-up calls, which must extend the space the first one got).  */
++int __heap_new_area_ok;
++
++/* Create area number N (2...) of the heap with room for NEED bytes and make
++   it the current one.  Returns 0 on success.  */
++static int
++heap_new_area (unsigned int need)
++{
++  struct ul_memory *mem = &__ul_memory;
++  struct ul_global *gbl = &__ul_global;
++  const char *name = NULL;
++  unsigned int first_max = 0, want, base, max, i, n;
++  int num, tries;
++
++  if (heap_area_count == 0)
++    {
++      heap_areas[0] = gbl->dynamic_num;
++      heap_area_count = 1;
++    }
++  if (heap_area_count >= HEAP_AREAS_MAX)
++    return -1;
++
++  /* The first area's name and maximum.  */
++  if (_swix (OS_DynamicArea, _INR(0,1) | _OUT(5) | _OUT(8), 2,
++	     heap_areas[0], &first_max, &name) != NULL)
++    return -1;
++  for (i = 0; name && name[i] >= ' ' && i < sizeof (heap_area_name) - 5; i++)
++    heap_area_name[i] = name[i];
++  heap_area_name[i++] = ' ';
++  n = heap_area_count + 1;
++  if (n >= 10)
++    heap_area_name[i++] = '0' + n / 10;
++  heap_area_name[i++] = '0' + n % 10;
++  heap_area_name[i] = '\0';
++
++  want = (&__dynamic_da_max_size != NULL && __dynamic_da_max_size > 0)
++	 ? (unsigned int) __dynamic_da_max_size : first_max;
++  need = (need + 0xFFFFu) & ~0xFFFFu;
++  for (tries = 0; tries < 2; tries++)
++    {
++      if (want < need)
++	want = need;
++      if (_swix (OS_DynamicArea, _INR(0,8) | _OUT(1) | _OUT(3) | _OUT(5),
++		 0, -1, 0, -1, 0x80, want, 0, 0, heap_area_name,
++		 &num, &base, &max) != NULL)
++	return -1;
++      if (max >= need)
++	break;
++      /* Not enough: remove it and ask for just the request.  */
++      _swix (OS_DynamicArea, _INR(0,1), 1, num);
++      if (want == need)
++	return -1;
++      want = need;
++    }
++  if (tries == 2)
++    return -1;
++
++  heap_areas[heap_area_count++] = num;
++  __heap_areas_made++;
++  gbl->dynamic_num = num;
++  mem->dalomem = mem->dabreak = mem->dalimit = base;
++  return 0;
++}
++
++/* Called by __dynamic_area_exit: remove the heap's other areas (the
++   current one, __ul_global.dynamic_num, is removed by the caller).  */
++void
++__dynamic_area_extra_exit (void)
++{
++  int i;
++
++  for (i = 0; i < heap_area_count; i++)
++    if (heap_areas[i] != __ul_global.dynamic_num)
++      _swix (OS_DynamicArea, _INR(0,1), 1, heap_areas[i]);
++  heap_area_count = 0;
++}
++
+ /* brk function for dynamic areas.  */
+ static int
+ brk_da (unsigned int addr)
+@@ -319,6 +421,35 @@ sbrk (intptr_t delta)
+     }
+ }
+ 
++/* 2026: would growing the current area by INCR take it past its maximum
++   (rather than failing for lack of free memory, which a new area wouldn't
++   help)?  */
++static int
++heap_area_full (unsigned int incr)
++{
++  const struct ul_memory *mem = &__ul_memory;
++  unsigned int max;
++
++  if (_swix (OS_DynamicArea, _INR(0,1) | _OUT(5), 2,
++	     __ul_global.dynamic_num, &max) != NULL)
++    return 0;
++  /* brk_da grows the area in steps of __DA_WIMPSLOT_ALIGNMENT + 1.  */
++  unsigned int addr = align (mem->dabreak + incr), grow = 0;
++  if (addr > mem->dalimit)
++    grow = ((addr - mem->dalimit) + __DA_WIMPSLOT_ALIGNMENT)
++	   & ~__DA_WIMPSLOT_ALIGNMENT;
++  return mem->dalimit - mem->dalomem + grow > max;
++}
++
++/* 2026: for malloc: will __internal_sbrk (INCR) have to start a new
++   area?  */
++int
++__heap_needs_new_area (int incr)
++{
++  return __ul_global.dynamic_num != -1 && incr > 0
++	 && heap_area_full ((unsigned int) incr);
++}
++
+ /* sbrk for internal UnixLib callers (i.e. malloc) that are aware that
+    space allocated may not be contiguous.  No need to be thread safe
+    as the internal callers should already have ensured that context switching
+@@ -364,7 +495,15 @@ __internal_sbrk (int incr)
+       unsigned int oldbrk = mem->dabreak;
+ 
+       if (incr != 0 && brk_da (oldbrk + incr) < 0)
+-	return (void *) -1;
++	{
++	  /* 2026: if the area is full, carry on in a new one.  */
++	  if (!__heap_new_area_ok || !heap_area_full (incr)
++	      || heap_new_area (incr) != 0)
++	    return (void *) -1;
++	  oldbrk = mem->dabreak;
++	  if (brk_da (oldbrk + incr) < 0)
++	    return (void *) -1;
++	}
+ 
+       return (void *) oldbrk;
+     }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/exec.c b/gcc4/recipe/files/gcc/libunixlib/sys/exec.c
 index cdee4d5..8da7d77 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/exec.c
@@ -4794,18 +5068,24 @@ index 7f47f19..d92c6ae 100644
    /* Convert the 16-bit return code into an 8-bit equivalent
       for compatibility with RISC OS.
 diff --git a/gcc4/recipe/files/gcc/libunixlib/vscript b/gcc4/recipe/files/gcc/libunixlib/vscript
-index 606421f..34736ec 100644
+index 606421f..4d833bf 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/vscript
 +++ b/gcc4/recipe/files/gcc/libunixlib/vscript
-@@ -16,6 +16,7 @@ VERSION {
+@@ -16,7 +16,13 @@ VERSION {
       __close;
       __custom*;
       __dsp*;
 +     __midi*;
       __dynamic_area_exit;
++     __dynamic_area_extra_exit;
++     __heap_areas_made;
++     __heap_new_area_ok;
++     __heap_needs_new_area;
++     __mmap_offset32;
       __dynamic_area_refcount;
       __env_read;
-@@ -126,6 +127,10 @@ VERSION {
+      __env_riscos;
+@@ -126,6 +132,10 @@ VERSION {
       _vsnprintf;
  
       __pthread_prog_init;
