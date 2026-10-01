@@ -7,6 +7,14 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **`nanosleep`, `sleep`, `usleep`:** long sleeps are made in chunks
+  `ualarm` can express (above about 71 minutes it overflowed and the sleep
+  ended early, after which `nanosleep` busy-waited for the rest);
+  `nanosleep` sleeps again if a sleep ends early without a signal; waiting
+  no longer aborts the program when called with thread switching held off;
+  `usleep` with 1000000 or more now fails with `EINVAL` instead of setting
+  `errno` and sleeping anyway.
+
 ## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
 
 Fixes for problems in 5.0.3 (and earlier) found by an independent review

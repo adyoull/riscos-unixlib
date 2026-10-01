@@ -40,6 +40,21 @@
 #define USECS_PER_CLOCK (1000000 / CLOCKS_PER_SEC)
 #define NSECS_PER_CLOCK (1000000000 / CLOCKS_PER_SEC)
 
+/* 2026: yield to other threads only when that is allowed.  pthread_yield
+   is a fatal error while thread switching is held off (worksemaphore
+   non-zero), and does nothing useful before threads are started.  */
+static void
+safe_yield (void)
+{
+  if (__ul_global.pthread_system_running
+      && __ul_global.pthread_callevery_rma->pthread_worksemaphore == 0)
+    pthread_yield ();
+}
+
+/* 2026: the longest single sleep_int call.  ualarm takes a 32-bit count of
+   microseconds, which overflows above 429496 centiseconds.  */
+#define SLEEP_CHUNK ((clock_t) 400000)
+
 /* SIGALRM signal handler for `sleep'.  This does nothing but return,
    but SIG_IGN isn't supposed to break `pause'.  */
 static void
@@ -74,7 +89,7 @@ sleep_int (clock_t clockticks)
     {
       before = clock () + clockticks;
       while (clock () < before)
-	pthread_yield ();
+	safe_yield ();
       return 0;
     }
 
@@ -152,6 +167,21 @@ sleep_int (clock_t clockticks)
   return slept > clockticks ? 0 : clockticks - slept;
 }
 
+/* 2026: sleep_int for any length, in chunks ualarm can express.  Returns
+   the ticks not slept if a signal ended the sleep early.  */
+static uint64_t
+sleep_ticks (uint64_t clockticks)
+{
+  while (clockticks > (uint64_t) SLEEP_CHUNK)
+    {
+      clock_t left = sleep_int (SLEEP_CHUNK);
+      clockticks -= (uint64_t) SLEEP_CHUNK;
+      if (left > 0)
+	return clockticks + (uint64_t) left;
+    }
+  return (uint64_t) sleep_int ((clock_t) clockticks);
+}
+
 /* Make the process sleep for SECONDS seconds, or until a signal arrives
    and is not ignored.  The function returns the number of seconds less
    than SECONDS which it actually slept (zero if it slept the full time).  */
@@ -160,7 +190,8 @@ sleep (unsigned int seconds)
 {
   PTHREAD_SAFE_CANCELLATION
 
-  return (unsigned int) sleep_int ((clock_t)seconds * CLOCKS_PER_SEC) / CLOCKS_PER_SEC;
+  return (unsigned int) (sleep_ticks ((uint64_t) seconds * CLOCKS_PER_SEC)
+			 / CLOCKS_PER_SEC);
 }
 
 
@@ -172,7 +203,7 @@ int usleep (useconds_t usec)
   /* An allowed & specified limitation. Otherwise our calculations might
      overflow.  */
   if (usec >= 1000000)
-    __set_errno (EINVAL);
+    return __set_errno (EINVAL);
 
   return (int) sleep_int ((usec + USECS_PER_CLOCK-1) / USECS_PER_CLOCK) * USECS_PER_CLOCK;
 }
@@ -182,43 +213,50 @@ extern uint64_t __ul_monotonic_ns (void);
 
 int nanosleep (const struct timespec *req, struct timespec *rem)
 {
-  int ticks, nticks;
-  uint64_t start, target, want;
+  uint64_t target, want;
   PTHREAD_SAFE_CANCELLATION;
 
   if (req->tv_sec < 0 || req->tv_nsec < 0 || req->tv_nsec > 999999999)
     return __set_errno (EINVAL);
 
   /* 2026: sleep with sub-centisecond accuracy.  Whole centiseconds are
-     slept as before; the remainder is waited out against the high
-     resolution monotonic clock (yielding to other threads).  */
+     slept as before (in chunks, so long sleeps don't overflow); the last
+     10-20 ms are waited out against the high resolution monotonic clock,
+     yielding to other threads when that's allowed.  If a sleep ends
+     early without a signal, sleep again rather than spin.  */
   want = (uint64_t) req->tv_sec * 1000000000u + (uint64_t) req->tv_nsec;
-  start = __ul_monotonic_ns ();
-  target = start + want;
-  if (want >= 20000000u)
+  target = __ul_monotonic_ns () + want;
+  for (;;)
     {
-      ticks = (int) sleep_int ((clock_t) (want / NSECS_PER_CLOCK) - 1);
-      if (ticks > 0)
+      uint64_t now = __ul_monotonic_ns ();
+      uint64_t left;
+
+      if (now >= target)
+	break;
+      left = target - now;
+      if (left < 20000000u)
+	{
+	  safe_yield ();
+	  continue;
+	}
+      if (sleep_ticks (left / NSECS_PER_CLOCK - 1) > 0)
 	{
 	  /* Interrupted by a signal.  */
 	  if (rem != NULL)
 	    {
-	      uint64_t now = __ul_monotonic_ns ();
-	      uint64_t left = now < target ? target - now : 0;
+	      now = __ul_monotonic_ns ();
+	      left = now < target ? target - now : 0;
 	      rem->tv_sec = (time_t) (left / 1000000000u);
 	      rem->tv_nsec = (long) (left % 1000000000u);
 	    }
 	  return __set_errno (EINTR);
 	}
     }
-  while (__ul_monotonic_ns () < target)
-    pthread_yield ();
 
   if (rem != NULL)
     {
       rem->tv_sec = 0;
       rem->tv_nsec = 0;
     }
-  (void) nticks;
   return 0;
 }
