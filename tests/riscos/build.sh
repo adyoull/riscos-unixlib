@@ -18,7 +18,19 @@ for p in dsptest miditest nosound ejtest fsrotest tickertest schedtest lfstest h
   GCCSDK_ENV="$GCCSDK_ENV" ../../tools/check-lib.sh out/$p.elf >/dev/null
   "$ELF2AIF" -e out/$p.elf $O/$p,ff8
 done
-cp obey/*,feb $O/
+# Each Obey file first prints the release it came from (the git tag, e.g.
+# 5.0.3.1-rc8), so a photo of a run shows which build was tested.
+# Not TickerChild: TickerStartTask starts it as a Wimp task, where output
+# would open a command window.
+VER=$(git --no-optional-locks describe --tags 2>/dev/null | sed 's/^v//')
+VER=${VER:-unknown}
+for f in obey/*,feb; do
+  case $f in */TickerChild,feb) cp "$f" $O/; continue;; esac
+  awk -v v="$VER" -v n="$(basename "$f" ,feb)" '
+    !done && !/^\|/ { print "Echo UnixLibTests " v ": " n; done = 1 }
+    { print }
+    END { if (!done) print "Echo UnixLibTests " v ": " n }' "$f" > "$O/$(basename "$f")"
+done
 # The PThreadTicker module built with the library (runs the thread ticker)
 cp ../../build/work/build/pthticker $O/PThrTicker,ffa
 cp ReadMe $O/ReadMe,fff

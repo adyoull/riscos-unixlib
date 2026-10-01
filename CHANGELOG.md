@@ -7,6 +7,12 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+## 5.0.3.1-rc8 (2026-10-01, pre-release, tag v5.0.3.1-rc8)
+
+- RISC OS tests: every Obey file first prints the release it was built
+  from (`UnixLibTests 5.0.3.1-rc8: ForkOnly`), so a run shows which build
+  was tested. The library is unchanged from rc7.
+
 ## 5.0.3.1-rc7 (2026-10-01, pre-release, tag v5.0.3.1-rc7)
 
 - **`_exit (n)` exits with code n.** It used to take a wait status, so
