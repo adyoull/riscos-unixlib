@@ -9,6 +9,8 @@ echo "== host tests: /dev/midi"
 tests/host/midi/run.sh
 echo "== host tests: thread ticker"
 tests/host/ticker/run.sh
+echo "== host tests: swprintf/wcsftime"
+tests/host/wchar/run.sh
 
 echo "== emulator: thread ticker machine code (needs a build + unicorn)"
 GCCSDK_ENV=${GCCSDK_ENV:-$HOME/gccsdk/env}
