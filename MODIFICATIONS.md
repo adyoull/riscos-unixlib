@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 55 modified files and 7 added files).
+diff against unchanged GCCSDK UnixLib: 56 modified files and 7 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1272 |
-| Modified (listed below) | 55 |
+| Byte-identical to GCCSDK `64c6f81` | 1271 |
+| Modified (listed below) | 56 |
 | Added | 7 |
 | Removed relative to upstream | 0 |
 
@@ -56,6 +56,7 @@ the commits are named below.
 | `sched/sched_prio.c` (**new**), `include/sched.h` | P1 `sched_get_priority_min/max` |
 | `pthread/schedparam.c`, `pthread/newnode.c` | P2 `pthread_setschedparam` |
 | `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s`, `sys/exec.c` | K1-K7 thread ticker (`sys/_syslib.s` also A2) |
+| `sys/vfork.c` | K8 a fork/vfork child's exit freed the parent's stack |
 | `include/sys/stat.h`, `incl-local/sys/stat.h`, `unix/stat64.c` (**new**), `unix/stat.c`, `unix/lstat.c`, `unix/fstat.c`, `unix/scl_fstat.c` | L1 `struct stat64` with a 64-bit size |
 | `unix/ul_lseek.c`, `stdio/fseeko.c`, `stdio/ftello.c`, `stdio/fgetpos.c`, `stdio/fsetpos.c` | L2 64-bit seeking to 4GB-1 |
 | `unix/truncate.c` | L3 `truncate64`, `ftruncate64` |
@@ -988,6 +989,34 @@ file).
 **Verification.** `tests/emu/ticker_test.py` checks the SWIs, the count,
 and that flags and the I bit are restored, with IRQs on and off.
 
+### K8. A fork/vfork child's exit freed the parent's stack (`sys/vfork.c`)
+
+**Problem.** Found by the new `ForkExec` test on the Pi 4 (2026-10-01):
+after a vfork whose exec ran a command, a fork from the same program
+aborted ("abort on data transfer") as fork returned in the parent, at its
+first store to the stack.
+
+**Cause.** On EABI the program's stack is an ARMEABISupport stack.
+SharedUnixLibrary records its handle in the process structure and, when a
+process exits, frees the stack named there. sul_fork copies the whole
+structure to the child, handle included, and the child runs on its
+parent's stack. So any child's exit (a fork child's `_exit`, a vfork child
+whose exec failed, a command run by `system()` or `popen()`) freed the
+parent's stack. This is in GCCSDK UnixLib as it is (SharedUnixLibrary is
+unchanged here); it may well be the abort Warzone 2100's riscos2 build hit
+in `popen()`.
+
+**Change.** In the child, `__fork_post` sets the handle in the child's
+process structure to 0: the stack isn't the child's to free.
+SharedUnixLibrary then asks ARMEABISupport to free stack 0, which fails
+harmlessly. A UnixLib program the child execs records its own stack as
+before. EABI builds only.
+
+**Verification.** By reading SharedUnixLibrary's `sul_fork` and exit code,
+and the disassembly (`str r0, [r3, #124]`, `SULPROC_STACK`). On RISC OS:
+`ForkExec`, `ForkOnly` and `ForkThreads` in UnixLibTests.zip; not yet run
+with the fix.
+
 ## 5. Files over 2GB (L1-L5)
 
 Background and the compatibility table are in `docs/LARGE-FILES.md`.
@@ -1161,7 +1190,7 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 - `ExitJoin`, `FsyncRO`, `Sched`;
 - a threaded program without PThreadTicker;
 - R1 and R2 (on the machine where Warzone 2100 crashed).
-- K5-K7, S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
+- K5-K8, S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
   from the 2026-10-01 review); `ForkExec` (fxtest) in UnixLibTests.zip
   covers K5/K6 (fork, vfork + failed exec, system() from a threaded
   program).

@@ -98,6 +98,19 @@ __fork_post (pid_t pid, int isfork)
       /* There are now two processes sharing the dynamic area.  */
       __atomic_modify (&__dynamic_area_refcount, 1);
 
+#ifdef __ARM_EABI__
+      /* 2026: the child runs on its parent's stack, an ARMEABISupport
+	 stack whose handle SharedUnixLibrary copied into the child's
+	 process structure with everything else.  When a process exits,
+	 SharedUnixLibrary frees the stack named there, so a child's exit
+	 (after a fork, a vfork whose exec failed, or a command run by
+	 system()) freed the parent's stack, and the parent aborted when it
+	 next used it ("abort on data transfer" on returning from fork,
+	 seen on a Pi).  The stack isn't the child's to free.  A UnixLib
+	 program the child execs records its own stack here.  */
+      gbl->sulproc->stack_handle = NULL;
+#endif
+
       if (gbl->pthread_system_running)
         __pthread_atfork_callparentchild (0);
 
