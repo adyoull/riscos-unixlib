@@ -4144,7 +4144,7 @@ index 3f7c274..b6d8867 100644
 +	.word	PTHREAD_CALLEVERY_STRUCT_SIZE
 +	DECLARE_OBJECT __pthread_callevery_block_size
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/brk.c b/gcc4/recipe/files/gcc/libunixlib/sys/brk.c
-index bce2b55..2fe7277 100644
+index bce2b55..a29577e 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/brk.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/brk.c
 @@ -59,6 +59,108 @@
@@ -4292,19 +4292,33 @@ index bce2b55..2fe7277 100644
  /* sbrk for internal UnixLib callers (i.e. malloc) that are aware that
     space allocated may not be contiguous.  No need to be thread safe
     as the internal callers should already have ensured that context switching
-@@ -364,7 +495,15 @@ __internal_sbrk (int incr)
+@@ -364,7 +495,29 @@ __internal_sbrk (int incr)
        unsigned int oldbrk = mem->dabreak;
  
        if (incr != 0 && brk_da (oldbrk + incr) < 0)
 -	return (void *) -1;
 +	{
 +	  /* 2026: if the area is full, carry on in a new one.  */
++	  struct ul_memory saved = *mem;
++	  int saved_num = gbl->dynamic_num;
++
 +	  if (!__heap_new_area_ok || !heap_area_full (incr)
 +	      || heap_new_area (incr) != 0)
 +	    return (void *) -1;
 +	  oldbrk = mem->dabreak;
 +	  if (brk_da (oldbrk + incr) < 0)
-+	    return (void *) -1;
++	    {
++	      /* No memory for it after all: remove the new area and go on
++		 with the old one.  */
++	      _swix (OS_DynamicArea, _INR(0,1), 1, gbl->dynamic_num);
++	      heap_area_count--;
++	      __heap_areas_made--;
++	      gbl->dynamic_num = saved_num;
++	      mem->dalomem = saved.dalomem;
++	      mem->dabreak = saved.dabreak;
++	      mem->dalimit = saved.dalimit;
++	      return (void *) -1;
++	    }
 +	}
  
        return (void *) oldbrk;
