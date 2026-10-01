@@ -70,6 +70,10 @@ How to release: docs/MAINTAINING.md.
   `docs/TODO.md` renumbered and the fixed items removed; test counts in
   `tests/README.md` updated.
 
+- README and MODIFICATIONS.md say that AI (Anthropic's Claude) has been
+  used as a coding assistant; MODIFICATIONS.md has entries W3, W4, T3, T4,
+  S10, S11, K6 and K7 for the fixes above.
+
 ## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
 
 Fixes for problems in 5.0.3 (and earlier) found by an independent review

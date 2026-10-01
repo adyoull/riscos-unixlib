@@ -4,6 +4,8 @@ riscos-unixlib is an **unofficial fork** of the UnixLib in GCCSDK. It is
 not made, released or supported by the GCCSDK developers, and its version
 numbers (5.0.1 onwards) are its own releases, not GCCSDK's.
 
+AI (Anthropic's Claude) has been used as a coding assistant on this fork.
+
 This document lists **every** difference between `libunixlib/` and the
 UnixLib in GCCSDK. For each change it gives the problem, the evidence, what
 was changed, why it was done that way, what it means for programs, and how
@@ -11,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 49 modified files and 7 added files).
+diff against unchanged GCCSDK UnixLib: 53 modified files and 7 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -33,28 +35,30 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1278 |
-| Modified (listed below) | 49 |
+| Byte-identical to GCCSDK `64c6f81` | 1274 |
+| Modified (listed below) | 53 |
 | Added | 7 |
 | Removed relative to upstream | 0 |
 
 | File | Change |
 |---|---|
-| `wchar/wctype.c`, `wchar/wmissing.c` | W1 wide-character functions, W2 `swprintf`/`wcsftime` formats |
-| `time/clk_gettime.c` | T1 high-resolution `CLOCK_MONOTONIC` |
-| `signal/sleep.c` | T2 `nanosleep` accuracy |
+| `wchar/wctype.c`, `wchar/wmissing.c` | W1 wide-character functions, W2 `swprintf`/`wcsftime` formats, W3 long numbers in `wcsto*` |
+| `wchar/wctype_l.c` | W4 range check in `isw*_l` |
+| `time/clk_gettime.c` | T1 high-resolution `CLOCK_MONOTONIC`, T4 its last value read under a lock |
+| `signal/sleep.c` | T2 `nanosleep` accuracy, T3 long sleeps and held-off thread switching |
 | `stdlib/alloc.c` | A1 no `mmap` for large blocks on EABI |
-| `sound/dsp.c` | S1 exit bug, S2 default format, S3 SharedSoundBuffer output, S4 empty block, S6-S9 (fork children, second opens, READ ioctls, takeover) |
-| `sound/midi.c` (**new**), `common/__stat.c`, `unix/unix.c` | S5 `/dev/midi`, S6 (fork children) |
+| `sound/dsp.c` | S1 exit bug, S2 default format, S3 SharedSoundBuffer output, S4 empty block, S6-S9 (fork children, second opens, READ ioctls, takeover), S10 fragments and `GETOPTR` |
+| `sound/DRender.h` | R1 (`"memory"` on the sample-buffer calls) |
+| `sound/midi.c` (**new**), `common/__stat.c`, `unix/unix.c` | S5 `/dev/midi`, S6 (fork children), S11 writes when MIDISynth is full |
 | `unix/sync.c` | F1 `fsync` on read-only files, `fdatasync` |
 | `stdlib/atexit.c` | X1 atexit handlers with thread switching allowed |
 | `sched/sched_prio.c` (**new**), `include/sched.h` | P1 `sched_get_priority_min/max` |
 | `pthread/schedparam.c`, `pthread/newnode.c` | P2 `pthread_setschedparam` |
-| `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s` | K1-K5 thread ticker |
+| `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s`, `sys/exec.c` | K1-K7 thread ticker |
 | `include/sys/stat.h`, `incl-local/sys/stat.h`, `unix/stat64.c` (**new**), `unix/stat.c`, `unix/lstat.c`, `unix/fstat.c`, `unix/scl_fstat.c` | L1 `struct stat64` with a 64-bit size |
 | `unix/ul_lseek.c`, `stdio/fseeko.c`, `stdio/ftello.c`, `stdio/fgetpos.c`, `stdio/fsetpos.c` | L2 64-bit seeking to 4GB-1 |
 | `unix/truncate.c` | L3 `truncate64`, `ftruncate64` |
-| `sys/mmap64.c` (**new**), `include/sys/mman.h` | L4 `mmap64` |
+| `sys/mmap64.c` (**new**), `include/sys/mman.h`, `sys/mman-armeabi.c` | L4 `mmap64` |
 | `unix/glob.c` | L5 `glob()` with `GLOB_ALTDIRFUNC` |
 | `include/unistd.h` | F1 (`fdatasync`), L3 (declarations and redirects) |
 | `unix/dev.c`, `incl-local/internal/dev.h` | S5 (device table), L2 (`__fslseek64`), R2 (`read()` into a stack) |
@@ -144,6 +148,31 @@ each conversion, which `vsnprintf` can't do with one `va_list`.
 **Verification.** `tests/host/wchar`, in `make check`: the two functions,
 compiled for the PC from the real file, 8 checks. The previous code fails 3.
 
+### W3. `wcsto*`: numbers longer than 127 characters (`wchar/wmissing.c`) - commit `11475df`
+
+**Problem.** Found by the review. W1's `wcstol`, `wcstod` and the rest copy
+the number's ASCII characters into a 128-byte buffer and convert that, so a
+longer number (leading zeros, a long hex float) was cut at 127 characters
+and converted wrongly, with the end pointer in the wrong place.
+
+**Change.** The whole ASCII run is copied: into the stack buffer when it
+fits, otherwise into one allocated for the call (falling back to the old
+127 characters if that allocation fails).
+
+**Verification.** `tests/host/wchar` converts a 305-digit number and an
+overflowing one; both fail on the old code.
+
+### W4. `isw*_l` past the ctype tables (`wchar/wctype_l.c`) - commit `27a2edd`
+
+**Problem.** Found by the review. W1 added a 0-255 check to `iswalpha` and
+friends, but the `_l` versions (from GCCSDK) still indexed the 8-bit ctype
+tables with any wide character, so W1's claim was only half true.
+
+**Change.** The same check: characters outside 0-255 are "none of the
+above", and `towlower_l`/`towupper_l` return them unchanged.
+
+**Verification.** By reading; the code is the same as `wctype.c`'s.
+
 ### T1. High-resolution `CLOCK_MONOTONIC` (`time/clk_gettime.c`) - commit `fa59226`
 
 **Problem.** `clock_gettime(CLOCK_MONOTONIC)` came from `clock()`, which
@@ -189,6 +218,40 @@ machine has, and it only needs to be read, never programmed.
 (yielding to other threads, not to other tasks); see "Still to be done".
 
 **Verification.** In use in the OpenTTD port.
+
+### T3. Long sleeps, and sleeping with thread switching held off (`signal/sleep.c`) - commit `9ec19b9`
+
+**Problem.** Found by the review.
+- `sleep_int` (upstream) passes centiseconds × 10000 to `ualarm`, a 32-bit
+  count of microseconds, which overflows above 429496 centiseconds (about
+  71 minutes). The sleep ended early, and T2's `nanosleep` then
+  busy-waited for the rest.
+- T2's wait (and `sleep_int`'s loop in a Wimp task) called `pthread_yield`,
+  which is a fatal error while thread switching is held off.
+- `usleep` with 1000000 or more set `EINVAL` but slept anyway (upstream).
+
+**Change.** `sleep` and `nanosleep` sleep in chunks of 400000 centiseconds.
+`nanosleep` sleeps again if a sleep ends early without a signal, and only
+spins for the last 10-20 ms. `pthread_yield` is only called when thread
+switching is allowed. `usleep` returns after `EINVAL`.
+
+**Effect.** Long sleeps last as long as asked. The last 10-20 ms of a
+`nanosleep` still spin and can't be interrupted (as in T2).
+
+**Verification.** By reading. Not yet run on RISC OS.
+
+### T4. `CLOCK_MONOTONIC`'s last value shared between threads (`time/clk_gettime.c`) - commit `561fd39`
+
+**Problem.** Found by the review. T1 keeps the last value returned, so the
+clock never goes backwards. It is 64 bits, read and written in two
+instructions, without a lock: a thread switch in between could leave a
+mixed value, which could make the clock jump ahead and stick there.
+
+**Change.** The compare and update are done with thread switching held off
+(`__pthread_disable_ints`), when threads are running. Not in the
+SharedCLibrary build, which has no threads.
+
+**Verification.** By reading; the SharedCLibrary build compiled by hand.
 
 ### A1. No `mmap` for large blocks on EABI (`stdlib/alloc.c`) - commit `98a9287`
 
@@ -616,6 +679,47 @@ connection. Not yet run on RISC OS.
 
 ---
 
+### S10. `/dev/dsp` fragments, `GETOPTR` after `RESET`, the conversion buffer (`sound/dsp.c`) - commit `53e4add`
+
+**Problem.** Found by the review.
+- `SNDCTL_DSP_SETFRAGMENT` shifted 1 by the requested exponent before
+  limiting it (undefined above 31), and a fragment could be bigger than
+  the 2 s queue limit, so `GETOSPACE` reported 0 fragments for ever.
+- After `SNDCTL_DSP_RESET`, `GETOPTR` worked from the closed stream's
+  counters and returned a huge block count.
+- The 8 KB conversion buffer was static, so every program had it.
+
+**Change.** The exponent is limited to 7-16 before the shift; a fragment
+is at most half the queue limit. Closing the stream resets the `GETOPTR`
+counters. The buffer is allocated on the first SharedSoundBuffer write
+(`ENOMEM` if that fails).
+
+**Verification.** `tests/host/dsp`: 2 x 64 KB fragments at 8 kHz mono, an
+exponent of 40, and `GETOPTR` after `RESET`; they fail on the old code.
+
+**Not changed (documented in SOUND.md):** less than a fragment written
+waits for more, `POST`, `SYNC` or `close()` before playing; the module
+versions aren't checked.
+
+### S11. `/dev/midi` when MIDISynth is full; closing MIDI hardware (`sound/midi.c`) - commit `53e4add`
+
+**Problem.** Found by the review. When MIDISynth took nothing, `write`
+returned 0, which a write-all loop retries for ever. Closing `/dev/midi`
+on MIDI hardware sent "all notes off" and "reset controllers" to all 16
+channels even if the program never sent anything.
+
+**Change.** Nothing written and the module full: `O_NONBLOCK` writes fail
+with `EAGAIN`; blocking ones wait for room (yielding to other threads when
+that's allowed) for up to 2 s, then fail with `EIO`. Some bytes written is
+still a short write. The hardware reset on close only happens if the
+program sent something.
+
+**Verification.** `tests/host/midi`: the three full-module cases, no
+`pthread_yield` with thread switching held off, and a close without
+writing; they fail on the old code. `MIDI_TxByte`'s "buffer full" return
+is still not checked (to be checked against the MIDI module's
+documentation).
+
 ## 4. Thread ticker (K1-K5)
 
 Background, the investigation and the `UnixLib$TickerStats` fields are in
@@ -759,6 +863,38 @@ detach, and the parent's does. `__pthread_prog_fini` itself isn't in a
 host test, because it needs the whole start-up. Not yet run on RISC OS.
 
 ---
+
+### K6. `exec` detaches from PThreadTicker; `busy` is a count (`sys/exec.c`, `pthread/ticker.c`) - commit `2ef1bec`
+
+**Problem.** Found by the review. `exec` stops the ticker but never
+detached from the module, so the program stayed counted and the module
+couldn't be killed until a reboot (the safe direction). Separately, the
+`busy` flag that keeps the re-check out of start/stop was set and cleared,
+so a nested call would clear it for the outer one.
+
+**Change.** `exec` calls `__pthread_ticker_fini` after stopping the ticker
+(it does nothing in a fork/vfork child, whose parent still uses the
+module). `busy` is incremented and decremented.
+
+**Verification.** `tests/host/ticker` still passes. Not yet run on RISC OS
+(a threaded program that `exec`s, then `*RMKill PThreadTicker`).
+
+### K7. PThreadTicker 0.02: the count updated with IRQs off (`module/pthticker.s`) - commit `f32a3e0`
+
+**Problem.** Found by the review. attach/detach load, change and store the
+count. Two programs in TaskWindows (which are switched pre-emptively)
+starting or quitting at the same moment could interleave and lose a count;
+too low a count would let the module be killed while in use.
+
+**Change.** The update is done between `OS_IntOff` and `OS_IntOn`, skipped
+if IRQs are already off; registers and flags are preserved as before. The
+interface is unchanged, so every UnixLib that uses the module works with
+0.02, and 0.02 is still loaded with `RMEnsure PThreadTicker 0.01` (a
+newer `RMEnsure` would try to replace a copy in use and stop the `!Run`
+file).
+
+**Verification.** `tests/emu/ticker_test.py` checks the SWIs, the count,
+and that flags and the I bit are restored, with IRQs on and off.
 
 ## 5. Files over 2GB (L1-L5)
 
@@ -934,7 +1070,8 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 - a threaded program without PThreadTicker;
 - `*RMKill PThreadTicker` refusal;
 - R1 and R2 (on the machine where Warzone 2100 crashed).
-- K5, S6-S9, W2, L5 (the fixes from the 2026-10-01 review);
+- K5-K7, S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
+  from the 2026-10-01 review);
 - `*RMKill PThreadTicker` while a threaded program runs: must refuse. This
   also settles a point the review disputed (whether `OS_Module 18` returns
   the module's private word or its address in R4).
