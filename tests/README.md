@@ -56,8 +56,9 @@ first, one placed below it), contents and overlaps, a block bigger than
 an area's usual maximum, one that can't be had (nothing left behind), a
 big block while the old top is mostly free (one new area), 400 random
 calls across several areas, no `mmap` fallback, running out of memory
-just as an area fills (no empty area left behind), and the areas removed
-at exit. 23 checks; the library before the change fails 7 (and calls
+just as an area fills (no empty area left behind), a big maximum refused
+by RISC OS, the area's maximum only read when it must grow, and the areas
+removed at exit. 25 checks; the library before the change fails 7 (and calls
 ARMEABISupport's `mmap`).
 
 `make check` runs them when there's a build, the cross toolchain and the

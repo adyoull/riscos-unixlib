@@ -2833,13 +2833,6 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
 
   }
 
-  /* 2026: the heap carried on in a new dynamic area (see sys/brk.c).
-     The space asked for didn't include the old top, which can't be
-     merged with the new area, so it may be short: try again, now growing
-     the new area.  Once per new area.  */
-  if (__heap_areas_made != areas_made_before)
-    return sysmalloc(nb, av);
-
   /* catch all failure paths */
   MALLOC_FAILURE_ACTION;
   return 0;

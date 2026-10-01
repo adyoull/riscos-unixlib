@@ -73,10 +73,15 @@
    __dynamic_area_exit in _syslib.s).
 
    One allocation still has to fit in one area.  An area is first asked
-   for with the usual maximum (__dynamic_da_max_size, else the first
-   area's), and if what RISC OS gives isn't enough for the request, once
-   more with a maximum of just the request.  */
-#define HEAP_AREAS_MAX 32
+   for with the first area's maximum (at least 128 MB), and if RISC OS
+   refuses that or gives less than the request needs, once more with a
+   maximum of just the request.
+
+   After a switch, sbrk(0) is in the new area, brk() to an address in an
+   old area fails, and RLIMIT_DATA still gives the first area's maximum.
+   Memory in old areas is reused by malloc but only returned at exit.  */
+#define HEAP_AREAS_MAX 64
+#define HEAP_AREA_MIN_MAX (128u << 20)
 static int heap_areas[HEAP_AREAS_MAX];	/* [0] is the first area */
 static int heap_area_count;		/* 0 until a second area is made */
 static char heap_area_name[48];
@@ -119,21 +124,24 @@ heap_new_area (unsigned int need)
   heap_area_name[i++] = '0' + n % 10;
   heap_area_name[i] = '\0';
 
-  want = (&__dynamic_da_max_size != NULL && __dynamic_da_max_size > 0)
-	 ? (unsigned int) __dynamic_da_max_size : first_max;
+  want = first_max > HEAP_AREA_MIN_MAX ? first_max : HEAP_AREA_MIN_MAX;
   need = (need + 0xFFFFu) & ~0xFFFFu;
   for (tries = 0; tries < 2; tries++)
     {
       if (want < need)
 	want = need;
+      /* R5 out: the maximum RISC OS actually gave.  */
+      max = 0;
       if (_swix (OS_DynamicArea, _INR(0,8) | _OUT(1) | _OUT(3) | _OUT(5),
 		 0, -1, 0, -1, 0x80, want, 0, 0, heap_area_name,
-		 &num, &base, &max) != NULL)
-	return -1;
-      if (max >= need)
-	break;
-      /* Not enough: remove it and ask for just the request.  */
-      _swix (OS_DynamicArea, _INR(0,1), 1, num);
+		 &num, &base, &max) == NULL)
+	{
+	  if (max >= need)
+	    break;
+	  /* Not enough: remove it.  */
+	  _swix (OS_DynamicArea, _INR(0,1), 1, num);
+	}
+      /* Refused or too small: ask once more for just the request.  */
       if (want == need)
 	return -1;
       want = need;
@@ -428,16 +436,17 @@ static int
 heap_area_full (unsigned int incr)
 {
   const struct ul_memory *mem = &__ul_memory;
-  unsigned int max;
+  unsigned int max, grow, addr = align (mem->dabreak + incr);
 
+  /* Fits in what the area already has: not full (and no SWI).  */
+  if (addr <= mem->dalimit)
+    return 0;
   if (_swix (OS_DynamicArea, _INR(0,1) | _OUT(5), 2,
 	     __ul_global.dynamic_num, &max) != NULL)
     return 0;
   /* brk_da grows the area in steps of __DA_WIMPSLOT_ALIGNMENT + 1.  */
-  unsigned int addr = align (mem->dabreak + incr), grow = 0;
-  if (addr > mem->dalimit)
-    grow = ((addr - mem->dalimit) + __DA_WIMPSLOT_ALIGNMENT)
-	   & ~__DA_WIMPSLOT_ALIGNMENT;
+  grow = ((addr - mem->dalimit) + __DA_WIMPSLOT_ALIGNMENT)
+	 & ~__DA_WIMPSLOT_ALIGNMENT;
   return mem->dalimit - mem->dalomem + grow > max;
 }
 

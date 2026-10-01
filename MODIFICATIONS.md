@@ -290,29 +290,41 @@ RISC OS 5).
 - When malloc's sbrk (`__internal_sbrk`) finds the current area full
   (growing it would pass the area's maximum; not when memory has simply
   run out), it creates another area and carries on there. The areas are
-  named after the first: `OpenTTD Heap 2`, `OpenTTD Heap 3`... (up to 32).
-  A new area is asked for with the usual maximum (`__dynamic_da_max_size`,
-  or the first area's); if RISC OS gives less than the request needs, it
-  is removed and asked for once more with a maximum of just the request.
+  named after the first: `OpenTTD Heap 2`, `OpenTTD Heap 3`... (up to 64).
+  A new area is asked for with the first area's maximum, at least 128 MB;
+  if RISC OS refuses that or gives less than the request needs, it is
+  asked for once more with a maximum of just the request. The area's
+  maximum is only read (`OS_DynamicArea 2`) when the area has to grow.
   (The `mmap#N` areas above got a maximum of 131076K, just over 128 MB,
   so RISC OS may allow that.)
 - malloc: only the first sbrk of a request may start a new area. That
   request then asks for all the space it needs (the old top can't be
   merged with a new area), handles the new space as non-contiguous for
   that one call (fenceposts at the end of the old top, as for a foreign
-  sbrk), and is contiguous again afterwards. If the new space is still
-  too short, it tries once more.
+  sbrk), and is contiguous again afterwards.
+- If there's no memory to grow a new area, it is removed again and the
+  heap stays in the old one.
 - malloc no longer uses `mmap` as a backup when the heap is in dynamic
   areas. A heap in the wimpslot (no dynamic area) keeps it.
 - `__dynamic_area_exit` (program exit and `exec`) removes the other areas
   too, through a new `__dynamic_area_extra_exit`.
-- `brk()`/`sbrk()` work on the newest area. `fork` is already refused
-  with a dynamic-area heap; a `vfork` child shares the list.
+- `brk()`/`sbrk()` work on the newest area: after a switch `sbrk(0)` is
+  in the new area and `brk()` to an address in an old one fails.
+  `RLIMIT_DATA` still gives the first area's maximum. Memory in old areas
+  is reused by malloc, but only given back to RISC OS at exit (malloc
+  never shrank the heap area anyway). `fork` is already refused with a
+  dynamic-area heap; a `vfork` child shares the list.
 
 **Effect.** A program's heap can use as much memory as is free, in pieces
 of up to 128 MB (or whatever RISC OS allows per area). One allocation
 still has to fit in one area. The Task Manager shows the extra areas
 under the same name with a number.
+
+**Review.** Reviewed by two models (Opus and Sonnet) before release. Fixed
+from that: an `OS_DynamicArea 2` on nearly every heap growth (now only
+when the area must grow), no retry when RISC OS refuses a new area's
+maximum, a dead retry in malloc, and areas of only 32 MB for programs
+that don't set a maximum (now at least 128 MB, up to 64 areas).
 
 **Verification.** `tests/emu/heap_test.py` runs the real malloc, free,
 realloc and sbrk in the Unicorn emulator, with OS_DynamicArea and
@@ -320,7 +332,9 @@ OS_ChangeDynamicArea faked to give 1 MB areas: allocations past the first
 area (including into an area placed below it), contents and overlaps
 checked; a block bigger than an area's usual maximum; one RISC OS won't
 give (refused, nothing left behind); a big block while the old top is
-mostly free (exactly one new area, holding it); 400 random
+mostly free (exactly one new area, holding it); a big maximum refused
+(areas just big enough instead); `OS_DynamicArea 2` only when an area
+grows; 400 random
 malloc/free/realloc calls across several areas; no `mmap` SWIs; memory
 running out just as an area fills (the new, empty area is removed again);
 and the areas removed at exit. Against the unfixed library, 7 checks fail and

@@ -133,6 +133,8 @@ class Machine:
         uc.reg_write(UC_ARM_REG_FPEXC, 0x40000000)
         self.areas = {}
         self.ram = None          # free memory left (None: plenty)
+        self.refuse_big = False  # OS_DynamicArea 0 errors above HONOUR
+        self.counts = {}
         self.unexpected = []
         self.next_base = 0
         self.add_area(FIRST, 0x10000000, CAP, b"Test Heap")
@@ -161,6 +163,8 @@ class Machine:
         self.reg(UC_ARM_REG_CPSR, self.reg(UC_ARM_REG_CPSR) & ~VFLAG)
         r = [self.reg(x) for x in (UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2,
                                    UC_ARM_REG_R3, UC_ARM_REG_R4, UC_ARM_REG_R5)]
+        key = (num, r[0]) if num == OS_DynamicArea else num
+        self.counts[key] = self.counts.get(key, 0) + 1
         if num == OS_ChangeDynamicArea:
             a = self.areas.get(r[0])
             delta = struct.unpack("<i", struct.pack("<I", r[1]))[0]
@@ -176,6 +180,9 @@ class Machine:
             self.reg(UC_ARM_REG_R1, abs(delta))
         elif num == OS_DynamicArea and r[0] == 0:
             want = r[5]
+            if self.refuse_big and want > HONOUR:
+                self.fail_swi()
+                return
             got = want if want <= HONOUR else CAP
             name = bytes(uc.mem_read(self.reg(UC_ARM_REG_R8), 40)).split(b"\0")[0]
             n = 100 + len(self.areas)
@@ -371,6 +378,27 @@ def main():
         m4.call(s["t_free"], first[0])
     check(m4.call(s["t_malloc"], 100 * 1024) != 0,
           "out of memory: freed space can be used again")
+
+    # RISC OS refuses an area with a big maximum (older systems, little
+    # address space): the request is made again with just what's needed.
+    m5 = Machine(elf)
+    m5.call(s["t_init"], FIRST, 0x10000000)
+    m5.refuse_big = True
+    got = [m5.call(s["t_malloc"], 200 * 1024) for _ in range(8)]
+    check(all(got) and len([a for a in m5.areas.values() if not a.deleted]) > 1,
+          "big maximum refused: carries on in areas just big enough (%d failed)"
+          % got.count(0))
+
+    # Growing within an area doesn't ask RISC OS for the area's maximum
+    # every time (one OS_DynamicArea 2 per actual growth at most).
+    m6 = Machine(elf)
+    m6.call(s["t_init"], FIRST, 0x10000000)
+    for _ in range(400):
+        m6.call(s["t_malloc"], 1000)
+    reads = m6.counts.get((OS_DynamicArea, 2), 0)
+    grows = m6.counts.get(OS_ChangeDynamicArea, 0)
+    check(reads <= grows, "OS_DynamicArea 2 only when growing (%d reads, %d "
+          "grows)" % (reads, grows))
 
     # Exit: every area but the current one is removed.
     cur = m.call(s["t_area"])
