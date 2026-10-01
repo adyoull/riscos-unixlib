@@ -41,7 +41,8 @@ list_areas (int quiet)
       if (_swix (OS_DynamicArea, _INR(0,1) | _OUTR(2,3) | _OUT(5) | _OUT(8),
 		 2, area, &size, &base, &max, &name))
 	continue;
-      if (own_heap && own_heap >= base && own_heap < base + max)
+      if (own_heap && strncmp (name, "UnixLibTest Heap", 16) == 0
+	  && own_heap >= base && own_heap < base + size)
 	{
 	  if (!quiet)
 	    printf ("  (area %d \"%s\" is this program's own heap)\n",
