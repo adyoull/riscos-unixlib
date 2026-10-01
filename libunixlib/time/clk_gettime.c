@@ -18,6 +18,21 @@
 #include <stdint.h>
 #include <swis.h>
 
+#ifndef __TARGET_SCL__
+#  include <pthread.h>
+#  include <internal/unix.h>
+/* 2026: hr_last_ns is 64 bits, so reading or updating it takes two
+   instructions; hold off thread switches so a thread can't see half an
+   update (which could make the clock jump ahead and stick there).  */
+#  define HR_LOCK() \
+  do { if (__ul_global.pthread_system_running) __pthread_disable_ints (); } while (0)
+#  define HR_UNLOCK() \
+  do { if (__ul_global.pthread_system_running) __pthread_enable_ints (); } while (0)
+#else
+#  define HR_LOCK() do { } while (0)
+#  define HR_UNLOCK() do { } while (0)
+#endif
+
 #define HAL_CounterRate   19
 #define HAL_CounterPeriod 20
 #define HAL_CounterRead   21
@@ -79,9 +94,11 @@ __ul_monotonic_ns (void)
 
   /* The counter can reload a moment before the centisecond count is
      incremented; never let the clock go backwards.  */
+  HR_LOCK ();
   if (ns < hr_last_ns)
     ns = hr_last_ns;
   hr_last_ns = ns;
+  HR_UNLOCK ();
   return ns;
 }
 

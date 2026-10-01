@@ -15,6 +15,10 @@ How to release: docs/MAINTAINING.md.
   `usleep` with 1000000 or more now fails with `EINVAL` instead of setting
   `errno` and sleeping anyway.
 
+- **`CLOCK_MONOTONIC`:** the last value returned (64 bits) is read and
+  updated with thread switching held off, so another thread can't see half
+  an update and make the clock jump ahead and stick.
+
 ## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
 
 Fixes for problems in 5.0.3 (and earlier) found by an independent review
