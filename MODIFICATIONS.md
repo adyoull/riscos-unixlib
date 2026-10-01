@@ -1140,7 +1140,9 @@ PASS too: "803771 polls, 3 child tasks, threads counted 1197408353 and
 `Ticker` PASS ("1065393 polls, threads counted 1520222480 and
 1510499546"), and `ForkThreads` found the module with 1 program
 attached (so a 5.0.3.1 program uses interface version 2), RMKill
-refused, PASS. `ExitJoin` PASS.
+refused, PASS. `ExitJoin` PASS. `TickerEarly` (threads started before
+`Wimp_Initialise`) PASS: "1059940 polls, threads counted 1525181594 and
+1522396949".
 
 ## 5. Files over 2GB (L1-L5)
 
@@ -1314,7 +1316,7 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 - the sound tests (`Tone*`, `Mix`, `ExitBug`, `ExitBugSSB`);
 - a threaded program without PThreadTicker;
 - R1 and R2 (on the machine where Warzone 2100 crashed).
-- K9: `TickerEarly` and the TickerStats lines;
+- K9: the TickerStats lines (`post_switches`);
 - S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
   from the 2026-10-01 review).
 
