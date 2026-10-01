@@ -39,6 +39,8 @@ VFLAG, CFLAG, ZFLAG = 1 << 28, 1 << 29, 1 << 30
 X = 0x20000
 OS_CallEvery, OS_RemoveTickerEvent, OS_SetCallBack = 0x3C, 0x3D, 0x1B
 OS_ChangeEnvironment, OS_Module, OS_Exit = 0x40, 0x1E, 0x11
+OS_IntOn, OS_IntOff = 0x13, 0x14
+IFLAG = 1 << 7
 
 RET = 0xFFF0          # "return address": emulation stops there
 MODBASE = 0x10000     # where the module is loaded
@@ -106,6 +108,10 @@ class Machine:
             self.alloc += (r[3] + 15) & ~15
         elif num == OS_Exit:
             mu.emu_stop()
+        elif num == OS_IntOff:
+            cpsr |= IFLAG
+        elif num == OS_IntOn:
+            cpsr &= ~IFLAG
         mu.reg_write(UC_ARM_REG_CPSR, cpsr)
 
     def w(self, addr, val):
@@ -114,7 +120,7 @@ class Machine:
     def r(self, addr):
         return int.from_bytes(self.mu.mem_read(addr, 4), "little")
 
-    def call(self, addr, regs=None, flags=0):
+    def call(self, addr, regs=None, flags=0, irqs_on=False):
         """Call addr with regs {reg: value}, lr = RET. Returns r0-r5, cpsr."""
         self.swis = []
         mu = self.mu
@@ -126,6 +132,8 @@ class Machine:
         mu.reg_write(UC_ARM_REG_SP, STACK)
         mu.reg_write(UC_ARM_REG_LR, RET)
         cpsr = (mu.reg_read(UC_ARM_REG_CPSR) & 0x0FFFFFFF) | flags
+        if irqs_on:
+            cpsr &= ~IFLAG
         mu.reg_write(UC_ARM_REG_CPSR, cpsr)
         mu.emu_start(addr, RET, count=5000)
         out = [mu.reg_read(x) for x in (UC_ARM_REG_R0, UC_ARM_REG_R1,
@@ -243,14 +251,26 @@ def test_module(build):
     # attach/detach count; finalisation refuses while in use
     for _ in range(2):
         out, cpsr = m.call(MODBASE + offs[5], {UC_ARM_REG_R12: ws,
-                                               UC_ARM_REG_R0: 99}, ZFLAG)
+                                               UC_ARM_REG_R0: 99}, ZFLAG,
+                           irqs_on=True)
     check(m.r(ws) == 2 and out[0] == 99 and cpsr & ZFLAG, "attach counts, preserves")
+    check(m.called(OS_IntOff) and m.called(OS_IntOn)
+          and [n for n, _ in m.swis] == [OS_IntOff, OS_IntOn]
+          and not cpsr & IFLAG,
+          "attach updates the count with IRQs off, then back on")
+    m.mu.reg_write(UC_ARM_REG_CPSR, m.mu.reg_read(UC_ARM_REG_CPSR) | IFLAG)
+    out, cpsr = m.call(MODBASE + offs[5], {UC_ARM_REG_R12: ws})
+    check(m.r(ws) == 3 and not m.swis and cpsr & IFLAG,
+          "attach with IRQs already off: no SWIs, IRQs stay off")
+    m.call(MODBASE + offs[6], {UC_ARM_REG_R12: ws}, irqs_on=True)
+    check(m.r(ws) == 2 and [n for n, _ in m.swis] == [OS_IntOff, OS_IntOn],
+          "detach also with IRQs off")
     out, cpsr = m.call(a("final_code"), {UC_ARM_REG_R12: PRIVWORD, UC_ARM_REG_R10: 0})
     check(cpsr & VFLAG and b"in use" in bytes(m.mu.mem_read(out[0] + 4, 60)),
           "final refuses while attached")
     check(m.r(PRIVWORD) == ws, "workspace kept")
     for _ in range(3):
-        m.call(MODBASE + offs[6], {UC_ARM_REG_R12: ws})
+        m.call(MODBASE + offs[6], {UC_ARM_REG_R12: ws}, irqs_on=True)
     check(m.r(ws) == 0, "detach counts down, not below 0")
     out, cpsr = m.call(a("final_code"), {UC_ARM_REG_R12: PRIVWORD, UC_ARM_REG_R10: 0})
     check(not cpsr & VFLAG and m.r(PRIVWORD) == 0

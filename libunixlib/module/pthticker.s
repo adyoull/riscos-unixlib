@@ -66,7 +66,7 @@ interface:
 title:
 	.asciz	"PThreadTicker"
 help:
-	.asciz	"PThreadTicker\t0.01 (27 Sep 2026) riscos-unixlib"
+	.asciz	"PThreadTicker\t0.02 (01 Oct 2026) riscos-unixlib"
 	.align
 module_flags:
 	.word	1				@ 32-bit compatible
@@ -80,24 +80,33 @@ error_inuse:
 	TICKER_ROUTINES pt
 
 	@ Count a program using the module. ip = workspace (OS_Module 18's
-	@ R4). Any mode; preserves all registers and flags.
+	@ R4). Preserves all registers and flags. Called from USR mode, or
+	@ with IRQs off. 0.02: the count is updated with IRQs off (OS_IntOff),
+	@ so two programs in TaskWindows can't both update it at once and
+	@ lose a count.
 pt_attach:
-	STMFD	sp!, {a1}
-	LDR	a1, [ip]
-	ADD	a1, a1, #1
-	STR	a1, [ip]
-	LDMFD	sp!, {a1}
-	MOV	pc, lr
+	STMFD	sp!, {a1, a2, lr}
+	MOV	a1, #1
+	B	pt_count
 
 	@ ... and one that has finished with it.
 pt_detach:
-	STMFD	sp!, {a1}
-	LDR	a1, [ip]
-	SUBS	a1, a1, #1
-	MOVMI	a1, #0
-	STR	a1, [ip]
-	LDMFD	sp!, {a1}
-	MOV	pc, lr
+	STMFD	sp!, {a1, a2, lr}
+	MVN	a1, #0
+pt_count:
+	MRS	a2, CPSR
+	STMFD	sp!, {a2}
+	TST	a2, #IFlag32
+	SWIEQ	XOS_IntOff
+	LDR	a2, [ip]
+	ADDS	a2, a2, a1
+	MOVMI	a2, #0
+	STR	a2, [ip]
+	LDMFD	sp!, {a2}
+	TST	a2, #IFlag32
+	SWIEQ	XOS_IntOn
+	MSR	CPSR_f, a2
+	LDMFD	sp!, {a1, a2, pc}
 
 	@ Workspace: one word, the number of programs attached.
 init_code:
