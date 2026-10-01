@@ -7,6 +7,9 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- Pi 4 result for 5.0.3.1-rc4: `BigHeap` PASS (two full 128 MB areas and
+  a third, then one 200 MB block across them), `HeapCheck` PASS.
+
 ## 5.0.3.1-rc4 (2026-10-01, pre-release, tag v5.0.3.1-rc4)
 
 - **One heap block can be bigger than 128 MB.** The heap's new dynamic
