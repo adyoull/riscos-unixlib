@@ -560,7 +560,19 @@ static int
 glob2(Char *pathbuf, Char *pathend, Char *pathend_last, Char *pattern,
       glob_t *pglob, size_t *limit)
 {
-	struct stat sb;
+	/*
+	 * 2026: room for either layout.  A program built with
+	 * _FILE_OFFSET_BITS=64 that sets GLOB_ALTDIRFUNC hands us gl_stat and
+	 * gl_lstat functions that fill the 72-byte struct stat64, but this
+	 * file is built with the 64-byte struct stat: they overran it by 8
+	 * bytes.  Only st_mode is read here, and it comes before st_size, so
+	 * it is at the same offset in both layouts.
+	 */
+	union {
+		struct stat st;
+		struct stat64 st64;
+	} sbuf;
+	struct stat *const sbp = &sbuf.st;
 	Char *p, *q;
 	int anymeta;
 
@@ -571,14 +583,14 @@ glob2(Char *pathbuf, Char *pathend, Char *pathend_last, Char *pattern,
 	for (anymeta = 0;;) {
 		if (*pattern == EOS) {		/* End of pattern? */
 			*pathend = EOS;
-			if (g_lstat(pathbuf, &sb, pglob))
+			if (g_lstat(pathbuf, sbp, pglob))
 				return(0);
 
 			if (((pglob->gl_flags & GLOB_MARK) &&
-			    pathend[-1] != SEP) && (S_ISDIR(sb.st_mode)
-			    || (S_ISLNK(sb.st_mode) &&
-			    (g_stat(pathbuf, &sb, pglob) == 0) &&
-			    S_ISDIR(sb.st_mode)))) {
+			    pathend[-1] != SEP) && (S_ISDIR(sbp->st_mode)
+			    || (S_ISLNK(sbp->st_mode) &&
+			    (g_stat(pathbuf, sbp, pglob) == 0) &&
+			    S_ISDIR(sbp->st_mode)))) {
 				if (pathend + 1 > pathend_last)
 					return (GLOB_ABORTED);
 				*pathend++ = SEP;
