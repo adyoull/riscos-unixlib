@@ -1,0 +1,6 @@
+| Dynamic area probe: can one heap block be bigger than 128 MB? Tries
+| adjacent areas and physical memory pool areas, then removes them all.
+| Needs about 300 MB free. Results also go to DAProbeLog here.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 1024K
+Run <UST$Dir>.daprobe <UST$Dir>.DAProbeLog

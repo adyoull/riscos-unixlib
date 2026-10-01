@@ -71,6 +71,12 @@ BigHeap     a heap past 128 MB: allocates up to 320 MB in 16 MB blocks,
             about 350 MB free.
 HeapCheck   run after BigHeap has quit: must print PASS (no "UnixLibTest
             Heap" area left behind; the Task Manager should agree)
+HeapProbe   a probe, not a pass/fail test: can one heap block be bigger
+            than 128 MB? Tries (A) a second dynamic area placed right
+            after the first, and (B) "physical memory pool" areas of
+            256 MB, 512 MB and 1 GB with 140 MB mapped in. Removes every
+            area it makes. Please send DAProbeLog (written next to it).
+            Needs about 300 MB free.
 
 Please report: what each one printed, whether it sounded right, any
 clicks or gaps, and the "max queued" figure.
