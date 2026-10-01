@@ -7,6 +7,17 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+## 5.0.3.1-rc4 (2026-10-01, pre-release, tag v5.0.3.1-rc4)
+
+- **One heap block can be bigger than 128 MB.** The heap's new dynamic
+  areas are made directly after each other (RISC OS 5 puts an area at
+  the base asked for: `HeapProbe` on a Pi 4), so the heap stays one range
+  of addresses and malloc sees one heap. If the space after an area is
+  taken, the heap goes on in an area elsewhere and continues end to end
+  from there. Reviewed by two models; fixes from that are in
+  MODIFICATIONS.md (A2). `tests/emu/heap_test.py` rewritten (37 checks).
+- RISC OS tests: `BigHeap` also allocates one 200 MB block.
+
 - RISC OS tests: `HeapCheck` no longer counts its own heap area (it has
   the same name), which made it report FAIL after a good `BigHeap` run.
   Pi 4 result for rc3: `BigHeap` PASS, 320 MB in three areas; one

@@ -96,6 +96,9 @@ static int heap_area_count;	/* 0 until the heap first needs a list */
 static int seg_start;		/* first area of the current segment */
 static int grow_idx;		/* the area holding __ul_memory.dalimit */
 static int chain_failed;	/* brk_da couldn't add an area after */
+static unsigned int heap_max_ok;	/* a maximum RISC OS accepted */
+static unsigned int chain_blocked;	/* a base where an area couldn't be
+					   made (0: none): don't keep trying */
 static char heap_area_name[48];
 
 /* Number of segments started so far (malloc handles that call as
@@ -148,8 +151,12 @@ heap_make_area (int base)
   heap_area_name[i] = '\0';
 
   /* Ask for the first area's maximum (at least 128 MB); if RISC OS
-     refuses (older systems with less address space), ask for less.  */
+     refuses (older systems with less address space), ask for less, down
+     to 1 MB.  At a given base, once a maximum has worked before, a
+     refusal means the space is taken: don't go on halving.  */
   want = first_max > HEAP_AREA_MIN_MAX ? first_max : HEAP_AREA_MIN_MAX;
+  if (heap_max_ok && want > heap_max_ok)
+    want = heap_max_ok;
   for (;;)
     {
       max = 0;
@@ -157,10 +164,14 @@ heap_make_area (int base)
 		 0, -1, 0, base, 0x80, want, 0, 0, heap_area_name,
 		 &num, &got_base, &max) == NULL)
 	break;
+      if (base != -1 && heap_max_ok && want <= heap_max_ok)
+	return -1;
       want /= 2;
       if (want < (1u << 20))
 	return -1;
     }
+  if (heap_max_ok < want)
+    heap_max_ok = want;
   if ((base != -1 && got_base != (unsigned int) base) || max == 0)
     {
       _swix (OS_DynamicArea, _INR(0,1), 1, num);
@@ -178,7 +189,18 @@ static int
 heap_chain_area (void)
 {
   const struct heap_area *last = &heap_areas[heap_area_count - 1];
-  return heap_make_area ((int) (last->base + last->max));
+  unsigned int next = last->base + last->max;
+
+  /* Not past the top of the address space, and not where it failed
+     before in this segment.  */
+  if (next <= last->base || next == chain_blocked)
+    return -1;
+  if (heap_make_area ((int) next) != 0)
+    {
+      chain_blocked = next;
+      return -1;
+    }
+  return 0;
 }
 
 /* Remove areas at the end of the current segment that hold nothing (made
@@ -274,6 +296,16 @@ brk_da (unsigned int addr)
       chain_failed = 0;
       if (heap_list_init () != 0)
 	return __set_errno (ENOMEM);
+      /* Make every area the growth needs first, so that if one can't be
+	 made (and malloc goes on in a new segment) no memory has been
+	 committed here for nothing.  */
+      while (heap_room () < want)
+	if (heap_chain_area () != 0)
+	  {
+	    chain_failed = 1;
+	    heap_drop_empty ();
+	    return __set_errno (ENOMEM);
+	  }
       while (want > 0)
 	{
 	  const struct heap_area *a = &heap_areas[grow_idx];
@@ -281,13 +313,6 @@ brk_da (unsigned int addr)
 
 	  if (room == 0)
 	    {
-	      if (grow_idx + 1 >= heap_area_count
-		  && heap_chain_area () != 0)
-		{
-		  chain_failed = 1;
-		  heap_drop_empty ();
-		  return __set_errno (ENOMEM);
-		}
 	      grow_idx++;
 	      gbl->dynamic_num = heap_areas[grow_idx].num;
 	      continue;
@@ -297,18 +322,33 @@ brk_da (unsigned int addr)
 	  regs[1] = (int) step;
 	  if (__os_swi (OS_ChangeDynamicArea, regs))
 	    {
+	      unsigned int size;
 #ifdef DEBUG
 	      debug_printf ("-- brk: OS_ChangeDynamicArea failed\n");
 #endif
 	      /* Failed to allocate the memory, so return an error.  What
-		 was added before stays (dalimit says how far).  */
+		 was added before stays.  The area may have grown part of
+		 the way: take its size from RISC OS.  */
+	      if (_swix (OS_DynamicArea, _INR(0,1) | _OUT(2), 2, a->num,
+			 &size) == NULL
+		  && a->base + size > mem->dalimit
+		  && size <= a->max)
+		mem->dalimit = a->base + size;
 	      heap_drop_empty ();
 	      return __set_errno (ENOMEM);
 	    }
 
-	  /* Record the new maximum address space.  */
+	  /* Record the new maximum address space: what RISC OS says it
+	     added.  */
+	  if ((unsigned int) regs[1] < step)
+	    step = (unsigned int) regs[1];
 	  mem->dalimit += step;
-	  want -= step;
+	  want = step < want ? want - step : 0;
+	  if (step == 0)
+	    {
+	      heap_drop_empty ();
+	      return __set_errno (ENOMEM);
+	    }
 	}
     }
 
@@ -526,6 +566,7 @@ heap_new_segment (void)
 
   if (heap_make_area (-1) != 0)
     return -1;
+  chain_blocked = 0;
   seg_start = grow_idx = heap_area_count - 1;
   __ul_global.dynamic_num = heap_areas[grow_idx].num;
   mem->dalomem = mem->dabreak = mem->dalimit = heap_areas[grow_idx].base;
@@ -542,7 +583,8 @@ __heap_needs_new_area (int incr)
   const struct ul_memory *mem = &__ul_memory;
   unsigned int addr, need;
 
-  if (__ul_global.dynamic_num == -1 || incr <= 0)
+  if (__ul_global.dynamic_num == -1 || incr <= 0
+      || mem->dabreak + (unsigned int) incr < mem->dabreak)
     return 0;
   addr = align (mem->dabreak + (unsigned int) incr);
   /* Fits in what the heap already has: no (and no SWI).  */
@@ -603,6 +645,9 @@ __internal_sbrk (int incr)
       /* Dynamic areas are in use.  */
       unsigned int oldbrk = mem->dabreak;
 
+      /* 2026: not past the top of the address space.  */
+      if (oldbrk + (unsigned int) incr < oldbrk)
+	return (void *) -1;
       if (incr != 0 && brk_da (oldbrk + incr) < 0)
 	{
 	  /* 2026: if no area could be added directly after the heap,

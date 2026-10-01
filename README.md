@@ -15,7 +15,7 @@ changes, so every port links against the same library.
 
 AI (Anthropic's Claude) has been used as a coding assistant on this fork.
 
-**Version: UnixLib 5.0.3.1 (pre-release 5.0.3.1-rc3).** Base: UnixLib 5.0, `gcc4/recipe/files/gcc/libunixlib`
+**Version: UnixLib 5.0.3.1 (pre-release 5.0.3.1-rc4).** Base: UnixLib 5.0, `gcc4/recipe/files/gcc/libunixlib`
 from [jhamby/riscos-gccsdk](https://github.com/jhamby/riscos-gccsdk) at
 `64c6f81` (2023-08-11). The first commit is that copy, unchanged; every change
 after it is a separate commit.
@@ -28,7 +28,7 @@ after it is a separate commit.
 | Clock | `time/clk_gettime.c` | `CLOCK_MONOTONIC` is interpolated inside the centisecond with the HAL counter (`OS_Hardware` 19/20/21), so `std::chrono::steady_clock` and SDL timing are sub-microsecond instead of 10 ms steps. Falls back to centiseconds if the HAL values look wrong. New internal `__ul_monotonic_ns()`. |
 | Sleeping | `signal/sleep.c` | `nanosleep` sleeps to sub-centisecond accuracy using the new clock; a bad `timespec` now returns `EINVAL`. |
 | Memory | `stdlib/alloc.c` | On EABI, large `malloc`s no longer use `mmap` (each mapping was an ARMEABISupport `mmap#N` dynamic area that was left behind after exit). They come from the heap dynamic area. |
-| Heap past 128 MB | `sys/brk.c`, `stdlib/alloc.c` | RISC OS 5 gives each new dynamic area at most 128 MB, so a heap in one area stopped there. When the heap's area is full it now carries on in another (`<name> 2`, `3`…), all removed at exit, and malloc no longer falls back to `mmap` (which left `mmap#N` areas behind). One allocation still has to fit in one area. |
+| Heap past 128 MB | `sys/brk.c`, `stdlib/alloc.c` | RISC OS 5 gives each new dynamic area at most 128 MB, so a heap in one area stopped there. When the heap's area is full it now carries on in another made directly after it (`<name> 2`, `3`…), so the heap stays one range and a single block can be bigger than 128 MB. All the areas are removed at exit, and malloc no longer falls back to `mmap` (which left `mmap#N` areas behind). |
 | Sound: exit bug | `sound/dsp.c` | Every UnixLib program's exit stopped DigitalRenderer, so quitting *any* UnixLib program cut off another program's sound. Now only the program that played stops it. Opening `/dev/dsp` or changing its settings no longer resets another program's sound either. |
 | Sound: mixing | `sound/dsp.c` | `/dev/dsp` plays through **SharedSoundBuffer / StreamManager** when they're loaded: mixed with other programs' sound, any rate resampled. All common OSS formats (16-bit LE/BE, 8-bit signed/unsigned, µ-law, mono/stereo) and the usual ioctls. Falls back to DigitalRenderer. |
 | Sound: default format | `sound/dsp.c` | The default format was A-law by mistake (16-bit was intended). |

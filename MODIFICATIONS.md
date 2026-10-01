@@ -270,86 +270,91 @@ rather than straight to the OS.
 
 **Verification.** In use in the OpenTTD port.
 
-### A2. A heap of several dynamic areas (`sys/brk.c`, `stdlib/alloc.c`, `sys/_syslib.s`, `incl-local/unistd.h`)
+### A2. A heap of several dynamic areas, end to end (`sys/brk.c`, `stdlib/alloc.c`, `sys/_syslib.s`, `incl-local/unistd.h`)
 
 **Problem.** Reported by the OpenTTD port (2026-10-01, Pi 4 with 2 GB,
 RISC OS 5).
-- RISC OS 5 gave every dynamic area created with `OS_DynamicArea 0` a
-  maximum of 128 MB, whatever maximum was asked for. OpenTTD asks for
+- RISC OS 5 gives every dynamic area created with `OS_DynamicArea 0` a
+  maximum of 128 MB, whatever maximum is asked for. OpenTTD asks for
   512 MB (`__dynamic_da_max_size`) and its `OpenTTD Heap` had a maximum
-  of 131072K, as did another UnixLib program's; areas made from BASIC with
-  several sets of flags were the same. So a UnixLib heap stopped at
-  128 MB with plenty of memory free.
+  of 131072K, as did another UnixLib program's. So a UnixLib heap stopped
+  at 128 MB with plenty of memory free.
 - When the heap area was full, malloc fell back to `mmap` for the space
   (dlmalloc's "mmap as MORECORE backup", which ignores A1's setting).
-  Each such request left an ARMEABISupport `mmap#N` area of 131076K, and
-  the areas seemed to survive the program's exit. OpenTTD's 128 MB
-  sprite cache and a map array still failed to allocate.
+  Each such request left an ARMEABISupport `mmap#N` area behind, and the
+  allocation still failed.
+
+**What RISC OS 5 allows** (`tests/riscos/daprobe.c`, `HeapProbe` in
+UnixLibTests.zip, run on the Pi 4):
+- two areas made one after the other land next to each other;
+- an area asked for at a given base (R3) is put exactly there, and two
+  such areas work as one block (128 KB written across the join);
+- physical memory pool areas (as ARMEABISupport uses) are capped at
+  128 MB as well, so they don't help.
 
 **Change.**
-- When malloc's sbrk (`__internal_sbrk`) finds the current area full
-  (growing it would pass the area's maximum; not when memory has simply
-  run out), it creates another area and carries on there. The areas are
-  named after the first: `OpenTTD Heap 2`, `OpenTTD Heap 3`... (up to 64).
-  A new area is asked for with the first area's maximum, at least 128 MB;
-  if RISC OS refuses that or gives less than the request needs, it is
-  asked for once more with a maximum of just the request. The area's
-  maximum is only read (`OS_DynamicArea 2`) when the area has to grow.
-  (The `mmap#N` areas above got a maximum of 131076K, just over 128 MB,
-  so RISC OS may allow that.)
-- malloc: only the first sbrk of a request may start a new area. That
-  request then asks for all the space it needs (the old top can't be
-  merged with a new area), handles the new space as non-contiguous for
-  that one call (fenceposts at the end of the old top, as for a foreign
-  sbrk), and is contiguous again afterwards.
-- If there's no memory to grow a new area, it is removed again and the
-  heap stays in the old one.
+- The heap is a list of areas. When the area holding the heap's end is
+  full, `brk_da` creates the next area directly after it (base = previous
+  base + maximum), named after the first (`OpenTTD Heap 2`, `3`..., up to
+  64), and carries on. The heap stays one range of addresses, so to malloc
+  it is one heap and **a single block can be bigger than 128 MB**.
+- All the areas a growth needs are made before any memory is committed,
+  so a failure commits nothing for nothing.
+- If an area can't be made directly after (the address is taken), the
+  heap goes on in an area wherever RISC OS puts it (a new "segment"),
+  and adds areas end to end from there. malloc handles that one gap like
+  a foreign sbrk (fenceposts around the old top); only the first sbrk of
+  a malloc request may start a segment, and that request asks for all its
+  space. A block can't cross a gap between segments.
+- A new area is asked for with the first area's maximum, at least 128 MB.
+  If RISC OS refuses, less is asked for (down to 1 MB). A base where an
+  area couldn't be made isn't tried again in that segment.
+- The area's size is taken from RISC OS if a growth fails part of the
+  way. Empty areas left by a failed growth are removed.
 - malloc no longer uses `mmap` as a backup when the heap is in dynamic
   areas. A heap in the wimpslot (no dynamic area) keeps it.
-- `__dynamic_area_exit` (program exit and `exec`) removes the other areas
-  too, through a new `__dynamic_area_extra_exit`.
-- `brk()`/`sbrk()` work on the newest area: after a switch `sbrk(0)` is
-  in the new area and `brk()` to an address in an old one fails.
-  `RLIMIT_DATA` still gives the first area's maximum. Memory in old areas
-  is reused by malloc, but only given back to RISC OS at exit (malloc
-  never shrank the heap area anyway). `fork` is already refused with a
-  dynamic-area heap; a `vfork` child shares the list.
+- `__dynamic_area_exit` (program exit and `exec`) removes every area,
+  through a new `__dynamic_area_extra_exit`.
+- `brk()`/`sbrk()` see the heap as one range within a segment; shrinking
+  only gives back memory from the last area. After a segment switch
+  `sbrk(0)` is in the new segment and `brk()` into an old one fails.
+  `RLIMIT_DATA` still gives the first area's maximum. `fork` is already
+  refused with a dynamic-area heap; a `vfork` child shares the list.
 
-**Effect.** A program's heap can use as much memory as is free, in pieces
-of up to 128 MB (or whatever RISC OS allows per area). One allocation
-still has to fit in one area. The Task Manager shows the extra areas
-under the same name with a number.
+**Effect.** A program's heap can use as much memory as is free, and one
+allocation can be bigger than 128 MB (OpenTTD's 4096x4096 map needs
+128 MB + 16 bytes). Programs whose heap stays in its first area are
+unchanged apart from one `OS_DynamicArea 2` the first time the heap
+grows. The Task Manager shows the extra areas under the same name with a
+number.
 
-**Review.** Reviewed by two models (Opus and Sonnet) before release. Fixed
-from that: an `OS_DynamicArea 2` on nearly every heap growth (now only
-when the area must grow), no retry when RISC OS refuses a new area's
-maximum, a dead retry in malloc, and areas of only 32 MB for programs
-that don't set a maximum (now at least 128 MB, up to 64 areas).
+**Review.** Both versions were reviewed by two models (Opus and Sonnet)
+before release. Fixed from the first review: an `OS_DynamicArea 2` on
+nearly every growth, no retry when RISC OS refuses a maximum, a dead
+retry in malloc, 32 MB extra areas. Fixed from the second: memory
+committed in the old area before a segment switch and then stranded
+(now every area is made before committing), repeated attempts at a taken
+base, `dalimit` not following a partial growth, address wrap-around near
+4 GB.
 
 **Verification.** `tests/emu/heap_test.py` runs the real malloc, free,
 realloc and sbrk in the Unicorn emulator, with OS_DynamicArea and
-OS_ChangeDynamicArea faked to give 1 MB areas: allocations past the first
-area (including into an area placed below it), contents and overlaps
-checked; a block bigger than an area's usual maximum; one RISC OS won't
-give (refused, nothing left behind); a big block while the old top is
-mostly free (exactly one new area, holding it); a big maximum refused
-(areas just big enough instead); `OS_DynamicArea 2` only when an area
-grows; 400 random
-malloc/free/realloc calls across several areas; no `mmap` SWIs; memory
-running out just as an area fills (the new, empty area is removed again);
-and the areas removed at exit. On RISC OS: `BigHeap` and `HeapCheck` in
-UnixLibTests.zip.
+OS_ChangeDynamicArea faked to cap areas at 1 MB and to honour a base in
+R3 when the space is free. 37 checks: areas end to end, a 2.5 MB block
+across areas, a big block reusing a free top, 400 random calls with
+blocks up to 300 KB; the space after the first area taken (a segment
+elsewhere, nothing committed for nothing, few SWIs, the other area left
+alone); memory running out, also part of the way through a growth; a big
+maximum refused; fixed bases refused altogether (the earlier scheme); no
+`mmap` SWIs; and the areas removed at exit. 8 of these fail on 5.0.3.1-rc3
+and 7 on 5.0.3.1-rc2 (which also calls ARMEABISupport's `mmap`).
 
-**On the Pi 4 (2 GB, RISC OS 5, 2026-10-01, rc3):** `BigHeap` passed. It
-allocated 320 MB in 16 MB blocks across three areas ("UnixLibTest Heap",
-"... Heap 2", "... Heap 3", each with a maximum of 131072K) and the data
-was intact. One 128 MB + 64 KB block was refused: RISC OS also gives an
-area asked for with exactly that maximum only 128 MB. (ARMEABISupport's
-`mmap#N` areas get past 128 MB because they are physical memory pool
-areas, which it maps page by page itself.) `HeapCheck` found only an area
-of its own (same name, 32K), which its first version counted by mistake;
-no area from `BigHeap` was left. Against the unfixed library, 7 checks fail and
-malloc calls ARMEABISupport's `mmap`. Not yet run on RISC OS.
+**On the Pi 4 (2 GB, RISC OS 5, 2026-10-01).** With rc3 (areas wherever
+RISC OS put them): `BigHeap` allocated 320 MB in three areas with the
+data intact; one 128 MB + 64 KB block was refused; `HeapCheck` passed
+(after a fix to the test itself). `HeapProbe` then showed the end-to-end
+placement above. The end-to-end heap (rc4): `BigHeap` now also asks for
+one 200 MB block; not yet run.
 
 ### F1. `fsync` on read-only files; `fdatasync` (`unix/sync.c`, `include/unistd.h`) - commit `751de68`
 
@@ -1154,7 +1159,8 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 - R1 and R2 (on the machine where Warzone 2100 crashed).
 - K5-K7, S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
   from the 2026-10-01 review);
-- A2 in OpenTTD (`!MemCheck`, a 2048x4096 map); `BigHeap` passed on the Pi;
+- A2 end to end (rc4): `BigHeap` with its 200 MB block, OpenTTD
+  (`!MemCheck`, a 4096x4096 map);
 - `*RMKill PThreadTicker` while a threaded program runs: must refuse. This
   also settles a point the review disputed (whether `OS_Module 18` returns
   the module's private word or its address in R4).

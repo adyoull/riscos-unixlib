@@ -50,16 +50,13 @@ fails the 2 for a stack below the stack pointer.
 
 `emu/heap_test.py` links `emu/heap_stub.c` with the built `libunixlib.a`
 and runs the real `malloc`, `free`, `realloc` and heap `sbrk` with
-OS_DynamicArea and OS_ChangeDynamicArea faked to give 1 MB areas (RISC OS
-5 gives 128 MB): the heap carrying on in new areas (named after the
-first, one placed below it), contents and overlaps, a block bigger than
-an area's usual maximum, one that can't be had (nothing left behind), a
-big block while the old top is mostly free (one new area), 400 random
-calls across several areas, no `mmap` fallback, running out of memory
-just as an area fills (no empty area left behind), a big maximum refused
-by RISC OS, the area's maximum only read when it must grow, and the areas
-removed at exit. 25 checks; the library before the change fails 7 (and calls
-ARMEABISupport's `mmap`).
+OS_DynamicArea and OS_ChangeDynamicArea faked to cap areas at 1 MB (RISC
+OS 5: 128 MB) and to put an area at the base asked for when the space is
+free (as RISC OS 5 does): areas end to end, blocks bigger than an area,
+random calls, the space after an area taken (a segment elsewhere),
+memory running out (also part of the way), a big maximum refused, fixed
+bases refused, no `mmap` fallback, and the areas removed at exit. 37
+checks; 5.0.3.1-rc3 fails 8.
 
 `make check` runs them when there's a build, the cross toolchain and the
 Python `unicorn` module (`pip install unicorn`); otherwise it says SKIP.

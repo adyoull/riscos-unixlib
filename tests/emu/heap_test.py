@@ -131,6 +131,7 @@ class Machine:
         self.areas = {}
         self.ram = None          # free memory left (None: plenty)
         self.refuse_big = False  # OS_DynamicArea 0 errors above HONOUR
+        self.partial = False     # out of RAM: grow what's left, then error
         self.counts = {}
         self.unexpected = []
         self.next_base = 0
@@ -172,6 +173,15 @@ class Machine:
         if num == OS_ChangeDynamicArea:
             a = self.areas.get(r[0])
             delta = struct.unpack("<i", struct.pack("<I", r[1]))[0]
+            if (self.partial and a is not None and not a.deleted and delta > 0
+                    and self.ram is not None and delta > self.ram
+                    and a.size + delta <= a.max and self.ram > 0):
+                part = self.ram & ~0xFFF
+                a.size += part
+                self.ram -= part
+                self.reg(UC_ARM_REG_R1, part)
+                self.fail_swi()
+                return
             if (a is None or a.deleted or a.size + delta > a.max
                     or a.size + delta < 0
                     or (self.ram is not None and delta > self.ram)):
@@ -438,6 +448,38 @@ def main():
     check(m7.areas[50].size == 0 and not m7.areas[50].deleted,
           "the other program's area is left alone")
     exit_check(m7, "space after taken")
+
+    # No memory committed for nothing when the space after is taken: the
+    # first area isn't filled up before the heap moves elsewhere.
+    m9 = fresh()
+    m9.add_area(50, 0x10000000 + CAP, CAP, b"Someone else")
+    fill(m9, 9, 64 * 1024)
+    first_before = m9.areas[FIRST].size
+    m9.counts = {}
+    big = m9.call(s["t_malloc"], 600 * 1024)
+    check(big and m9.areas[FIRST].size <= first_before + 32 * 1024,
+          "space after taken: the first area isn't grown for nothing "
+          "(%d KB -> %d KB)" % (first_before // 1024,
+                                m9.areas[FIRST].size // 1024))
+    m9.counts = {}
+    fill(m9, 20, 64 * 1024)
+    made = m9.counts.get((OS_DynamicArea, 0), 0)
+    check(made <= 6, "space after taken: few OS_DynamicArea 0 calls for 20 "
+          "more blocks (%d)" % made)
+
+    # Out of memory with RISC OS growing part of the way before the error:
+    # the heap still only hands out memory that is there.
+    m10 = fresh()
+    m10.ram = 1300 * 1024
+    m10.partial = True
+    got = fill(m10, 12, 150 * 1024)
+    check(0 in got and all(m10.covered(p, 150 * 1024) for p in got if p)
+          and intact(m10, got, 150 * 1024),
+          "partial growth: blocks only in committed memory, contents kept")
+    m10.ram += 400 * 1024
+    more = m10.call(s["t_malloc"], 200 * 1024)
+    check(more and m10.covered(more, 200 * 1024),
+          "partial growth: goes on when memory is free again")
 
     # ---- Fixed bases refused (RISC OS chooses every address) ----
     m8 = fresh(fixed=False)
