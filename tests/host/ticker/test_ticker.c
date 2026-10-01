@@ -12,7 +12,7 @@
 /* A fake PThreadTicker module: header, then the interface table at &34;
    the routines "are" at &80.. (never run here, only called by address).  */
 static unsigned modbuf[64] = {
-  [0x34 / 4] = 0x6B545450, 1, 7,
+  [0x34 / 4] = 0x6B545450, 2, 7,
   0x80, 0x84, 0x88, 0x8c, 0x90, 0x94, 0x98
 };
 static int modws;			/* Its workspace.  */
@@ -334,6 +334,13 @@ main (void)
   setup (1);
   CHECK (blk.flags == 0, "wrong magic: module not used");
   modbuf[0x34 / 4] = 0x6B545450;
+
+  /* PThreadTicker 0.01/0.02 (interface version 1) stops the ticker in
+     Wimp_Poll: not used, the copy is.  */
+  modbuf[0x38 / 4] = 1;
+  setup (1);
+  CHECK (blk.flags == 0, "interface version 1 (module 0.02): not used");
+  modbuf[0x38 / 4] = 2;
 
   /* No module: copy and run the copy.  */
   handle = 0x5555;

@@ -55,7 +55,7 @@ the commits are named below.
 | `stdlib/atexit.c` | X1 atexit handlers with thread switching allowed |
 | `sched/sched_prio.c` (**new**), `include/sched.h` | P1 `sched_get_priority_min/max` |
 | `pthread/schedparam.c`, `pthread/newnode.c` | P2 `pthread_setschedparam` |
-| `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s`, `sys/exec.c` | K1-K7 thread ticker (`sys/_syslib.s` also A2) |
+| `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s`, `sys/exec.c` | K1-K7, K9 thread ticker (`sys/_syslib.s` also A2) |
 | `sys/vfork.c`, `sys/_vfork.s`, `incl-local/internal/unix.h` | K8 fork on EABI: the child's exit and the parent's stack |
 | `include/sys/stat.h`, `incl-local/sys/stat.h`, `unix/stat64.c` (**new**), `unix/stat.c`, `unix/lstat.c`, `unix/fstat.c`, `unix/scl_fstat.c` | L1 `struct stat64` with a 64-bit size |
 | `unix/ul_lseek.c`, `stdio/fseeko.c`, `stdio/ftello.c`, `stdio/fgetpos.c`, `stdio/fsetpos.c` | L2 64-bit seeking to 4GB-1 |
@@ -846,7 +846,7 @@ writing; they fail on the old code. `MIDI_TxByte`'s "buffer full" return
 is still not checked (to be checked against the MIDI module's
 documentation).
 
-## 4. Thread ticker (K1-K5)
+## 4. Thread ticker (K1-K9)
 
 Background, the investigation and the `UnixLib$TickerStats` fields are in
 `docs/THREAD-TICKER.md`. In short: UnixLib switches threads with an
@@ -1075,6 +1075,53 @@ Pi 4, 5.0.3.1-rc8 (with X2): `ForkOnly` PASS (three forks and the stack
 check), `ForkThreads` PASS (with PThreadTicker loaded: RMKill refused),
 `ForkExec` PASS (without the module).
 
+### K9. Threads starved in a program that polls often (`incl-local/internal/ticker.s`, `module/pthticker.s` 0.03, `pthread/ticker.c`, the RMA block)
+
+**Problem.** `Ticker` on a Pi 4 (2026-10-01, rc5-rc8): "598959 polls,
+threads counted 0 and 0". A Wimp program whose main thread polls more
+often than every 2 cs (SDL programs do) gave its other threads no
+processor time at all.
+
+**Cause.** The pre-filter stopped the ticker as the program entered
+`Wimp_Poll` and the post-filter started it again as it returned. Each
+`OS_CallEvery` began a new 2 cs period, and the next pre-filter removed it
+before the period was up, so the ticker never fired while the program
+was running. GCCSDK UnixLib's filters did the same.
+
+**Change.** The ticker keeps running (details: docs/THREAD-TICKER.md,
+"Starved threads"):
+- the pre-filter sets `polling` in the RMA block, the post-filter clears
+  it; both first check that the program is paged in (as the handler
+  does), since FilterManager can call them for another task;
+- a tick while `polling` is set sets `pending` instead of a callback (a
+  callback then could be taken by whichever task `Wimp_Poll` returns to);
+- the post-filter, if `pending` was set, sets the callback, so threads are
+  switched as `Wimp_Poll` returns (counted in `post_switches`, shown in
+  `UnixLib$TickerStats`);
+- start and stop clear `polling`.
+
+The RMA block grew from 472 to 640 bytes (three fields at 152-163, the
+routines' copy, now 464 bytes, at 164; `tools/check-lib.sh` expects 640).
+PThreadTicker 0.03 has the new routines and interface version 2. UnixLib
+uses the module only if it is version 2; earlier UnixLib uses only version
+1, so neither uses a module with the other's routines or block layout,
+and falls back to its own RMA copy.
+
+**What it means for programs.** Threads in a Wimp program that polls fast
+now run: each tick that comes while the program is in `Wimp_Poll` gives a
+thread switch as `Wimp_Poll` returns, so they get time at the 2 cs rate
+as before the filters, without a callback ever landing in another task.
+Programs that poll slowly see no difference. The ticker now also runs
+while other tasks do; its handler only counts then.
+
+**Verification.** `tests/emu/ticker_test.py` (144 checks, both the
+module's and the RMA copy's machine code): ticks while polling set
+`pending` and no callback; the post-filter switches once and clears both;
+filters called for another task change nothing; critical sections are
+respected; R0-R3 and flags preserved. `tests/host/ticker`: a version 1
+module isn't used. On RISC OS: `Ticker` must now say PASS with both
+threads counted above 0 (it reports FAIL otherwise); not yet run.
+
 ## 5. Files over 2GB (L1-L5)
 
 Background and the compatibility table are in `docs/LARGE-FILES.md`.
@@ -1245,15 +1292,17 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 
 **Not yet run on RISC OS:**
 - the sound tests (`Tone*`, `Mix`, `ExitBug`, `ExitBugSSB`);
-- `ExitJoin`, `FsyncRO`, `Sched`;
 - a threaded program without PThreadTicker;
 - R1 and R2 (on the machine where Warzone 2100 crashed).
-- K5-K8, S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
-  from the 2026-10-01 review); `ForkExec` (fxtest) in UnixLibTests.zip
-  covers K5/K6 (fork, vfork + failed exec, system() from a threaded
-  program).
+- K9 (`Ticker`: both threads must be counted above 0);
+- S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
+  from the 2026-10-01 review).
 
-**Done on RISC OS:** `*RMKill PThreadTicker` while a UnixLib program was
+**Done on RISC OS (Pi 4, 5.0.3.1-rc8):** `ForkOnly`, `ForkThreads`,
+`ForkExec` (K5, K6, K8, X2), `ExitJoin` (X1), `FsyncRO` (F1), `Sched`
+(P1, P2), `BigHeap`/`HeapCheck` (A2) all PASS.
+
+**Also:** `*RMKill PThreadTicker` while a UnixLib program was
 using the module (Pi 4, 2026-10-01) was refused with "PThreadTicker is in
 use by UnixLib programs". This settles the point the review disputed:
 `OS_Module 18` gives the private word's contents (the workspace pointer)

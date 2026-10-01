@@ -19,7 +19,7 @@ GCCSDK_ENV=${GCCSDK_ENV:-$HOME/gccsdk/env}
 OBJDUMP=$GCCSDK_ENV/bin/arm-riscos-gnueabihf-objdump
 NM=$GCCSDK_ENV/bin/arm-riscos-gnueabihf-nm
 # sizeof (struct __pthread_callevery_block); pthinit.c asserts the same.
-EXPECTED=${EXPECTED:-472}
+EXPECTED=${EXPECTED:-640}
 [ $# -gt 0 ] || set -- "$REPO/build/work/build/.libs/libunixlib.a"
 
 bad=0

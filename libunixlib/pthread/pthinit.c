@@ -20,9 +20,12 @@ static struct __pthread_thread mainthread;
 #define OFFSET(f) __builtin_offsetof (struct __pthread_callevery_block, f)
 _Static_assert (OFFSET (ticks) == 120, "ticks: keep in step with asm_dec.s");
 _Static_assert (OFFSET (flags) == 148, "flags: keep in step with asm_dec.s");
-_Static_assert (OFFSET (ticker_code) == 152,
+_Static_assert (OFFSET (polling) == 152, "polling: keep in step with asm_dec.s");
+_Static_assert (OFFSET (post_switches) == 160,
+		"post_switches: keep in step with asm_dec.s");
+_Static_assert (OFFSET (ticker_code) == 164,
 		"ticker_code: keep in step with asm_dec.s");
-_Static_assert (sizeof (struct __pthread_callevery_block) == 472,
+_Static_assert (sizeof (struct __pthread_callevery_block) == 640,
 		"__pthread_callevery_block: keep in step with asm_dec.s");
 #undef OFFSET
 

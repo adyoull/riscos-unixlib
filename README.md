@@ -15,7 +15,7 @@ changes, so every port links against the same library.
 
 AI (Anthropic's Claude) has been used as a coding assistant on this fork.
 
-**Version: UnixLib 5.0.3.1 (pre-release 5.0.3.1-rc8).** Base: UnixLib 5.0, `gcc4/recipe/files/gcc/libunixlib`
+**Version: UnixLib 5.0.3.1 (pre-release 5.0.3.1-rc9).** Base: UnixLib 5.0, `gcc4/recipe/files/gcc/libunixlib`
 from [jhamby/riscos-gccsdk](https://github.com/jhamby/riscos-gccsdk) at
 `64c6f81` (2023-08-11). The first commit is that copy, unchanged; every change
 after it is a separate commit.
@@ -34,7 +34,7 @@ after it is a separate commit.
 | Sound: default format | `sound/dsp.c` | The default format was A-law by mistake (16-bit was intended). |
 | fsync | `unix/sync.c` | `fsync()` on a read-only file returns 0 instead of `EBADF` (PhysFS never closed such files); new `fdatasync()`. |
 | Exit | `stdlib/atexit.c` | atexit handlers and C++ destructors run with thread switching allowed, so joining a thread in one (SDL_WaitThread) no longer aborts the program as it quits. |
-| Threads | `pthread/ticker.c`, `internal/ticker.s`, `module/pthticker.s` | The thread-switching ticker runs from the new **PThreadTicker** module when it's loaded, or from RMA without it, so it can't crash another task that happens to be paged in when it fires (seen with Warzone 2100 and Organizer). Its Wimp filters follow the task handle, including threads started before `Wimp_Initialise`. `UnixLib$TickerStats` logs what it did. See [docs/THREAD-TICKER.md](docs/THREAD-TICKER.md). |
+| Threads | `pthread/ticker.c`, `internal/ticker.s`, `module/pthticker.s` | The thread-switching ticker runs from the new **PThreadTicker** module when it's loaded, or from RMA without it, so it can't crash another task that happens to be paged in when it fires (seen with Warzone 2100 and Organizer). Its Wimp filters follow the task handle, including threads started before `Wimp_Initialise`. Threads also run in a program that calls `Wimp_Poll` very often (before 5.0.3.1 they got no time). `UnixLib$TickerStats` logs what it did. See [docs/THREAD-TICKER.md](docs/THREAD-TICKER.md). |
 | Large files | `sys/stat.h`, `unix/stat64.c`, `unix/ul_lseek.c`, `stdio/fseeko.c`… | With `-D_FILE_OFFSET_BITS=64`, files up to 4GB-1 (the RISC OS limit): 64-bit `st_size`, `lseek`/`fseeko`/`ftello` past 2GB, `ftruncate64`, `mmap64`. Programs built without it are unchanged, and libraries built with older headers keep working. See [docs/LARGE-FILES.md](docs/LARGE-FILES.md). |
 | MIDI | `sound/midi.c` | New **`/dev/midi`**: raw MIDI bytes go to a MIDISynth module (proposed, see [docs/MIDISYNTH-MODULE.md](docs/MIDISYNTH-MODULE.md)) or the RISC OS MIDI module. |
 

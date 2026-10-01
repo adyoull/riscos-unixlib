@@ -49,7 +49,7 @@
 __pthread_call_every_code:
 	TICKER_ROUTINES ul_ticker
 __pthread_call_every_code_end:
-	.if	__pthread_call_every_code_end - __pthread_call_every_code > 320
+	.if	__pthread_call_every_code_end - __pthread_call_every_code > 476
 	.error	"The ticker routines don't fit in PTHREAD_CALLEVERY_RMA_TICKER_CODE"
 	.endif
 	.if	ul_ticker_handler - __pthread_call_every_code

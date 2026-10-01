@@ -16,7 +16,8 @@
 @ follows the module header (offset &34):
 @
 @   +0  "PTTk" (&6B545450)
-@   +4  interface version (1)
+@   +4  interface version (2 from 0.03; 1 in 0.01-0.02, used by UnixLib
+@       before 5.0.3.1, which ignores this module and uses its own copy)
 @   +8  number of entries that follow (7)
 @   +12 offsets from the module start of:
 @       handler, start, stop, pre-filter, post-filter  (ip = RMA block)
@@ -50,7 +51,7 @@ module_start:
 	@ The interface table (see above); UnixLib expects it at &34
 interface:
 	.word	0x6B545450			@ "PTTk"
-	.word	1				@ Interface version
+	.word	2				@ Interface version (0.03)
 	.word	7				@ Entries
 	.word	pt_handler - module_start
 	.word	pt_start - module_start
@@ -66,7 +67,7 @@ interface:
 title:
 	.asciz	"PThreadTicker"
 help:
-	.asciz	"PThreadTicker\t0.02 (01 Oct 2026) riscos-unixlib"
+	.asciz	"PThreadTicker\t0.03 (01 Oct 2026) riscos-unixlib"
 	.align
 module_flags:
 	.word	1				@ 32-bit compatible

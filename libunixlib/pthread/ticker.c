@@ -5,8 +5,11 @@
    design and how to read the statistics: docs/THREAD-TICKER.md.
 
    With more than one thread, an OS_CallEvery ticker sets a callback every
-   2 cs to switch threads.  In a Wimp task, Wimp filters stop the ticker
-   when the program calls Wimp_Poll and start it when Wimp_Poll returns.
+   2 cs to switch threads.  In a Wimp task, Wimp filters note when the
+   program is in Wimp_Poll: a tick then doesn't set the callback, and the
+   post-filter switches threads as Wimp_Poll returns (2026, 5.0.3.1: they
+   used to stop and restart the ticker, which starved the threads of a
+   program polling more often than every 2 cs).
    The ticker routines themselves (internal/ticker.s) run from the
    PThreadTicker module when it is loaded (module/pthticker.s) or from a
    copy in the RMA block: never from the program, which isn't paged in
@@ -85,7 +88,13 @@ find_module (const char **base, void **ws)
       || *base == NULL || *ws == NULL)
     return NULL;
   t = (const struct ticker_interface *) (*base + 0x34);
-  if (t->magic != TICKER_MAGIC || t->version != 1 || t->entries < 7)
+  /* 2026 (5.0.3.1): interface version 2 (module 0.03) has the routines
+     that keep the ticker running in Wimp_Poll, and uses the block's
+     'polling' fields; version 1 (0.02) stops it there, which starves the
+     threads of a program that polls often.  So use only version 2, else
+     our own copy.  (UnixLib before 5.0.3.1 uses only version 1, so it
+     ignores the new module and uses its copy.)  */
+  if (t->magic != TICKER_MAGIC || t->version != 2 || t->entries < 7)
     return NULL;
   return t;
 }
@@ -311,13 +320,13 @@ __pthread_ticker_write_stats (void)
 		"%s ticks=%u foreign=%u last_foreign=%p/%p pre=%u post=%u"
 		" filters_for=%#x startup=%#x/%d cached=%#x now=%#x/%d"
 		" first_start=%#x starts=%u filter_moves=%u filter_errors=%u"
-		" via=%s\n",
+		" post_switches=%u via=%s\n",
 		prog, b->ticks, b->foreign_ticks, b->foreign_handler,
 		b->foreign_r12, b->pre_calls, b->post_calls,
 		b->filter_handle, startup_handle, startup_version,
 		__ul_global.taskhandle, handle, version,
 		first_start_handle == -1 ? 0 : first_start_handle, starts,
-		filter_moves, filter_errors,
+		filter_moves, filter_errors, b->post_switches,
 		(b->flags & 1) ? "module" : "RMA");
   if (n <= 0)
     return;

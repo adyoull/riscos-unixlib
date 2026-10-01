@@ -20,7 +20,9 @@ struct __pthread_callevery_block
   unsigned pre_calls, post_calls;
   int filter_handle;
   unsigned flags;
-  unsigned ticker_code[80];
+  volatile unsigned polling, pending;
+  unsigned post_switches;
+  unsigned ticker_code[119];
 };
 extern const char __pthread_call_every_code[], __pthread_call_every_code_end[];
 extern void __pthread_ticker_read_task (int *, int *);

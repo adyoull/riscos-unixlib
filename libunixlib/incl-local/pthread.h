@@ -190,11 +190,17 @@ struct __pthread_callevery_block
   unsigned post_calls;		/* Wimp post-filter calls.  */
   int filter_handle;		/* Task the filters are registered for.  */
   unsigned flags;		/* Bit 0: the PThreadTicker module's routines.  */
+  /* 2026 (5.0.3.1): the ticker keeps running while the program is in
+     Wimp_Poll; a tick then only sets 'pending', and the post-filter
+     switches threads as Wimp_Poll returns (docs/THREAD-TICKER.md).  */
+  volatile unsigned polling;	/* Between the pre- and post-filter.  */
+  volatile unsigned pending;	/* A tick came while polling.  */
+  unsigned post_switches;	/* Switches started by the post-filter.  */
   /* A copy of the ticker routines, used when the PThreadTicker module
      isn't loaded.  OS_CallEvery runs the handler from
      here: the ticker can fire while another task is paged in, when the
      application's own copy isn't there.  */
-  unsigned ticker_code[80];
+  unsigned ticker_code[119];
 };
 
 /* pthread/ticker.c (2026).  */

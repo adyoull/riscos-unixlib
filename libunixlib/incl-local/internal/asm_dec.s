@@ -403,8 +403,16 @@ PTHREAD_CALLEVERY_RMA_POST_CALLS:		.skip 4
 PTHREAD_CALLEVERY_RMA_FILTER_HANDLE:		.skip 4
 	@ Bit 0 set: the PThreadTicker module's routines (else the copy below)
 PTHREAD_CALLEVERY_RMA_FLAGS:			.skip 4
+	@ 2026 (5.0.3.1): non-zero between the Wimp pre-filter and post-filter,
+	@ i.e. while the program is in Wimp_Poll
+PTHREAD_CALLEVERY_RMA_POLLING:			.skip 4
+	@ Non-zero if a tick came while polling: switch threads when Wimp_Poll
+	@ returns
+PTHREAD_CALLEVERY_RMA_PENDING:			.skip 4
+	@ Thread switches started by the post-filter (for the statistics)
+PTHREAD_CALLEVERY_RMA_POST_SWITCHES:		.skip 4
 	@ A copy of the ticker routines (see _context.s)
-PTHREAD_CALLEVERY_RMA_TICKER_CODE:		.skip 320
+PTHREAD_CALLEVERY_RMA_TICKER_CODE:		.skip 476
 PTHREAD_CALLEVERY_STRUCT_SIZE:
 
 	.text

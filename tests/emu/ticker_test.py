@@ -33,7 +33,8 @@ TOOL = os.path.join(ENV, "bin/arm-riscos-gnueabihf-")
 STARTED, WORKSEM, CBSEM = 88, 92, 96
 UPCALL_ADDR, UPCALL_R12 = 76, 80
 TICKS, FOREIGN, F_HANDLER, F_R12, PRE, POST = 120, 124, 128, 132, 136, 140
-TICKER_CODE, BLOCK_SIZE = 152, 472
+POLLING, PENDING, POST_SW = 152, 156, 160
+TICKER_CODE, BLOCK_SIZE = 164, 640
 
 VFLAG, CFLAG, ZFLAG = 1 << 28, 1 << 29, 1 << 30
 X = 0x20000
@@ -196,25 +197,100 @@ def test_routines(m, name, handler, start, stop, pre, post, block):
     check(m.r(block + FOREIGN) == 2 and m.r(block + TICKS) == 5,
           name + ": counts: 5 ticks, 2 foreign")
 
-    # pre-filter: R0 (event mask) and flags preserved, ticker stopped
+    ours = (0xC0DE00, m.r(block + UPCALL_R12))
+    other = (0xC0DE00, 0x5A5A5A)
+
+    # pre-filter (our task calls Wimp_Poll): R0 (event mask) and flags
+    # preserved; the ticker keeps running; 'polling' set
+    m.upcall = ours
     out, cpsr = m.call(pre, {UC_ARM_REG_R12: block, UC_ARM_REG_R0: 0x1234},
                        CFLAG | ZFLAG)
+    check(not m.called(OS_RemoveTickerEvent) and m.r(block + STARTED) == 1,
+          name + ": pre-filter leaves the ticker running")
+    check(m.r(block + POLLING) == 1 and m.r(block + PRE) == 1,
+          name + ": pre-filter sets polling and counts")
+    check(out[:4] == [0x1234] + [0x11110000 + x for x in (UC_ARM_REG_R1,
+                                                          UC_ARM_REG_R2,
+                                                          UC_ARM_REG_R3)]
+          and cpsr & (CFLAG | ZFLAG | VFLAG) == CFLAG | ZFLAG,
+          name + ": pre-filter preserves R0-R3 and flags")
+
+    # ticks while in Wimp_Poll: no callback, pending set
+    m.call(handler, ip)
+    check(not m.called(OS_SetCallBack) and m.r(block + PENDING) == 1,
+          name + ": tick in Wimp_Poll (ours paged in): no callback, pending")
+    m.w(block + PENDING, 0)
+    m.upcall = other
+    m.call(handler, ip)
+    check(not m.called(OS_SetCallBack) and m.r(block + PENDING) == 1
+          and m.r(block + FOREIGN) == 3,
+          name + ": tick in Wimp_Poll (another task): counted, pending")
+
+    # post-filter called for another task (H1): only counts
+    out, cpsr = m.call(post, {UC_ARM_REG_R12: block, UC_ARM_REG_R0: 7}, ZFLAG)
+    check(not m.called(OS_SetCallBack) and m.r(block + POLLING) == 1
+          and m.r(block + PENDING) == 1 and m.r(block + POST) == 1,
+          name + ": post-filter for another task: counts only")
+
+    # post-filter, our task: switches threads, clears polling and pending
+    m.upcall = ours
+    out, cpsr = m.call(post, {UC_ARM_REG_R12: block, UC_ARM_REG_R0: 7}, ZFLAG)
+    check(m.called(OS_SetCallBack) and m.r(block + POST_SW) == 1,
+          name + ": post-filter after a tick: callback, counted")
+    check(m.r(block + POLLING) == 0 and m.r(block + PENDING) == 0
+          and m.r(block + POST) == 2, name + ": post-filter clears polling, pending")
+    check(out[0] == 7 and cpsr & (CFLAG | ZFLAG | VFLAG) == ZFLAG,
+          name + ": post-filter preserves R0 and flags")
+    check(not m.called(OS_CallEvery), name + ": post-filter: ticker already running")
+
+    # a quick poll with no tick: no callback
+    m.call(pre, ip)
+    out, _ = m.call(post, ip)
+    check(not m.called(OS_SetCallBack) and m.r(block + POST_SW) == 1,
+          name + ": poll with no tick: no switch")
+    check(out[:4] == [0x11110000 + x for x in (UC_ARM_REG_R0, UC_ARM_REG_R1,
+                                               UC_ARM_REG_R2, UC_ARM_REG_R3)],
+          name + ": post-filter preserves r0-r3")
+
+    # pending, but in a critical section: no callback, pending dropped
+    m.call(pre, ip)
+    m.call(handler, ip)
+    m.w(block + WORKSEM, 1)
+    m.call(post, ip)
+    check(not m.called(OS_SetCallBack) and m.r(block + PENDING) == 0,
+          name + ": post-filter in a critical section: no callback")
+    m.w(block + WORKSEM, 0)
+
+    # pre-filter called for another task: polling stays clear
+    m.upcall = other
+    m.call(pre, ip)
+    check(m.r(block + POLLING) == 0, name + ": pre-filter for another task: no polling")
+    m.upcall = ours
+    m.call(handler, ip)
+    check(m.called(OS_SetCallBack), name + ": then a tick switches as usual")
+
+    # stop: removes the ticker, clears polling and pending
+    m.call(pre, ip)
+    m.call(handler, ip)
+    m.call(stop, ip)
     rt = m.called(OS_RemoveTickerEvent)
-    check(rt and rt[0][:2] == [handler, block],
-          name + ": pre-filter: OS_RemoveTickerEvent handler, block")
-    check(m.r(block + STARTED) == 0 and m.r(block + PRE) == 1,
-          name + ": pre-filter stops and counts")
-    check(out[0] == 0x1234 and cpsr & (CFLAG | ZFLAG | VFLAG) == CFLAG | ZFLAG,
-          name + ": pre-filter preserves R0 and flags")
+    check(rt and rt[0][:2] == [handler, block] and m.r(block + STARTED) == 0,
+          name + ": stop: OS_RemoveTickerEvent handler, block")
+    check(m.r(block + POLLING) == 0 and m.r(block + PENDING) == 0,
+          name + ": stop clears polling and pending")
     m.call(stop, ip)
     check(not m.called(OS_RemoveTickerEvent), name + ": stop when stopped does nothing")
 
-    # post-filter
-    out, cpsr = m.call(post, {UC_ARM_REG_R12: block, UC_ARM_REG_R0: 7}, ZFLAG)
-    check(m.called(OS_CallEvery) and m.r(block + STARTED) == 1
-          and m.r(block + POST) == 1, name + ": post-filter starts and counts")
-    check(out[0] == 7 and cpsr & (CFLAG | ZFLAG | VFLAG) == ZFLAG,
-          name + ": post-filter preserves R0 and flags")
+    # post-filter with the ticker stopped starts it
+    m.call(post, ip)
+    ce = m.called(OS_CallEvery)
+    check(ce and ce[0][:3] == [1, handler, block] and m.r(block + STARTED) == 1,
+          name + ": post-filter starts a stopped ticker")
+    m.call(stop, ip)
+    m.call(pre, ip)
+    m.call(start, ip)
+    check(m.r(block + POLLING) == 0 and m.r(block + STARTED) == 1,
+          name + ": start clears polling")
 
 
 PRIVWORD = RAM          # the module's private word
@@ -235,8 +311,8 @@ def test_module(build):
     check(word(word(0x30)) & 1, "header: 32-bit compatible")
     title = code[word(0x10):code.index(b"\0", word(0x10))]
     check(title == b"PThreadTicker", "title %r" % title)
-    check(word(0x34) == 0x6B545450 and word(0x38) == 1 and word(0x3C) == 7,
-          "interface table: PTTk, version 1, 7 entries")
+    check(word(0x34) == 0x6B545450 and word(0x38) == 2 and word(0x3C) == 7,
+          "interface table: PTTk, version 2, 7 entries")
     names = ["pt_handler", "pt_start", "pt_stop", "pt_prefilter",
              "pt_postfilter", "pt_attach", "pt_detach"]
     offs = [word(0x40 + 4 * i) for i in range(7)]
@@ -286,7 +362,7 @@ def test_copy(build):
     syms = symbols(obj)
     code = text(obj)
     lo, hi = syms["__pthread_call_every_code"], syms["__pthread_call_every_code_end"]
-    check(hi - lo <= 320, "UnixLib's routines fit in 320 bytes (%d)" % (hi - lo))
+    check(hi - lo <= 476, "UnixLib's routines fit in 476 bytes (%d)" % (hi - lo))
     offs = [int.from_bytes(code[hi + 4 * i:hi + 4 * i + 4], "little") for i in range(4)]
     m = Machine()
     block = new_block(m, RAM + 0x5004, 0x1234560)   # odd place on purpose
