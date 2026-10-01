@@ -427,6 +427,10 @@ extern void __unixinit (void);
 extern void __free_process (struct __sul_process *process)
 	__nonnull ((1));
 
+/* 2026: end the process with a wait status (<sys/wait.h> encoding);
+   _exit takes a plain exit code.  */
+extern void __exit_status (int __status) __attribute__ ((__noreturn__));
+
 extern pid_t __fork_post (pid_t pid, int isfork);
 extern int __fork_pre (int isfork, void **sul_fork, pid_t *pid, void *sp);
 

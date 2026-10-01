@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 58 modified files and 7 added files).
+diff against unchanged GCCSDK UnixLib: 59 modified files and 7 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1269 |
-| Modified (listed below) | 58 |
+| Byte-identical to GCCSDK `64c6f81` | 1268 |
+| Modified (listed below) | 59 |
 | Added | 7 |
 | Removed relative to upstream | 0 |
 
@@ -66,6 +66,7 @@ the commits are named below.
 | `unix/dev.c`, `incl-local/internal/dev.h` | S5 (device table), L2 (`__fslseek64`), R2 (`read()` into a stack) |
 | `time/stdtime.c`, `incl-local/internal/os.h`, `incl-local/sys/socket.h`, `common/env.c`, `locale/iconv.c`, `stdio/err.c`, `netlib/scl_getservbyname.c`, `netlib/scl_getservbyport.c`, `resolv/scl_gethostbyname.c` | R1 inline SWI wrappers (`ctime` bad pointer) |
 | `configure.ac`, `doc/UnixLib/Help` | V1 version number, D1 unofficial fork |
+| `unix/unix.c`, `signal/post.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `vscript` | X2 `_exit` takes an exit code |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
 
 The modified files keep their original copyright lines. Code added to them
@@ -400,6 +401,37 @@ already said handlers should not run with threads disabled.
 
 **Verification.** In use in the Warzone 2100 port. Pi test `ExitJoin` (not
 yet run).
+
+### X2. `_exit` takes an exit code (`unix/unix.c`, `signal/post.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `vscript`)
+
+**Problem.** On the Pi 4 (rc6, 2026-10-01), `ForkOnly`'s child called
+`_exit (3)` and its parent's `waitpid` got status 3: "killed by signal
+3", not "exited with 3".
+
+**Cause.** In GCCSDK UnixLib, `_exit`'s argument was a wait status (the
+`<sys/wait.h>` encoding), because `exit`/`_Exit` and the signal code end
+the process through it with an encoded status. POSIX `_exit` takes a
+plain exit code, as `exit` does. So any program's `_exit (n)` for n from 1
+to 126 ended as if killed by signal n (RISC OS return code 128 + n), and
+`_exit (127)` looked like a stopped process. The usual caller is a
+fork/vfork child after a failed exec, including UnixLib's own `system()`
+and `popen()` (`_exit (EXIT_FAILURE)`).
+
+**Change.** The old function is now the internal `__exit_status`, and
+UnixLib's own callers that pass an encoded status (`_Exit`, the signal
+code's default actions, the stack-overflow and fatal-error paths in
+`_syslib.s`) call it. The public `_exit (status)` calls
+`__exit_status (W_EXITCODE (status & 0xff, 0))`. `abort`'s fallback,
+`system()` and `popen()` keep calling `_exit` and now get the exit code
+they meant.
+
+**What it means for programs.** `_exit (0)` is unchanged. A program
+whose fork/vfork child calls `_exit (n)` now sees `WIFEXITED` and
+`WEXITSTATUS == n`, as on other systems; Sys$ReturnCode is n.
+
+**Verification.** Disassembly of `_exit` (shift left 8, mask, call
+`__exit_status`). On RISC OS: `ForkOnly` and `ForkThreads` check the
+fork child's `_exit (3)` with `WEXITSTATUS`.
 
 ### P1. `sched_get_priority_min` / `sched_get_priority_max` (new `sched/sched_prio.c`, `include/sched.h`) - commit `04408eb`
 

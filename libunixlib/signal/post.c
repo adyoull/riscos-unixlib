@@ -723,7 +723,7 @@ death:
 	  }
 
 	/* Die, returning information about how we died.  */
-	_exit (status);
+	__exit_status (status);	/* 2026: was _exit */
 	/* Never reached.  */
 	break;
       }
@@ -903,5 +903,5 @@ error:
   __os_print (err);
   __os_print ("  Exiting.");
   __os_nl ();
-  _exit (W_EXITCODE (0, signo));
+  __exit_status (W_EXITCODE (0, signo));	/* 2026: was _exit */
 }

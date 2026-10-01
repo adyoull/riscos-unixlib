@@ -360,14 +360,25 @@ _Exit (int status)
      reserved for the run-time library internals.  */
   status = status & 0x7f;
 
-  _exit (__W_EXITCODE (status, 0));
+  __exit_status (__W_EXITCODE (status, 0));
+}
+
+/* POSIX _exit: 'status' is a plain exit code, as for exit().
+   2026: in GCCSDK UnixLib _exit itself took a wait status
+   (<sys/wait.h> encoding), so a program's _exit(1) was reported to its
+   parent as death by signal 1, and _exit(3) as signal 3.  */
+void
+_exit (int status)
+{
+  __exit_status (__W_EXITCODE (status & 0xff, 0));
 }
 
 /* Final process termination. 'return_code' is a 16-bit
    encoded quantity as defined by <sys/wait.h>.
-   Also called via __unixlib_fatal() so don't assume too much.  */
+   Also called via __unixlib_fatal() so don't assume too much.
+   2026: was _exit.  */
 void
-_exit (int return_code)
+__exit_status (int return_code)
 {
   struct ul_global *gbl = &__ul_global;
   struct __sul_process *sulproc = gbl->sulproc;

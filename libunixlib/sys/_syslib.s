@@ -1135,7 +1135,7 @@ raise_sigstak:
 	MOV	a1, #0
 	MOV	a2, #SIGSTAK
 	BL	__unixlib_raise_signal
-	B	_exit		@ __unixlib_raise_signal shouldn't return
+	B	__exit_status	@ __unixlib_raise_signal shouldn't return (2026: was _exit)
 
 #if __UNIXLIB_EXTREMELY_PARANOID || __UNIXLIB_STACK_CHECK_MAGIC
 stack_corrupt_msg:
@@ -1456,7 +1456,7 @@ __unixlib_fatal_got_msg:
 	SWI	XOS_Write0
 	SWI	XOS_NewLine
 	MOV	a1, #1
-	BL	_exit
+	BL	__exit_status	@ 2026: was _exit
 	@ Should never return
 #ifdef __ARM_EABI__
 	LDMIA	sp!, {v1, fp, pc}

@@ -28,6 +28,7 @@ VERSION {
      __env_riscos;
      __env_unixlib;
      __exit_with_error_num;
+     __exit_status;
      __fd_to_name;
      __fork_pre;
      __fork_post;
