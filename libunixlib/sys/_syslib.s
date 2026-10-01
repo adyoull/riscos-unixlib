@@ -835,6 +835,7 @@ __dynamic_area_exit:
  PICEQ "LDMFDNE	sp!, {v4, pc}"
 
 	BL	__munmap_all
+	BL	__dynamic_area_extra_exit	@ 2026: the heap's other areas
 
 	LDR	a2, .L1+4		@=__ul_global
  PICEQ "LDR	a2, [v4, a2]"

@@ -18,6 +18,11 @@ VERSION {
      __dsp*;
      __midi*;
      __dynamic_area_exit;
+     __dynamic_area_extra_exit;
+     __heap_areas_made;
+     __heap_new_area_ok;
+     __heap_needs_new_area;
+     __mmap_offset32;
      __dynamic_area_refcount;
      __env_read;
      __env_riscos;

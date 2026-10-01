@@ -2415,6 +2415,8 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
   CHUNK_SIZE_T    sum;            /* for updating stats */
 
   size_t          pagemask  = av->pagesize - 1;
+  int             areas_made_before = __heap_areas_made; /* 2026 */
+  int             new_area_contiguous = 0;               /* 2026 */
 
   /*
     If there is space available in fastbins, consolidate and retry
@@ -2537,6 +2539,12 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
   if (contiguous(av))
     size -= old_size;
 
+  /* 2026: if the heap's dynamic area is full, the space comes from a new
+     area and can't be merged with the old top, so ask for all of it.  */
+  if (contiguous(av) && old_size != 0
+      && __heap_needs_new_area((int)((size + pagemask) & ~pagemask)))
+    size += old_size;
+
   /*
     Round to a multiple of page size.
     If MORECORE is not contiguous, this ensures that we only call it
@@ -2553,8 +2561,20 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
     below even if we cannot call MORECORE.
   */
 
-  if (size > 0)
+  if (size > 0) {
+    __heap_new_area_ok = 1;	/* 2026: only this call may start a new area */
     fst_brk = (char*)(MORECORE(size));
+    __heap_new_area_ok = 0;
+  }
+
+  /* 2026: the space is in a new heap area.  Handle it as non-contiguous
+     for this call (no follow-up sbrk to merge with the old top; it gets
+     fenceposts), then carry on as contiguous within the new area.  */
+  if (__heap_areas_made != areas_made_before
+      && fst_brk != (char*)(MORECORE_FAILURE)) {
+    new_area_contiguous = contiguous(av);
+    set_noncontiguous(av);
+  }
 
   /*
     If have mmap, try using it as a backup when MORECORE fails or
@@ -2566,7 +2586,11 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
   */
 
 #if HAVE_MMAP
-  if (fst_brk == (char*)(MORECORE_FAILURE)) {
+  /* 2026: not when the heap is in dynamic areas: __internal_sbrk carries
+     on in a new area when one is full, and the ARMEABISupport "mmap#N"
+     areas this made were left behind (OpenTTD, 2026-10-01).  */
+  if (fst_brk == (char*)(MORECORE_FAILURE)
+      && __ul_global.dynamic_num == -1) {
 
     /* Cannot merge with old top, so add its size back in */
     if (contiguous(av))
@@ -2777,6 +2801,9 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
       }
     }
 
+    if (new_area_contiguous)	/* 2026, see above */
+      set_contiguous(av);
+
     /* Update statistics */
     sum = av->sbrked_mem;
     if (sum > (CHUNK_SIZE_T)(av->max_sbrked_mem))
@@ -2805,6 +2832,13 @@ static void *sysmalloc(INTERNAL_SIZE_T nb, mstate av)
     }
 
   }
+
+  /* 2026: the heap carried on in a new dynamic area (see sys/brk.c).
+     The space asked for didn't include the old top, which can't be
+     merged with the new area, so it may be short: try again, now growing
+     the new area.  Once per new area.  */
+  if (__heap_areas_made != areas_made_before)
+    return sysmalloc(nb, av);
 
   /* catch all failure paths */
   MALLOC_FAILURE_ACTION;

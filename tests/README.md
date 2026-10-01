@@ -48,6 +48,17 @@ be), and leave other buffers alone. 22 checks; 5.0.2 fails 6 of the 19
 it had then (`ctime` returns &27, as in Warzone 2100's crash), and 5.0.3
 fails the 2 for a stack below the stack pointer.
 
+`emu/heap_test.py` links `emu/heap_stub.c` with the built `libunixlib.a`
+and runs the real `malloc`, `free`, `realloc` and heap `sbrk` with
+OS_DynamicArea and OS_ChangeDynamicArea faked to give 1 MB areas (RISC OS
+5 gives 128 MB): the heap carrying on in new areas (named after the
+first, one placed below it), contents and overlaps, a block bigger than
+an area's usual maximum, one that can't be had (nothing left behind), a
+big block while the old top is mostly free (one new area), 400 random
+calls across several areas, no `mmap` fallback, and the areas removed at
+exit. 21 checks; the library before the change fails 7 (and calls
+ARMEABISupport's `mmap`).
+
 `make check` runs them when there's a build, the cross toolchain and the
 Python `unicorn` module (`pip install unicorn`); otherwise it says SKIP.
 

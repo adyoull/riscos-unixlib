@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 53 modified files and 7 added files).
+diff against unchanged GCCSDK UnixLib: 55 modified files and 7 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1274 |
-| Modified (listed below) | 53 |
+| Byte-identical to GCCSDK `64c6f81` | 1272 |
+| Modified (listed below) | 55 |
 | Added | 7 |
 | Removed relative to upstream | 0 |
 
@@ -46,7 +46,8 @@ the commits are named below.
 | `wchar/wctype_l.c` | W4 range check in `isw*_l` |
 | `time/clk_gettime.c` | T1 high-resolution `CLOCK_MONOTONIC`, T4 its last value read under a lock |
 | `signal/sleep.c` | T2 `nanosleep` accuracy, T3 long sleeps and held-off thread switching |
-| `stdlib/alloc.c` | A1 no `mmap` for large blocks on EABI |
+| `stdlib/alloc.c` | A1 no `mmap` for large blocks on EABI, A2 a heap of several dynamic areas |
+| `sys/brk.c`, `incl-local/unistd.h` | A2 a heap of several dynamic areas |
 | `sound/dsp.c` | S1 exit bug, S2 default format, S3 SharedSoundBuffer output, S4 empty block, S6-S9 (fork children, second opens, READ ioctls, takeover), S10 fragments and `GETOPTR` |
 | `sound/DRender.h` | R1 (`"memory"` on the sample-buffer calls) |
 | `sound/midi.c` (**new**), `common/__stat.c`, `unix/unix.c` | S5 `/dev/midi`, S6 (fork children), S11 writes when MIDISynth is full |
@@ -54,7 +55,7 @@ the commits are named below.
 | `stdlib/atexit.c` | X1 atexit handlers with thread switching allowed |
 | `sched/sched_prio.c` (**new**), `include/sched.h` | P1 `sched_get_priority_min/max` |
 | `pthread/schedparam.c`, `pthread/newnode.c` | P2 `pthread_setschedparam` |
-| `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s`, `sys/exec.c` | K1-K7 thread ticker |
+| `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s`, `sys/exec.c` | K1-K7 thread ticker (`sys/_syslib.s` also A2) |
 | `include/sys/stat.h`, `incl-local/sys/stat.h`, `unix/stat64.c` (**new**), `unix/stat.c`, `unix/lstat.c`, `unix/fstat.c`, `unix/scl_fstat.c` | L1 `struct stat64` with a 64-bit size |
 | `unix/ul_lseek.c`, `stdio/fseeko.c`, `stdio/ftello.c`, `stdio/fgetpos.c`, `stdio/fsetpos.c` | L2 64-bit seeking to 4GB-1 |
 | `unix/truncate.c` | L3 `truncate64`, `ftruncate64` |
@@ -268,6 +269,61 @@ program exits.
 rather than straight to the OS.
 
 **Verification.** In use in the OpenTTD port.
+
+### A2. A heap of several dynamic areas (`sys/brk.c`, `stdlib/alloc.c`, `sys/_syslib.s`, `incl-local/unistd.h`)
+
+**Problem.** Reported by the OpenTTD port (2026-10-01, Pi 4 with 2 GB,
+RISC OS 5).
+- RISC OS 5 gave every dynamic area created with `OS_DynamicArea 0` a
+  maximum of 128 MB, whatever maximum was asked for. OpenTTD asks for
+  512 MB (`__dynamic_da_max_size`) and its `OpenTTD Heap` had a maximum
+  of 131072K, as did another UnixLib program's; areas made from BASIC with
+  several sets of flags were the same. So a UnixLib heap stopped at
+  128 MB with plenty of memory free.
+- When the heap area was full, malloc fell back to `mmap` for the space
+  (dlmalloc's "mmap as MORECORE backup", which ignores A1's setting).
+  Each such request left an ARMEABISupport `mmap#N` area of 131076K, and
+  the areas seemed to survive the program's exit. OpenTTD's 128 MB
+  sprite cache and a map array still failed to allocate.
+
+**Change.**
+- When malloc's sbrk (`__internal_sbrk`) finds the current area full
+  (growing it would pass the area's maximum; not when memory has simply
+  run out), it creates another area and carries on there. The areas are
+  named after the first: `OpenTTD Heap 2`, `OpenTTD Heap 3`... (up to 32).
+  A new area is asked for with the usual maximum (`__dynamic_da_max_size`,
+  or the first area's); if RISC OS gives less than the request needs, it
+  is removed and asked for once more with a maximum of just the request.
+  (The `mmap#N` areas above got a maximum of 131076K, just over 128 MB,
+  so RISC OS may allow that.)
+- malloc: only the first sbrk of a request may start a new area. That
+  request then asks for all the space it needs (the old top can't be
+  merged with a new area), handles the new space as non-contiguous for
+  that one call (fenceposts at the end of the old top, as for a foreign
+  sbrk), and is contiguous again afterwards. If the new space is still
+  too short, it tries once more.
+- malloc no longer uses `mmap` as a backup when the heap is in dynamic
+  areas. A heap in the wimpslot (no dynamic area) keeps it.
+- `__dynamic_area_exit` (program exit and `exec`) removes the other areas
+  too, through a new `__dynamic_area_extra_exit`.
+- `brk()`/`sbrk()` work on the newest area. `fork` is already refused
+  with a dynamic-area heap; a `vfork` child shares the list.
+
+**Effect.** A program's heap can use as much memory as is free, in pieces
+of up to 128 MB (or whatever RISC OS allows per area). One allocation
+still has to fit in one area. The Task Manager shows the extra areas
+under the same name with a number.
+
+**Verification.** `tests/emu/heap_test.py` runs the real malloc, free,
+realloc and sbrk in the Unicorn emulator, with OS_DynamicArea and
+OS_ChangeDynamicArea faked to give 1 MB areas: allocations past the first
+area (including into an area placed below it), contents and overlaps
+checked; a block bigger than an area's usual maximum; one RISC OS won't
+give (refused, nothing left behind); a big block while the old top is
+mostly free (exactly one new area, holding it); 400 random
+malloc/free/realloc calls across several areas; no `mmap` SWIs; and the
+areas removed at exit. Against the unfixed library, 7 checks fail and
+malloc calls ARMEABISupport's `mmap`. Not yet run on RISC OS.
 
 ### F1. `fsync` on read-only files; `fdatasync` (`unix/sync.c`, `include/unistd.h`) - commit `751de68`
 
@@ -1072,6 +1128,7 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 - R1 and R2 (on the machine where Warzone 2100 crashed).
 - K5-K7, S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
   from the 2026-10-01 review);
+- A2 (a heap past 128 MB: OpenTTD, then `!MemCheck` and the Task Manager);
 - `*RMKill PThreadTicker` while a threaded program runs: must refuse. This
   also settles a point the review disputed (whether `OS_Module 18` returns
   the module's private word or its address in R4).

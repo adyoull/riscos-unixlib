@@ -7,6 +7,17 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **A heap past 128 MB.** RISC OS 5 gives every new dynamic area a
+  maximum of 128 MB, whatever is asked for, so a heap in one dynamic area
+  stopped at 128 MB with memory free (OpenTTD). When the heap's area is
+  full, malloc now carries on in a new area named after the first
+  (`OpenTTD Heap 2`, `3`…), and all of them are removed at exit and
+  `exec`. With a heap in dynamic areas malloc no longer falls back to
+  `mmap`, which left ARMEABISupport `mmap#N` areas behind (and the
+  allocation still failed). One allocation still has to fit in one area;
+  a request bigger than an area's usual maximum gets an area of its own
+  if RISC OS allows it. New emulator test `tests/emu/heap_test.py`.
+
 ## 5.0.3.1-rc2 (2026-10-01, pre-release, tag v5.0.3.1-rc2)
 
 The rest of the problems found by the 2026-10-01 review. **Not yet run on

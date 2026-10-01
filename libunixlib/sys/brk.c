@@ -59,6 +59,108 @@
 
 #define align(x) ((x + 3) & ~3)
 
+/* 2026: a heap of several dynamic areas.
+
+   RISC OS 5 gives a dynamic area created with OS_DynamicArea 0 a maximum
+   of 128 MB, whatever maximum is asked for (measured on a Pi 4 by the
+   OpenTTD port, 2026-10-01), so a heap in one area stopped at 128 MB
+   however much memory was free.  When malloc's sbrk (__internal_sbrk)
+   finds the current area full, another area is created, named after the
+   first ("OpenTTD Heap 2", "OpenTTD Heap 3"...), and the heap carries on
+   there.  malloc copes with the gap: it is the same as a foreign sbrk
+   (fenceposts around the old top).  brk() and sbrk() work on the newest
+   area.  All the areas are removed at exit with the first (see
+   __dynamic_area_exit in _syslib.s).
+
+   One allocation still has to fit in one area.  An area is first asked
+   for with the usual maximum (__dynamic_da_max_size, else the first
+   area's), and if what RISC OS gives isn't enough for the request, once
+   more with a maximum of just the request.  */
+#define HEAP_AREAS_MAX 32
+static int heap_areas[HEAP_AREAS_MAX];	/* [0] is the first area */
+static int heap_area_count;		/* 0 until a second area is made */
+static char heap_area_name[48];
+
+/* Number of areas made so far (malloc retries once after a new one).  */
+int __heap_areas_made;
+/* Set by malloc around the one sbrk call that may start a new area (not
+   its follow-up calls, which must extend the space the first one got).  */
+int __heap_new_area_ok;
+
+/* Create area number N (2...) of the heap with room for NEED bytes and make
+   it the current one.  Returns 0 on success.  */
+static int
+heap_new_area (unsigned int need)
+{
+  struct ul_memory *mem = &__ul_memory;
+  struct ul_global *gbl = &__ul_global;
+  const char *name = NULL;
+  unsigned int first_max = 0, want, base, max, i, n;
+  int num, tries;
+
+  if (heap_area_count == 0)
+    {
+      heap_areas[0] = gbl->dynamic_num;
+      heap_area_count = 1;
+    }
+  if (heap_area_count >= HEAP_AREAS_MAX)
+    return -1;
+
+  /* The first area's name and maximum.  */
+  if (_swix (OS_DynamicArea, _INR(0,1) | _OUT(5) | _OUT(8), 2,
+	     heap_areas[0], &first_max, &name) != NULL)
+    return -1;
+  for (i = 0; name && name[i] >= ' ' && i < sizeof (heap_area_name) - 5; i++)
+    heap_area_name[i] = name[i];
+  heap_area_name[i++] = ' ';
+  n = heap_area_count + 1;
+  if (n >= 10)
+    heap_area_name[i++] = '0' + n / 10;
+  heap_area_name[i++] = '0' + n % 10;
+  heap_area_name[i] = '\0';
+
+  want = (&__dynamic_da_max_size != NULL && __dynamic_da_max_size > 0)
+	 ? (unsigned int) __dynamic_da_max_size : first_max;
+  need = (need + 0xFFFFu) & ~0xFFFFu;
+  for (tries = 0; tries < 2; tries++)
+    {
+      if (want < need)
+	want = need;
+      if (_swix (OS_DynamicArea, _INR(0,8) | _OUT(1) | _OUT(3) | _OUT(5),
+		 0, -1, 0, -1, 0x80, want, 0, 0, heap_area_name,
+		 &num, &base, &max) != NULL)
+	return -1;
+      if (max >= need)
+	break;
+      /* Not enough: remove it and ask for just the request.  */
+      _swix (OS_DynamicArea, _INR(0,1), 1, num);
+      if (want == need)
+	return -1;
+      want = need;
+    }
+  if (tries == 2)
+    return -1;
+
+  heap_areas[heap_area_count++] = num;
+  __heap_areas_made++;
+  gbl->dynamic_num = num;
+  mem->dalomem = mem->dabreak = mem->dalimit = base;
+  return 0;
+}
+
+/* Called by __dynamic_area_exit: remove the heap's other areas (the
+   current one, __ul_global.dynamic_num, is removed by the caller).  */
+void
+__dynamic_area_extra_exit (void)
+{
+  int i;
+
+  for (i = 0; i < heap_area_count; i++)
+    if (heap_areas[i] != __ul_global.dynamic_num)
+      _swix (OS_DynamicArea, _INR(0,1), 1, heap_areas[i]);
+  heap_area_count = 0;
+}
+
 /* brk function for dynamic areas.  */
 static int
 brk_da (unsigned int addr)
@@ -319,6 +421,35 @@ sbrk (intptr_t delta)
     }
 }
 
+/* 2026: would growing the current area by INCR take it past its maximum
+   (rather than failing for lack of free memory, which a new area wouldn't
+   help)?  */
+static int
+heap_area_full (unsigned int incr)
+{
+  const struct ul_memory *mem = &__ul_memory;
+  unsigned int max;
+
+  if (_swix (OS_DynamicArea, _INR(0,1) | _OUT(5), 2,
+	     __ul_global.dynamic_num, &max) != NULL)
+    return 0;
+  /* brk_da grows the area in steps of __DA_WIMPSLOT_ALIGNMENT + 1.  */
+  unsigned int addr = align (mem->dabreak + incr), grow = 0;
+  if (addr > mem->dalimit)
+    grow = ((addr - mem->dalimit) + __DA_WIMPSLOT_ALIGNMENT)
+	   & ~__DA_WIMPSLOT_ALIGNMENT;
+  return mem->dalimit - mem->dalomem + grow > max;
+}
+
+/* 2026: for malloc: will __internal_sbrk (INCR) have to start a new
+   area?  */
+int
+__heap_needs_new_area (int incr)
+{
+  return __ul_global.dynamic_num != -1 && incr > 0
+	 && heap_area_full ((unsigned int) incr);
+}
+
 /* sbrk for internal UnixLib callers (i.e. malloc) that are aware that
    space allocated may not be contiguous.  No need to be thread safe
    as the internal callers should already have ensured that context switching
@@ -364,7 +495,15 @@ __internal_sbrk (int incr)
       unsigned int oldbrk = mem->dabreak;
 
       if (incr != 0 && brk_da (oldbrk + incr) < 0)
-	return (void *) -1;
+	{
+	  /* 2026: if the area is full, carry on in a new one.  */
+	  if (!__heap_new_area_ok || !heap_area_full (incr)
+	      || heap_new_area (incr) != 0)
+	    return (void *) -1;
+	  oldbrk = mem->dabreak;
+	  if (brk_da (oldbrk + incr) < 0)
+	    return (void *) -1;
+	}
 
       return (void *) oldbrk;
     }

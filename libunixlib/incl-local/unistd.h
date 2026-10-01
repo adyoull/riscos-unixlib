@@ -16,6 +16,14 @@ __BEGIN_DECLS
 extern void __unlinksuffix (char *__file);
 
 extern void *__internal_sbrk (int __incr);
+/* 2026: number of extra heap dynamic areas made (sys/brk.c).  */
+extern int __heap_areas_made;
+/* 2026: set while __internal_sbrk may start a new heap area.  */
+extern int __heap_new_area_ok;
+/* 2026: remove them at exit (called by __dynamic_area_exit).  */
+extern void __dynamic_area_extra_exit (void);
+/* 2026: will __internal_sbrk (INCR) start a new heap area?  */
+extern int __heap_needs_new_area (int __incr);
 
 __END_DECLS
 
