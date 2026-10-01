@@ -15,8 +15,12 @@
 
      fxtest -fork            also fork + _exit (with the threads)
      fxtest -fork -nothreads only fork + _exit, no threads: is fork itself
-                             safe? (On the Pi, fork from the threaded test
-                             aborted in the parent as it came back.)  If the PThreadTicker module is loaded (run
+                             safe?  Then a child that returns from the
+                             function that called fork and uses the stack
+                             there: the parent's stack must be unchanged
+                             (5.0.3.1-rc6).
+
+   If the PThreadTicker module is loaded (run
    LoadTicker first), it also checks that the module still counts this
    program as a user, and at the end that it refuses to be killed
    (OS_Module 4) while this program runs.  Must print PASS.  */
@@ -60,6 +64,45 @@ threads_run (const char *after)
       return 0;
     }
   return 1;
+}
+
+/* Child: use plenty of stack (after returning from stack_fork, so over
+   the parent's stack_fork frame).  */
+static int __attribute__ ((noinline))
+scribble (void)
+{
+  volatile unsigned char buf[8192];
+  memset ((unsigned char *) buf, 0xEE, sizeof buf);
+  return buf[100];
+}
+
+/* Fork with a pattern on the stack.  The child returns at once; the
+   parent waits for it and then checks the pattern.  *ok: 1 if unchanged,
+   0 if not.  */
+static pid_t __attribute__ ((noinline))
+stack_fork (int *ok)
+{
+  volatile unsigned char pat[2048];
+  int j, status;
+  pid_t pid;
+
+  for (j = 0; j < (int) sizeof pat; j++)
+    pat[j] = (unsigned char) (j * 7 + 1);
+  pid = fork ();
+  if (pid <= 0)
+    return pid;
+  waitpid (pid, &status, 0);
+  *ok = WIFEXITED (status) && WEXITSTATUS (status) == 4;
+  if (!*ok)
+    printf ("FAIL: stack test child status %d\n", status);
+  for (j = 0; j < (int) sizeof pat; j++)
+    if (pat[j] != (unsigned char) (j * 7 + 1))
+      {
+	printf ("FAIL: the child changed the parent's stack (byte %d)\n", j);
+	*ok = 0;
+	break;
+      }
+  return pid;
 }
 
 /* The PThreadTicker module's count of programs using it, or -1 if it isn't
@@ -122,6 +165,24 @@ main (int argc, char **argv)
 	      return 1;
 	    }
 	}
+      step ("fork, and the child uses the parent's stack");
+      {
+	static int ok;
+	ok = 0;
+	pid = stack_fork (&ok);
+	if (pid == 0)
+	  {
+	    scribble ();
+	    _exit (4);
+	  }
+	if (pid < 0)
+	  {
+	    printf ("fork failed: %s\n", strerror (errno));
+	    return 1;
+	  }
+	if (!ok)
+	  return 1;
+      }
       printf ("PASS: fork without threads\n");
       return 0;
     }
