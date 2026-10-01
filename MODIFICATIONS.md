@@ -1017,9 +1017,10 @@ its parent's stack. Two things followed:
    frames there.
 
 This is in GCCSDK UnixLib as it is (SharedUnixLibrary is unchanged here).
-The earlier `ForkExec` abort at &14AF0 (rc4 test) was most likely the
-test's own fault: its vfork child changed `main`'s locals, which the
-parent shares; they are static now.
+The first sighting was the rc4 `ForkExec` test (which then also forked):
+"abort on data transfer at &14AF0", the first store to the stack in
+`fork_common` after the parent resumed, on the stack its fork child's
+exit had freed.
 
 **Change.** EABI builds only.
 - In the child, `__fork_post` clears the ARMEABI flag in the child's
