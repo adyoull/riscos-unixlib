@@ -7,6 +7,10 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+## 5.0.3.1-rc3 (2026-10-01, pre-release, tag v5.0.3.1-rc3)
+
+A heap past 128 MB, for the OpenTTD port. **Not yet run on RISC OS.**
+
 - **A heap past 128 MB.** RISC OS 5 gives every new dynamic area a
   maximum of 128 MB, whatever is asked for, so a heap in one dynamic area
   stopped at 128 MB with memory free (OpenTTD). When the heap's area is
