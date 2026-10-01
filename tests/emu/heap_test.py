@@ -132,6 +132,7 @@ class Machine:
         uc.reg_write(UC_ARM_REG_C1_C0_2, uc.reg_read(UC_ARM_REG_C1_C0_2) | (0xF << 20))
         uc.reg_write(UC_ARM_REG_FPEXC, 0x40000000)
         self.areas = {}
+        self.ram = None          # free memory left (None: plenty)
         self.unexpected = []
         self.next_base = 0
         self.add_area(FIRST, 0x10000000, CAP, b"Test Heap")
@@ -163,11 +164,15 @@ class Machine:
         if num == OS_ChangeDynamicArea:
             a = self.areas.get(r[0])
             delta = struct.unpack("<i", struct.pack("<I", r[1]))[0]
-            if a is None or a.deleted or a.size + delta > a.max or a.size + delta < 0:
+            if (a is None or a.deleted or a.size + delta > a.max
+                    or a.size + delta < 0
+                    or (self.ram is not None and delta > self.ram)):
                 self.reg(UC_ARM_REG_R1, 0)
                 self.fail_swi()
                 return
             a.size += delta
+            if self.ram is not None:
+                self.ram -= delta
             self.reg(UC_ARM_REG_R1, abs(delta))
         elif num == OS_DynamicArea and r[0] == 0:
             want = r[5]
@@ -349,6 +354,23 @@ def main():
           "random workload used several areas (%d)"
           % sum(1 for a in m3.areas.values() if not a.deleted))
     check(not m3.unexpected, "random workload: no other SWIs")
+
+    # Out of memory while starting a new area: the empty area is removed
+    # and the heap goes on in the old one.
+    m4 = Machine(elf)
+    m4.call(s["t_init"], FIRST, 0x10000000)
+    m4.ram = 1024 * 1024        # all used up just as the first area fills
+    got = [m4.call(s["t_malloc"], 200 * 1024) for _ in range(10)]
+    live = [a for a in m4.areas.values() if not a.deleted]
+    check(0 in got and all(a.size > 0 for a in live),
+          "out of memory: no empty area left behind (%s)"
+          % [(a.num, a.size) for a in live])
+    first = [p for p in got if p and m4.owner(p, 200 * 1024)
+             and m4.owner(p, 200 * 1024).num == FIRST]
+    if first:
+        m4.call(s["t_free"], first[0])
+    check(m4.call(s["t_malloc"], 100 * 1024) != 0,
+          "out of memory: freed space can be used again")
 
     # Exit: every area but the current one is removed.
     cur = m.call(s["t_area"])

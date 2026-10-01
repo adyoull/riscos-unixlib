@@ -497,12 +497,26 @@ __internal_sbrk (int incr)
       if (incr != 0 && brk_da (oldbrk + incr) < 0)
 	{
 	  /* 2026: if the area is full, carry on in a new one.  */
+	  struct ul_memory saved = *mem;
+	  int saved_num = gbl->dynamic_num;
+
 	  if (!__heap_new_area_ok || !heap_area_full (incr)
 	      || heap_new_area (incr) != 0)
 	    return (void *) -1;
 	  oldbrk = mem->dabreak;
 	  if (brk_da (oldbrk + incr) < 0)
-	    return (void *) -1;
+	    {
+	      /* No memory for it after all: remove the new area and go on
+		 with the old one.  */
+	      _swix (OS_DynamicArea, _INR(0,1), 1, gbl->dynamic_num);
+	      heap_area_count--;
+	      __heap_areas_made--;
+	      gbl->dynamic_num = saved_num;
+	      mem->dalomem = saved.dalomem;
+	      mem->dabreak = saved.dabreak;
+	      mem->dalimit = saved.dalimit;
+	      return (void *) -1;
+	    }
 	}
 
       return (void *) oldbrk;

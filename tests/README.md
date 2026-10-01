@@ -55,8 +55,9 @@ OS_DynamicArea and OS_ChangeDynamicArea faked to give 1 MB areas (RISC OS
 first, one placed below it), contents and overlaps, a block bigger than
 an area's usual maximum, one that can't be had (nothing left behind), a
 big block while the old top is mostly free (one new area), 400 random
-calls across several areas, no `mmap` fallback, and the areas removed at
-exit. 21 checks; the library before the change fails 7 (and calls
+calls across several areas, no `mmap` fallback, running out of memory
+just as an area fills (no empty area left behind), and the areas removed
+at exit. 23 checks; the library before the change fails 7 (and calls
 ARMEABISupport's `mmap`).
 
 `make check` runs them when there's a build, the cross toolchain and the

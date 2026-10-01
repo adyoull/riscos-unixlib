@@ -321,8 +321,9 @@ area (including into an area placed below it), contents and overlaps
 checked; a block bigger than an area's usual maximum; one RISC OS won't
 give (refused, nothing left behind); a big block while the old top is
 mostly free (exactly one new area, holding it); 400 random
-malloc/free/realloc calls across several areas; no `mmap` SWIs; and the
-areas removed at exit. Against the unfixed library, 7 checks fail and
+malloc/free/realloc calls across several areas; no `mmap` SWIs; memory
+running out just as an area fills (the new, empty area is removed again);
+and the areas removed at exit. Against the unfixed library, 7 checks fail and
 malloc calls ARMEABISupport's `mmap`. Not yet run on RISC OS.
 
 ### F1. `fsync` on read-only files; `fdatasync` (`unix/sync.c`, `include/unistd.h`) - commit `751de68`
