@@ -100,27 +100,46 @@ int wcscasecmp_l (const wchar_t *s1, const wchar_t *s2, locale_t l) { (void) l; 
 int wcsncasecmp_l (const wchar_t *s1, const wchar_t *s2, size_t n, locale_t l) { (void) l; return wcsncasecmp (s1, s2, n); }
 
 /* Numeric conversions: narrow the (ASCII) number text, convert, and map
-   the end pointer back.  */
+   the end pointer back.  2026: the whole ASCII run is narrowed; it used to
+   be cut at 127 characters, so a longer number (leading zeros, a long
+   hex float) was converted wrongly.  Short runs use the stack buffer,
+   longer ones are allocated (falling back to the first 127 characters
+   if that fails).  */
 #define NUMBUF 128
-static size_t
-narrow_num (const wchar_t *src, char *dst)
+static char *
+narrow_num (const wchar_t *src, char *buf)
 {
-  size_t i;
-  for (i = 0; i < NUMBUF - 1 && src[i] != 0 && src[i] < 128; i++)
+  size_t i, len = 0;
+  char *dst = buf;
+
+  while (src[len] != 0 && (unsigned long) src[len] < 128)
+    len++;
+  if (len >= NUMBUF)
+    {
+      dst = malloc (len + 1);
+      if (dst == NULL)
+	{
+	  dst = buf;
+	  len = NUMBUF - 1;
+	}
+    }
+  for (i = 0; i < len; i++)
     dst[i] = (char) src[i];
-  dst[i] = 0;
-  return i;
+  dst[len] = 0;
+  return dst;
 }
 
 #define WCSTO(name, type, call)						\
   type name (const wchar_t *restrict nptr, wchar_t **restrict endptr, int base) \
   {									\
-    char buf[NUMBUF], *end;						\
+    char buf[NUMBUF], *str, *end;					\
     type r;								\
-    narrow_num (nptr, buf);						\
-    r = call (buf, &end, base);						\
+    str = narrow_num (nptr, buf);					\
+    r = call (str, &end, base);						\
     if (endptr)								\
-      *endptr = (wchar_t *) nptr + (end - buf);				\
+      *endptr = (wchar_t *) nptr + (end - str);				\
+    if (str != buf)							\
+      free (str);							\
     return r;								\
   }
 WCSTO (wcstol, long int, strtol)
@@ -131,12 +150,14 @@ WCSTO (wcstoull, unsigned long long int, strtoull)
 #define WCSTOF(name, type, call)					\
   type name (const wchar_t *restrict nptr, wchar_t **restrict endptr)	\
   {									\
-    char buf[NUMBUF], *end;						\
+    char buf[NUMBUF], *str, *end;					\
     type r;								\
-    narrow_num (nptr, buf);						\
-    r = call (buf, &end);						\
+    str = narrow_num (nptr, buf);					\
+    r = call (str, &end);						\
     if (endptr)								\
-      *endptr = (wchar_t *) nptr + (end - buf);				\
+      *endptr = (wchar_t *) nptr + (end - str);				\
+    if (str != buf)							\
+      free (str);							\
     return r;								\
   }
 WCSTOF (wcstod, double, strtod)

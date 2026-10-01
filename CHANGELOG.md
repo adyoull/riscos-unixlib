@@ -19,6 +19,9 @@ How to release: docs/MAINTAINING.md.
   updated with thread switching held off, so another thread can't see half
   an update and make the clock jump ahead and stick.
 
+- **`wcstol` and the rest of `wcsto*`:** numbers longer than 127
+  characters are converted in full (they were cut short).
+
 ## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
 
 Fixes for problems in 5.0.3 (and earlier) found by an independent review
