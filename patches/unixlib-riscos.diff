@@ -1834,10 +1834,10 @@ index f6fa1f3..641632c 100644
    thread->__policy = policy;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/ticker.c b/gcc4/recipe/files/gcc/libunixlib/pthread/ticker.c
 new file mode 100644
-index 0000000..37e5f73
+index 0000000..199c0ee
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/ticker.c
-@@ -0,0 +1,336 @@
+@@ -0,0 +1,338 @@
 +/* Thread ticker: starting and stopping it, the Wimp filters, statistics.
 +   Copyright (c) 2026 UnixLib Developers.
 +
@@ -1935,11 +1935,13 @@ index 0000000..37e5f73
 +static pid_t owner_pid;
 +
 +/* Non-zero in the process that set the ticker up, zero in a fork()/vfork()
-+   child of it.  */
++   child of it.  Also non-zero if __pthread_ticker_init never ran (a fatal
++   error early in __pthread_prog_init): then the block is this process's
++   and should still be freed, as before.  */
 +int
 +__pthread_ticker_owner (void)
 +{
-+  return getpid () == owner_pid;
++  return owner_pid == 0 || getpid () == owner_pid;
 +}
 +
 +/* Called once by __pthread_prog_init: use the PThreadTicker module's
@@ -2323,7 +2325,7 @@ index d9221ef..c1e3828 100644
    return 0;
  }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
-index 8a2eb72..0a7494f 100644
+index 8a2eb72..1feae0c 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 @@ -16,6 +16,10 @@
@@ -2346,7 +2348,7 @@ index 8a2eb72..0a7494f 100644
  
  #include <internal/os.h>
  #include <internal/dev.h>
-@@ -46,19 +52,88 @@ static int dr_frequency = 44100;
+@@ -46,19 +52,96 @@ static int dr_frequency = 44100;
  
  static int dr_buffers = 0;     /* Number of buffers in use */
  static int dr_fragscale = 1;
@@ -2361,8 +2363,11 @@ index 8a2eb72..0a7494f 100644
 +/* 2026: DigitalRenderer has one user at a time and doesn't say who.  A
 +   program that activates it puts its pid in this system variable; one that
 +   finds another pid there has been taken over and must not deactivate the
-+   new owner's session.  If the variable is missing (a program with an
-+   older UnixLib took over, or nobody set it), the old behaviour applies.  */
++   new owner's session.  A program that doesn't set it (one built with an
++   older UnixLib, or not using UnixLib) can't be detected: after it takes
++   over, the variable still holds this program's pid, and this program
++   stops DigitalRenderer when it closes or exits, as it always did.  If the
++   variable can't be read, it is assumed to be this program's.  */
 +#define DR_OWNER_VAR "UnixLib$DSPOwner"
 +
 +/* Static, like the rest of this device's state (and so the host tests can
@@ -2383,6 +2388,10 @@ index 8a2eb72..0a7494f 100644
 +  _swix (OS_SetVarVal, _INR(0,4), DR_OWNER_VAR, NULL, -1, 0, 0);
 +}
 +
++/* Set when another program (with this UnixLib) took DigitalRenderer over
++   from this one.  */
++static int dr_taken_over;
++
 +/* Non-zero if this program activated DigitalRenderer and nobody has taken
 +   it over since.  */
 +static int
@@ -2400,6 +2409,7 @@ index 8a2eb72..0a7494f 100644
 +  if (atoi (buf) == (int) getpid ())
 +    return 1;
 +  dr_owner = 0;			/* taken over by another program */
++  dr_taken_over = 1;
 +  return 0;
 +}
 +
@@ -2441,7 +2451,7 @@ index 8a2eb72..0a7494f 100644
  }
  
  
-@@ -91,6 +166,18 @@ static const _kernel_oserror *
+@@ -91,6 +174,18 @@ static const _kernel_oserror *
  activate_defaults (void)
  {
    const _kernel_oserror *err;
@@ -2460,20 +2470,21 @@ index 8a2eb72..0a7494f 100644
    if (dr_format == AFMT_S16_LE)
      {
        if ((err = DRender_Activate16 (dr_channels, DRENDERER_BUFFER_SIZE,
-@@ -109,6 +196,12 @@ activate_defaults (void)
+@@ -109,6 +204,13 @@ activate_defaults (void)
        err = DRender_Activate (dr_channels, DRENDERER_BUFFER_SIZE,
                                1e6 / dr_frequency, NULL);
      }
 +  if (err == NULL)
 +    {
 +      dr_owner = 1;
++      dr_taken_over = 0;
 +      dsp_owner_pid = getpid ();
 +      dr_claim ();
 +    }
    return err;
  }
  
-@@ -123,8 +216,14 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
+@@ -123,8 +225,14 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
    if ((err = check_state (&old_state)) != NULL)
      return err;
  
@@ -2490,7 +2501,7 @@ index 8a2eb72..0a7494f 100644
  
    if (channels)
      dr_channels = channels;
-@@ -148,12 +247,7 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
+@@ -148,12 +256,7 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
                       )
                  + 1;
      }
@@ -2504,7 +2515,7 @@ index 8a2eb72..0a7494f 100644
  
  #if 0 /* Defer re-activating until samples are written to the stream */
    if ((old_state & DRState_Active) && (old_state != -1))
-@@ -164,8 +258,8 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
+@@ -164,8 +267,8 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
  }
  
  
@@ -2515,7 +2526,7 @@ index 8a2eb72..0a7494f 100644
  {
    const _kernel_oserror *err = NULL;
    dr_fragscale = 1;
-@@ -181,7 +275,7 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
+@@ -181,7 +284,7 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
    */
    {
      int state;
@@ -2524,7 +2535,7 @@ index 8a2eb72..0a7494f 100644
          && (err = check_state (&state)) == NULL
          && !(state & DRState_Active)
         )
-@@ -191,7 +285,7 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
+@@ -191,7 +294,7 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
    /*
      Set the defaults but don't activate them yet.
    */
@@ -2533,7 +2544,7 @@ index 8a2eb72..0a7494f 100644
  #endif
    if (err)
      return (void *) __ul_seterr (err, EOPSYS);
-@@ -199,15 +293,16 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
+@@ -199,15 +302,16 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
  }
  
  
@@ -2555,7 +2566,7 @@ index 8a2eb72..0a7494f 100644
      }
    return 0;
  }
-@@ -221,8 +316,8 @@ __dsplseek (struct __unixlib_fd *fd, __off_t lpos, int whence)
+@@ -221,8 +325,8 @@ __dsplseek (struct __unixlib_fd *fd, __off_t lpos, int whence)
  }
  
  
@@ -2566,27 +2577,36 @@ index 8a2eb72..0a7494f 100644
  {
    const _kernel_oserror *err;
  
-@@ -240,9 +335,16 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
+@@ -240,10 +344,24 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
    */
    {
      int state;
 -    if (   (err = check_state (&state)) == NULL
 -        && !(state & DRState_Active)
 -       )
-+    if ((err = check_state (&state)) == NULL && !dr_is_ours ())
+-      err = activate_defaults ();
++    if ((err = check_state (&state)) == NULL)
 +      {
-+        /* Someone else is playing: DigitalRenderer has one user at a
-+           time, so take it over (as before), but only now that this
-+           program has something to play.  */
-+        if (state & DRState_Active)
-+          DRender_Deactivate ();
-+        err = activate_defaults ();
++        int ours = dr_is_ours ();
++        if (!(state & DRState_Active))
++          err = activate_defaults ();	/* nobody is playing */
++        else if (!ours && !dr_taken_over)
++          {
++            /* Someone else is playing: DigitalRenderer has one user at a
++               time, so take it over (as before), but only now that this
++               program has something to play.  */
++            DRender_Deactivate ();
++            err = activate_defaults ();
++          }
++        /* 2026: else either ours, or another program took it over from
++           this one: then stream into its session, as before, rather than
++           take it back on every write (two programs would fight over it
++           and both stutter).  Its exit is its business.  */
 +      }
-+    else if (err == NULL && !(state & DRState_Active))
-       err = activate_defaults ();
      if (err)
        return __ul_seterr (err, EOPSYS);
-@@ -280,8 +382,8 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
+   }
+@@ -280,8 +398,8 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
  }
  
  
@@ -2597,7 +2617,7 @@ index 8a2eb72..0a7494f 100644
  {
    request &= 0xffff;
  
-@@ -405,3 +507,617 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+@@ -405,3 +523,637 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
  
    return __set_errno (EINVAL);
  }
@@ -2638,6 +2658,16 @@ index 8a2eb72..0a7494f 100644
 +#define SSB_OUT_FRAG_DEFAULT 4096	/* output bytes: 1024 frames */
 +#define SSB_NFRAGS_DEFAULT   8		/* ~190 ms at 44.1 kHz */
 +
++/* 2026: <sys/soundcard.h> encodes requests one of two ways: with its own
++   _SIOR (direction "out" = 0x20000000) or, when <sys/ioctl.h> was included
++   first, with _IOR (0x40000000).  A program may use either, so the
++   read-only requests told apart by their full value are checked in both.
++   (With the second encoding, a read request has the same value as the
++   first encoding's _SIOW write request: only treat a value as a read
++   where no write request of that number is handled.)  */
++#define OSS_READ(enc, n)  ((unsigned long) ((enc) | ((sizeof (int) & 0x1fff) << 16) | ('P' << 8) | (n)))
++#define OSS_IS_READ(req, n)  ((req) == OSS_READ (0x20000000, n) || (req) == OSS_READ (0x40000000, n))
++
 +enum { BACKEND_NONE, BACKEND_DR, BACKEND_SSB };
 +static int dsp_backend = BACKEND_NONE;
 +/* 2026: /dev/dsp descriptors open in this program (dup()s share one).  The
@@ -2646,6 +2676,7 @@ index 8a2eb72..0a7494f 100644
 +   its settings, and its close switched the first one to DigitalRenderer
 +   (SDL probes the device like this).  */
 +static int dsp_opens;
++static pid_t dsp_open_pid;	/* the process that opened it */
 +
 +static struct
 +{
@@ -3092,7 +3123,10 @@ index 8a2eb72..0a7494f 100644
 +      return 0;
 +
 +    case SNDCTL_DSP_GETTRIGGER & 0xffff:	/* and SETTRIGGER */
-+      if (full_request == (unsigned long) SNDCTL_DSP_GETTRIGGER)
++      /* GETTRIGGER in either encoding (OSS_READ).  The second one has the
++	 same value as SETTRIGGER in the first; writing PCM_ENABLE_OUTPUT
++	 back to a SETTRIGGER caller is harmless (it is ignored anyway).  */
++      if (OSS_IS_READ (full_request, 16))
 +	*iarg = PCM_ENABLE_OUTPUT;
 +      return 0;
 +    }
@@ -3115,9 +3149,14 @@ index 8a2eb72..0a7494f 100644
 +    return;
 +  ssb_close_stream ();
 +  dr_exit ();
-+  /* The process is ending: the descriptors are closed after this.  */
-+  dsp_opens = 0;
-+  dsp_backend = BACKEND_NONE;
++  /* The process is ending: the descriptors are closed after this.  Not if
++     another process (the parent of a vfork child that played on the
++     parent's descriptor) opened them: they are still the parent's.  */
++  if (dsp_open_pid == getpid ())
++    {
++      dsp_opens = 0;
++      dsp_backend = BACKEND_NONE;
++    }
 +}
 +
 +void *
@@ -3140,6 +3179,7 @@ index 8a2eb72..0a7494f 100644
 +      dsp_backend = BACKEND_SSB;
 +      ssb_set_defaults ();
 +      dsp_opens = 1;
++      dsp_open_pid = getpid ();
 +      return (void *) 1;
 +    }
 +  if (force_ssb)
@@ -3150,7 +3190,10 @@ index 8a2eb72..0a7494f 100644
 +  dsp_backend = BACKEND_DR;
 +  ret = dr_open (fd, file, mode);
 +  if (ret != (void *) -1)
-+    dsp_opens = 1;
++    {
++      dsp_opens = 1;
++      dsp_open_pid = getpid ();
++    }
 +  return ret;
 +}
 +
@@ -3191,26 +3234,23 @@ index 8a2eb72..0a7494f 100644
 +     read-only SOUND_PCM_READ_* requests have the same low bits as the
 +     setting ones (READ_RATE = SPEED, READ_BITS = SETFMT, READ_CHANNELS =
 +     CHANNELS): READ_RATE with 0 used to set the rate to 4000 Hz.  Answer
-+     them here from the full request.  SNDCTL_DSP_PROFILE (same low bits as
-+     GETODELAY) is a hint: accept it and leave the argument alone.  */
-+  if (request == (unsigned long) SOUND_PCM_READ_RATE
-+      || request == (unsigned long) SOUND_PCM_READ_CHANNELS
-+      || request == (unsigned long) SOUND_PCM_READ_BITS)
++     them here from the full request, in either encoding (see
++     OSS_READ).  */
++  if (OSS_IS_READ (request, 2) || OSS_IS_READ (request, 5)
++      || OSS_IS_READ (request, 6))
 +    {
 +      int ssbe = dsp_backend == BACKEND_SSB;
 +      int fmt = ssbe ? ssb.format : dr_format;
 +      if (!arg)
 +	return __set_errno (EINVAL);
-+      if (request == (unsigned long) SOUND_PCM_READ_RATE)
++      if (OSS_IS_READ (request, 2))
 +	*(int *) arg = ssbe ? ssb.rate : dr_frequency;
-+      else if (request == (unsigned long) SOUND_PCM_READ_CHANNELS)
++      else if (OSS_IS_READ (request, 6))
 +	*(int *) arg = ssbe ? ssb.channels : dr_channels;
 +      else
 +	*(int *) arg = (fmt == AFMT_S16_LE || fmt == AFMT_S16_BE) ? 16 : 8;
 +      return 0;
 +    }
-+  if (request == (unsigned long) SNDCTL_DSP_PROFILE)
-+    return 0;
 +  if (dsp_backend == BACKEND_SSB)
 +    return ssb_ioctl (fd, request, arg);
 +  return dr_ioctl (fd, request, arg);
