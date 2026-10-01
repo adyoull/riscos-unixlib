@@ -545,10 +545,10 @@ index deb5f8d..592552f 100644
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/ticker.s b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/ticker.s
 new file mode 100644
-index 0000000..0852335
+index 0000000..fc1f0c9
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/ticker.s
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,209 @@
 +@ Thread ticker routines, shared by the PThreadTicker module and UnixLib
 +@ Copyright (c) 2026 UnixLib Developers
 +@
@@ -636,19 +636,22 @@ index 0000000..0852335
 +	@ Is the program paged in? Reads the upcall handler (OS_ChangeEnvironment
 +	@ 16): SUL's, with the program's key as its R12, when it is.
 +	@ Returns V set if the SWI failed, else Z set if ours (a2, a3 = the
-+	@ handler and R12 found). Corrupts a1-a4 and lr.
++	@ handler and R12 found). Corrupts a1-a4. lr is saved on the stack:
++	@ a SWI in SVC mode overwrites it.
 +\p\()_ours:
++	STMFD	sp!, {lr}
 +	MOV	a1, #16
 +	MOV	a2, #0
 +	MOV	a3, #0
 +	MOV	a4, #0
 +	SWI	XOS_ChangeEnvironment
-+	MOVVS	pc, lr
++	BVS	\p\()_ours_out
 +	LDR	a1, [ip, #PTHREAD_CALLEVERY_RMA_UPCALL_ADDR]
 +	TEQ	a1, a2
 +	LDREQ	a1, [ip, #PTHREAD_CALLEVERY_RMA_UPCALL_R12]
 +	TEQEQ	a1, a3
-+	MOV	pc, lr
++\p\()_ours_out:
++	LDMFD	sp!, {pc}		@ flags as set above
 +
 +	@ Start the ticker. Any mode; preserves all registers and flags,
 +	@ returns no errors.
@@ -699,6 +702,10 @@ index 0000000..0852335
 +	LDR	a1, [ip, #PTHREAD_CALLEVERY_RMA_PRE_CALLS]
 +	ADD	a1, a1, #1
 +	STR	a1, [ip, #PTHREAD_CALLEVERY_RMA_PRE_CALLS]
++	@ IRQs off from the check to setting 'polling', so a tick can't set
++	@ a callback in between (restored at _filter_out).
++	ORR	a1, a4, #IFlag32
++	MSR	CPSR_c, a1
 +	BL	\p\()_ours
 +	BVS	\p\()_filter_out
 +	BNE	\p\()_filter_out
@@ -706,7 +713,7 @@ index 0000000..0852335
 +	STR	a1, [ip, #PTHREAD_CALLEVERY_RMA_POLLING]
 +\p\()_filter_out:
 +	LDMFD	sp!, {a4}
-+	MSR	CPSR_f, a4
++	MSR	CPSR_cf, a4
 +	LDMFD	sp!, {a1-a4, pc}
 +
 +\p\()_postfilter:
