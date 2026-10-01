@@ -17,8 +17,8 @@ getservbyport (int __port, const char *__proto)
   __asm volatile ("SWI\t%[SWI_XInetServices_GetServiceByPort]\n\t"
 		  "MOVVC\t%[rtrn], r2\n\t"
 		  "MOVVS\t%[rtrn], #0\n\t"
-		  : [rtrn] "=r" (rtrn)
-		  : "r" (port), "r" (proto),
+		  : [rtrn] "=r" (rtrn), "+r" (port)
+		  : "r" (proto),
 		    [SWI_XInetServices_GetServiceByPort] "i" (InetServices_GetServiceByPort | (1<<17))
 		  : "r2", "r14", "cc", "memory");
   return rtrn;

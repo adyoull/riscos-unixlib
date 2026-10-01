@@ -22,9 +22,8 @@ get_var_len (const char *name)
 		    "MOV\tr3, #0\n\t"
 		    "MOV\tr4, #0\n\t"
 		    "SWI\t%[SWI_XOS_ReadVarVal]\n\t"
-		    : "=r" (len)
-		    : "r" (r0in),
-		      [SWI_XOS_ReadVarVal] "i" (OS_ReadVarVal | (1<<17))
+		    : "=r" (len), "+r" (r0in)
+		    : [SWI_XOS_ReadVarVal] "i" (OS_ReadVarVal | (1<<17))
 		    : "r1", "r3", "r4", "r14", "cc", "memory");
   return len;
 }
@@ -78,9 +77,8 @@ __remenv_from_os (const char *name)
 		    "MOV\tr3, #0\n\t"
 		    "MOV\tr4, #0\n\t"
 		    "SWI\t%[SWI_XOS_SetVarVal]\n\t"
-		    :
-		    : "r" (r0in),
-		      [SWI_XOS_SetVarVal] "i" (OS_SetVarVal | (1<<17))
+		    : "+r" (r0in)
+		    : [SWI_XOS_SetVarVal] "i" (OS_SetVarVal | (1<<17))
 		    : "r1", "r2", "r3", "r4", "r14", "cc", "memory");
 
   return 0;

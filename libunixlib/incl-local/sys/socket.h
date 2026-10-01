@@ -46,8 +46,8 @@ _bind (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __addrlen)
   __asm__ volatile ("SWI\t%[SWI_XSocket_Bind]\n\t"
 		    "MOVVC\t%[err], #0\n\t"
 		    "MOVVS\t%[err], r0\n\t"
-		    : [err] "=r" (err)
-		    : "r" (fd), "r" (addr), "r" (addrlen),
+		    : [err] "=r" (err), "+r" (fd)
+		    : "r" (addr), "r" (addrlen),
                       [SWI_XSocket_Bind] "i" (Socket_Bind | (1<<17))
 		    : "r14", "cc", "memory");
   return __net_error (0, err);
@@ -63,8 +63,8 @@ _connect (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __addrlen)
   __asm__ volatile ("SWI\t%[SWI_XSocket_Connect]\n\t"
 		    "MOVVC\t%[err], #0\n\t"
 		    "MOVVS\t%[err], r0\n\t"
-		    : [err] "=r" (err)
-		    : "r" (fd), "r" (addr), "r" (addrlen),
+		    : [err] "=r" (err), "+r" (fd)
+		    : "r" (addr), "r" (addrlen),
                       [SWI_XSocket_Connect] "i" (Socket_Connect | (1<<17))
 		    : "r14", "cc", "memory");
   return __net_error (0, err);
@@ -80,8 +80,8 @@ _getpeername (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addrlen)
   __asm__ volatile ("SWI\t%[SWI_XSocket_Getpeername_1]\n\t"
 		    "MOVVC\t%[err], #0\n\t"
 		    "MOVVS\t%[err], r0\n\t"
-		    : [err] "=r" (err)
-                    : "r" (fd), "r" (addr), "r" (addrlen),
+		    : [err] "=r" (err), "+r" (fd)
+                    : "r" (addr), "r" (addrlen),
                       [SWI_XSocket_Getpeername_1] "i" (Socket_Getpeername_1 | (1<<17))
                     : "r14", "cc", "memory");
   return __net_error (0, err);
@@ -97,8 +97,8 @@ _getsockname (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addrlen)
   __asm__ volatile ("SWI\t%[SWI_XSocket_Getsockname_1]\n\t"
 		    "MOVVC\t%[err], #0\n\t"
 		    "MOVVS\t%[err], r0\n\t"
-		    : [err] "=r" (err)
-                    : "r" (fd), "r" (addr), "r" (addrlen),
+		    : [err] "=r" (err), "+r" (fd)
+                    : "r" (addr), "r" (addrlen),
                       [SWI_XSocket_Getsockname_1] "i" (Socket_Getsockname_1 | (1<<17))
                     : "r14", "cc", "memory");
   return __net_error (0, err);
@@ -117,8 +117,8 @@ _getsockopt (int __fd, int __level, int __optname, void *__restrict __optval,
   __asm__ volatile ("SWI\t%[SWI_XSocket_Getsockopt]\n\t"
 		    "MOVVC\t%[err], #0\n\t"
 		    "MOVVS\t%[err], r0\n\t"
-		    : [err] "=r" (err)
-                    : "r" (fd), "r" (level), "r" (optname), "r" (optval), "r" (optlen),
+		    : [err] "=r" (err), "+r" (fd)
+                    : "r" (level), "r" (optname), "r" (optval), "r" (optlen),
                       [SWI_XSocket_Getsockopt] "i" (Socket_Getsockopt | (1<<17))
                     : "r14", "cc", "memory");
   return __net_error (0, err);
@@ -133,8 +133,8 @@ _listen (int __fd, int __backlog)
   __asm__ volatile ("SWI\t%[SWI_XSocket_Listen]\n\t"
 		    "MOVVC\t%[err], #0\n\t"
 		    "MOVVS\t%[err], r0\n\t"
-		    : [err] "=r" (err)
-                    : "r" (fd), "r" (backlog),
+		    : [err] "=r" (err), "+r" (fd)
+                    : "r" (backlog),
                       [SWI_XSocket_Listen] "i" (Socket_Listen | (1<<17))
                     : "r14", "cc", "memory");
   return __net_error (0, err);
@@ -208,9 +208,8 @@ _sclose (int __sd)
   __asm__ volatile ("SWI\t%[SWI_XSocket_Close]\n\t"
 		    "MOVVC\t%[err], #0\n\t"
 		    "MOVVS\t%[err], r0\n\t"
-		    : [err] "=r" (err)
-                    : "r" (sd),
-                      [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
+		    : [err] "=r" (err), "+r" (sd)
+                    : [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
                     : "r14", "cc", "memory");
   return __net_error (0, err);
 }
@@ -222,9 +221,8 @@ _sclose_no_error (int __sd)
 {
   register int sd __asm ("r0") = __sd;
   __asm__ volatile ("SWI\t%[SWI_XSocket_Close]\n\t"
-		    :
-                    : "r" (sd),
-                      [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
+		    : "+r" (sd)
+                    : [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
                     : "r14", "cc", "memory");
 }
 
@@ -323,8 +321,8 @@ _setsockopt (int __fd, int __level, int __optname, const void *__optval,
   __asm__ volatile ("SWI\t%[SWI_XSocket_Setsockopt]\n\t"
 		    "MOVVC\t%[err], #0\n\t"
 		    "MOVVS\t%[err], r0\n\t"
-		    : [err] "=r" (err)
-                    : "r" (fd), "r" (level), "r" (optname), "r" (optval),
+		    : [err] "=r" (err), "+r" (fd)
+                    : "r" (level), "r" (optname), "r" (optval),
 		      "r" (optlen),
                       [SWI_XSocket_Setsockopt] "i" (Socket_Setsockopt | (1<<17))
                     : "r14", "cc", "memory");
@@ -340,8 +338,8 @@ _shutdown (int __fd, int __how)
   __asm__ volatile ("SWI\t%[SWI_XSocket_Shutdown]\n\t"
 		    "MOVVC\t%[err], #0\n\t"
 		    "MOVVS\t%[err], r0\n\t"
-		    : [err] "=r" (err)
-                    : "r" (fd), "r" (how),
+		    : [err] "=r" (err), "+r" (fd)
+                    : "r" (how),
                       [SWI_XSocket_Shutdown] "i" (Socket_Shutdown | (1<<17))
                     : "r14", "cc", "memory");
   return __net_error (0, err);
@@ -357,8 +355,8 @@ _sioctl (int __sd, unsigned long __request, void *__arg)
   __asm__ volatile ("SWI\t%[SWI_XSocket_Ioctl]\n\t"
 		    "MOVVC\t%[err], #0\n\t"
 		    "MOVVS\t%[err], r0\n\t"
-		    : [err] "=r" (err)
-                    : "r" (sd), "r" (request), "r" (arg),
+		    : [err] "=r" (err), "+r" (sd)
+                    : "r" (request), "r" (arg),
                       [SWI_XSocket_Ioctl] "i" (Socket_Ioctl | (1<<17))
                     : "r14", "cc", "memory");
   return __net_error (0, err);

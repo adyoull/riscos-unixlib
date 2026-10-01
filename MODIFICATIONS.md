@@ -298,7 +298,8 @@ buffer (`ctime_r`, `asctime_r`) it returned 1. Whether reading near address
 0 aborts depends on the machine, which is why it crashed on one Pi and not
 another.
 
-**Change.** All 69 inline SWI wrappers were checked against the PRM:
+**Change.** 69 inline SWI wrappers were checked against the PRM (not the
+18 in `sound/DRender.h`; see the follow-up below):
 - `Territory_ConvertDateAndTime`: R2 is an output ("+r"). R3 and R4 are
   treated the same way rather than assumed preserved.
 - `OS_GBPB` 2 and 4 (`internal/os.h`): R2 returns the address after the
@@ -314,6 +315,14 @@ another.
   move a store to a buffer after the SWI that reads it, or keep a value in
   a register that the SWI has overwritten in memory.
 - Both wrapper headers now state the rule in a comment.
+- Follow-up (5.0.3.1-rc2, after the review): wrappers that gave R0 as an
+  input only, although an X SWI returns its error pointer in R0, now give
+  it as input and output (`"+r"`): `OS_ReadVarVal`/`OS_SetVarVal` in
+  `common/env.c`, the eleven Socket wrappers in `incl-local/sys/socket.h`
+  with no other R0 output, and SharedCLibrary `getservbyname`/
+  `getservbyport`. The four `sound/DRender.h` calls that pass a sample
+  buffer list `"memory"`. The registers the other DigitalRenderer SWIs
+  return have not been checked against its documentation.
 
 **Why this way.** The wrappers stay as they are, with only their register
 and clobber lists corrected. Rewriting them with `_swix` would change far

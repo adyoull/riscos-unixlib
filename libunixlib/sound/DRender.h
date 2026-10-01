@@ -67,6 +67,12 @@ DRender_LoadModule(const char * path);
 /*
     Digital Renderer SWI calls.
     Consult the DigitalRenderer documentation for information about these calls.
+
+    2026: the four calls that pass a sample buffer list "memory", so GCC
+    stores the whole buffer before the SWI reads it ("m" (*s) only covers
+    its first element).  The registers each SWI returns or changes have
+    not been checked against the DigitalRenderer documentation; the
+    wrappers assume R0 (and R1 where listed) only.
 */
 
 static __inline__ const _kernel_oserror * __attribute__ ((always_inline))
@@ -163,7 +169,7 @@ DRender_NewSample (const unsigned char *Sample)
                       : "=r" (err)
                       : "m" (*s), "r" (s),
                         [XDR_NewSample] "i" (DigiRendChunk + 6)
-                      : "r14", "cc");
+                      : "r14", "cc", "memory");
     return err;
 }
 
@@ -177,7 +183,7 @@ DRender_New16BitSample (const short *Sample)
                       : "=r" (err)
                       : "m" (*s), "r" (s),
                         [XDR_New16BitSample] "i" (DigiRendChunk + 7)
-                      : "r14", "cc");
+                      : "r14", "cc", "memory");
     return err;
 }
 
@@ -224,7 +230,7 @@ DRender_StreamSamples (const unsigned char *Sample, int num)
                       : "=r" (err)
                       : "m" (*s), "r" (s), "r" (n),
                         [XDR_StreamSamples] "i" (DigiRendChunk + 10)
-                      : "r14", "cc");
+                      : "r14", "cc", "memory");
     return err;
 }
 
@@ -239,7 +245,7 @@ DRender_Stream16BitSamples (const unsigned short *Sample, int num)
                       : "=r" (err)
                       : "m" (*s), "r" (s), "r" (n),
                         [XDR_Stream16BitSamples] "i" (DigiRendChunk + 11)
-                      : "r14", "cc");
+                      : "r14", "cc", "memory");
     return err;
 }
 

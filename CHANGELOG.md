@@ -57,6 +57,13 @@ How to release: docs/MAINTAINING.md.
   for them. `mmap` with a negative offset fails with `EINVAL` (it mapped
   from the wrong place). Compiled and checked by reading, not yet run.
 
+- **SWI wrappers:** those that gave R0 as an input only, although an X SWI
+  returns its error pointer there, now mark it as changed (`common/env.c`,
+  eleven Socket calls, SharedCLibrary `getservbyname`/`getservbyport`);
+  the DigitalRenderer calls that pass a sample buffer list `"memory"`.
+  Latent: no wrong code was found from either. MODIFICATIONS.md R1 no
+  longer says every wrapper was checked (the 18 in `DRender.h` weren't).
+
 ## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
 
 Fixes for problems in 5.0.3 (and earlier) found by an independent review
