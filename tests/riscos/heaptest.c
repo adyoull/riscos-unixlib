@@ -9,7 +9,8 @@
                    PASS if it got past 160 MB (more than one area) and
                    every block kept its contents.
    heaptest -check run after the first has quit: PASS if none of its
-                   areas are left.  */
+                   areas are left (this run's own heap area, which has the
+                   same name, isn't counted).  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,9 @@ int __dynamic_da_max_size = 512 << 20;
 #define BLOCK (16 << 20)
 #define MAXBLOCKS 20
 
+/* An address in this program's own heap (set by -check), or NULL.  */
+static const char *own_heap;
+
 static int
 list_areas (int quiet)
 {
@@ -30,13 +34,20 @@ list_areas (int quiet)
     {
       _kernel_oserror *e;
       int size, max;
-      const char *name;
+      const char *name, *base;
       e = _swix (OS_DynamicArea, _INR(0,1) | _OUT(1), 3, area, &area);
       if (e || area == -1)
 	break;
-      if (_swix (OS_DynamicArea, _INR(0,1) | _OUT(2) | _OUT(5) | _OUT(8),
-		 2, area, &size, &max, &name))
+      if (_swix (OS_DynamicArea, _INR(0,1) | _OUTR(2,3) | _OUT(5) | _OUT(8),
+		 2, area, &size, &base, &max, &name))
 	continue;
+      if (own_heap && own_heap >= base && own_heap < base + max)
+	{
+	  if (!quiet)
+	    printf ("  (area %d \"%s\" is this program's own heap)\n",
+		    area, name);
+	  continue;
+	}
       if (strncmp (name, "UnixLibTest Heap", 16) == 0)
 	{
 	  n++;
@@ -59,6 +70,7 @@ main (int argc, char **argv)
 
   if (argc > 1 && strcmp (argv[1], "-check") == 0)
     {
+      own_heap = malloc (16);
       areas = list_areas (0);
       printf ("%s: %d UnixLibTest Heap areas left after exit\n",
 	      areas ? "FAIL" : "PASS", areas);

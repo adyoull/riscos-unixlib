@@ -338,7 +338,17 @@ grows; 400 random
 malloc/free/realloc calls across several areas; no `mmap` SWIs; memory
 running out just as an area fills (the new, empty area is removed again);
 and the areas removed at exit. On RISC OS: `BigHeap` and `HeapCheck` in
-UnixLibTests.zip. Against the unfixed library, 7 checks fail and
+UnixLibTests.zip.
+
+**On the Pi 4 (2 GB, RISC OS 5, 2026-10-01, rc3):** `BigHeap` passed. It
+allocated 320 MB in 16 MB blocks across three areas ("UnixLibTest Heap",
+"... Heap 2", "... Heap 3", each with a maximum of 131072K) and the data
+was intact. One 128 MB + 64 KB block was refused: RISC OS also gives an
+area asked for with exactly that maximum only 128 MB. (ARMEABISupport's
+`mmap#N` areas get past 128 MB because they are physical memory pool
+areas, which it maps page by page itself.) `HeapCheck` found only an area
+of its own (same name, 32K), which its first version counted by mistake;
+no area from `BigHeap` was left. Against the unfixed library, 7 checks fail and
 malloc calls ARMEABISupport's `mmap`. Not yet run on RISC OS.
 
 ### F1. `fsync` on read-only files; `fdatasync` (`unix/sync.c`, `include/unistd.h`) - commit `751de68`
@@ -1144,7 +1154,7 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 - R1 and R2 (on the machine where Warzone 2100 crashed).
 - K5-K7, S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
   from the 2026-10-01 review);
-- A2 (a heap past 128 MB: OpenTTD, then `!MemCheck` and the Task Manager);
+- A2 in OpenTTD (`!MemCheck`, a 2048x4096 map); `BigHeap` passed on the Pi;
 - `*RMKill PThreadTicker` while a threaded program runs: must refuse. This
   also settles a point the review disputed (whether `OS_Module 18` returns
   the module's private word or its address in R4).

@@ -7,6 +7,11 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- RISC OS tests: `HeapCheck` no longer counts its own heap area (it has
+  the same name), which made it report FAIL after a good `BigHeap` run.
+  Pi 4 result for rc3: `BigHeap` PASS, 320 MB in three areas; one
+  128 MB + 64 KB block refused (RISC OS caps that area at 128 MB too).
+
 ## 5.0.3.1-rc3 (2026-10-01, pre-release, tag v5.0.3.1-rc3)
 
 A heap past 128 MB, for the OpenTTD port. **Not yet run on RISC OS.**
