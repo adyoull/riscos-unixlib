@@ -7,12 +7,41 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
-- Pi 4 with rc9: `Ticker` PASS, both threads counted about 1.5 billion in
-  20 s while the task polled about a million times (rc8: both 0);
-  `TickerStartTask` PASS (3 child tasks, both threads about 1.2 billion);
-  with PThreadTicker 0.03 loaded, `Ticker`, `ForkThreads` (module in use,
-  RMKill refused) and `ExitJoin` PASS; `TickerEarly` PASS (both threads
-  about 1.5 billion). K9.
+## 5.0.3.1 (2026-10-01, tag v5.0.3.1)
+
+The same code as 5.0.3.1-rc9. Changes since 5.0.3, in short (details in
+the rc sections below and MODIFICATIONS.md):
+
+- **Heap past 128 MB** in several dynamic areas, one block bigger than an
+  area included; no `mmap` fallback for a dynamic-area heap; all the
+  areas are removed at exit (A1, A2). OpenTTD loads 4096x4096 maps.
+- **`fork()` works in EABI programs** (the child's exit freed, or tried to
+  free, the parent's stack; the parent's stack is kept across the fork)
+  (K8). **`_exit (n)` exits with code n** (it took a wait status) (X2).
+- **Threads run in a Wimp program that polls often** (the ticker was
+  stopped and restarted in every `Wimp_Poll`, so the threads of a program
+  polling faster than every 2 cs never ran) (K9). **PThreadTicker 0.03**
+  (interface version 2). The pthread RMA block is 640 bytes.
+- A fork/vfork child's exit no longer tears down the parent's thread
+  ticker, sound stream or MIDI connection; `exec` detaches from
+  PThreadTicker; PThreadTicker 0.02 counts users with IRQs off (K5-K7).
+- Sound: `/dev/dsp` opened twice, `SOUND_PCM_READ_*`, DigitalRenderer
+  takeover, `SETFRAGMENT`, `GETOPTR`; `/dev/midi` when MIDISynth is full
+  (S6-S11).
+- `sleep`/`usleep`/`nanosleep` with long times and in critical sections,
+  `CLOCK_MONOTONIC` across threads, `wcsto*`, `isw*_l`, `swprintf`/
+  `wcsftime` formats, `glob()` with large-file `stat`, `mmap64` past 2GB,
+  `read()` into another thread's stack, SWI wrapper register lists.
+- Riscos-unixlib is described everywhere as an unofficial fork of
+  GCCSDK's UnixLib; AI (Anthropic's Claude) has been used as a coding
+  assistant.
+
+**Run on RISC OS** (Pi 4, rc4-rc9): BigHeap, HeapCheck, HeapProbe,
+ForkOnly, ForkThreads, ForkExec, ExitJoin, FsyncRO, Sched, Ticker,
+TickerEarly, TickerStartTask (with and without PThreadTicker 0.03), and
+OpenTTD with a 4096x4096 map. **Not run on RISC OS:** the sound tests
+(Tone*, Mix, ExitBug, ExitBugSSB, MIDI), so the sound changes (S6-S11)
+are checked by the host tests only; `mmap64` past 2GB.
 
 ## 5.0.3.1-rc9 (2026-10-01, pre-release, tag v5.0.3.1-rc9)
 

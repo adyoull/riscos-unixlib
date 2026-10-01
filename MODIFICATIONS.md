@@ -954,8 +954,9 @@ move.
   UnixLib's copy in the Unicorn ARM emulator, covering the header, the table,
   attach/detach, refusing to be killed, and the routines themselves.
 - On the Pi: the K3 run used the module (`via=module`).
-- **Not yet run on RISC OS:** without the module (the RMA copy, which is the
-  same code Warzone riscos16/17 ran), and refusing `*RMKill` while in use.
+- Since run on RISC OS (Pi 4, 2026-10-01): without the module (the RMA
+  copy, `via=RMA` lines from the Ticker tests with 5.0.3.1-rc9), and
+  refusing `*RMKill` while in use (`ForkThreads`).
 
 ### K5. A fork/vfork child's exit freed the parent's ticker block (`pthread/pthinit.c`, `pthread/ticker.c`) - commit `0096397`
 
@@ -1327,7 +1328,8 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 - S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
   from the 2026-10-01 review).
 
-**Done on RISC OS (Pi 4, 5.0.3.1-rc8):** `ForkOnly`, `ForkThreads`,
+**Done on RISC OS (Pi 4, 5.0.3.1-rc8 and rc9; released as 5.0.3.1 with
+the sound tests still to run):** `ForkOnly`, `ForkThreads`,
 `ForkExec` (K5, K6, K8, X2), `ExitJoin` (X1), `FsyncRO` (F1), `Sched`
 (P1, P2), `BigHeap`/`HeapCheck` (A2) all PASS.
 
