@@ -26,6 +26,7 @@
 #include <string.h>
 #include <strings.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <swis.h>
 #include <sys/types.h>
 #include <sys/soundcard.h>
@@ -39,6 +40,10 @@ static int midi_kind = MIDI_NONE;
 static int midi_opens;			/* open /dev/midi descriptors */
 static int swi_open, swi_close, swi_write, swi_reset, swi_txbyte;
 static int synth_handle;
+/* 2026: the process that made the connection.  A fork()/vfork() child has
+   a copy of (or shares) these variables but must not close the parent's
+   connection when it exits.  */
+static pid_t midi_owner_pid;
 
 /* Avoid warnings, but don't advertise.  */
 void __midi_exit (void);
@@ -114,6 +119,7 @@ __midiopen (struct __unixlib_fd *fd, const char *file, int mode)
 	{
 	  midi_kind = MIDI_SYNTH;
 	  midi_opens = 1;
+	  midi_owner_pid = getpid ();
 	  return (void *) 1;
 	}
       if (only_synth)
@@ -123,6 +129,7 @@ __midiopen (struct __unixlib_fd *fd, const char *file, int mode)
     {
       midi_kind = MIDI_HW;
       midi_opens = 1;
+      midi_owner_pid = getpid ();
       return (void *) 1;
     }
   return (void *) __set_errno (ENODEV);
@@ -210,6 +217,6 @@ __midiioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
 void
 __midi_exit (void)
 {
-  if (midi_kind != MIDI_NONE)
+  if (midi_kind != MIDI_NONE && midi_owner_pid == getpid ())
     midi_disconnect ();
 }

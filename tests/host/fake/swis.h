@@ -7,5 +7,7 @@
 #define _OUTR(a,b)  ((((1U << ((b) - (a) + 1)) - 1)) << (31 - (b)))
 #define OS_SWINumberFromString 0x39
 #define OS_Module 0x1e
+#define OS_ReadVarVal 0x23
+#define OS_SetVarVal 0x24
 const _kernel_oserror *_swix (int swi, unsigned mask, ...);
 #endif

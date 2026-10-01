@@ -54,6 +54,75 @@ static int dr_buffers = 0;     /* Number of buffers in use */
 static int dr_fragscale = 1;
 static int dr_owner = 0;       /* Non-zero once this program activated it */
 
+/* 2026: the process whose SharedSoundBuffer stream or DigitalRenderer
+   session this is.  A fork()/vfork() child has a copy of (or shares) these
+   variables but not the session: its _exit() must leave the parent's sound
+   alone.  */
+static pid_t dsp_owner_pid;
+
+/* 2026: DigitalRenderer has one user at a time and doesn't say who.  A
+   program that activates it puts its pid in this system variable; one that
+   finds another pid there has been taken over and must not deactivate the
+   new owner's session.  If the variable is missing (a program with an
+   older UnixLib took over, or nobody set it), the old behaviour applies.  */
+#define DR_OWNER_VAR "UnixLib$DSPOwner"
+
+/* Static, like the rest of this device's state (and so the host tests can
+   pass it through their 32-bit fake SWI registers).  */
+static char dr_var_buf[16];
+
+static void
+dr_claim (void)
+{
+  char *buf = dr_var_buf;
+  int len = snprintf (buf, sizeof dr_var_buf, "%d", (int) getpid ());
+  _swix (OS_SetVarVal, _INR(0,4), DR_OWNER_VAR, buf, len, 0, 0);
+}
+
+static void
+dr_unclaim (void)
+{
+  _swix (OS_SetVarVal, _INR(0,4), DR_OWNER_VAR, NULL, -1, 0, 0);
+}
+
+/* Non-zero if this program activated DigitalRenderer and nobody has taken
+   it over since.  */
+static int
+dr_is_ours (void)
+{
+  char *buf = dr_var_buf;
+  int len = 0;
+
+  if (!dr_owner || dsp_owner_pid != getpid ())
+    return 0;
+  if (_swix (OS_ReadVarVal, _INR(0,4) | _OUT(2), DR_OWNER_VAR, buf,
+	     (int) sizeof dr_var_buf - 1, 0, 0, &len) != NULL)
+    return 1;			/* no variable: assume ours, as before */
+  buf[len < 0 ? 0 : len] = '\0';
+  if (atoi (buf) == (int) getpid ())
+    return 1;
+  dr_owner = 0;			/* taken over by another program */
+  return 0;
+}
+
+/* Stop DigitalRenderer if it is ours.  */
+static const _kernel_oserror *
+dr_release (void)
+{
+  const _kernel_oserror *err;
+
+  if (!dr_is_ours ())
+    {
+      dr_owner = 0;
+      return NULL;
+    }
+  dr_owner = 0;
+  dr_unclaim ();
+  err = DRender_Deactivate ();
+  DRender_NumBuffers (0);
+  return err;
+}
+
 
 /* Close /dev/dsp upon exit if it's still open.  This is mostly
    to ensure that DigitalRenderer is in a good state after
@@ -64,11 +133,7 @@ dr_exit (void)
   /* 2026: only if this program started DigitalRenderer.  _exit() calls this
      in every program, so it used to stop the sound of whichever other
      program was playing whenever any UnixLib program quit.  */
-  if (!dr_owner)
-    return;
-  dr_owner = 0;
-  DRender_Deactivate ();
-  DRender_NumBuffers (0);
+  (void) dr_release ();
 }
 
 
@@ -132,7 +197,11 @@ activate_defaults (void)
                               1e6 / dr_frequency, NULL);
     }
   if (err == NULL)
-    dr_owner = 1;
+    {
+      dr_owner = 1;
+      dsp_owner_pid = getpid ();
+      dr_claim ();
+    }
   return err;
 }
 
@@ -149,8 +218,9 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
 
   /* Only stop DigitalRenderer if this program is the one playing; the new
      settings take effect at the next write.  */
-  if (dr_owner && (old_state & DRState_Active) && (old_state != -1))
+  if (dr_is_ours () && (old_state & DRState_Active) && (old_state != -1))
     {
+      dr_unclaim ();
       DRender_Deactivate ();
       dr_owner = 0;
     }
@@ -228,13 +298,11 @@ dr_close (struct __unixlib_fd *fd)
 {
   if (fd->devicehandle->handle)
     {
-      const _kernel_oserror *err;
-      if (!dr_owner)
-        return 0;	/* Never played anything: leave others' sound alone.  */
-      dr_owner = 0;
-      if ((err = DRender_Deactivate ()) != NULL)
+      /* Only if this program is still the one playing: leave others'
+         sound alone.  */
+      const _kernel_oserror *err = dr_release ();
+      if (err != NULL)
         return __ul_seterr (err, EOPSYS);
-      DRender_NumBuffers (0);
     }
   return 0;
 }
@@ -267,7 +335,7 @@ dr_write (struct __unixlib_fd *fd, const void *data, int nbyte)
   */
   {
     int state;
-    if ((err = check_state (&state)) == NULL && !dr_owner)
+    if ((err = check_state (&state)) == NULL && !dr_is_ours ())
       {
         /* Someone else is playing: DigitalRenderer has one user at a
            time, so take it over (as before), but only now that this
@@ -478,6 +546,12 @@ dr_ioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
 
 enum { BACKEND_NONE, BACKEND_DR, BACKEND_SSB };
 static int dsp_backend = BACKEND_NONE;
+/* 2026: /dev/dsp descriptors open in this program (dup()s share one).  The
+   device state is per program, so a second open shares the first one's
+   stream and settings; it used to close the first one's stream and reset
+   its settings, and its close switched the first one to DigitalRenderer
+   (SDL probes the device like this).  */
+static int dsp_opens;
 
 static struct
 {
@@ -585,6 +659,7 @@ ssb_open_stream (void)
 	 ssb.rate * 1024);
   _swix (XSharedSoundBuffer_Volume, _INR(0,1), ssb.handle, 0xFFFFFFFF);
   ssb.played_base = ssb.last_frag = 0;
+  dsp_owner_pid = getpid ();
   /* Paused until a fragment is queued, so it doesn't start by running
      dry.  */
   ssb_pause (1);
@@ -936,12 +1011,19 @@ ssb_ioctl (struct __unixlib_fd *fd, unsigned long full_request, void *arg)
 
 void __dsp_exit (void);
 
-/* Called from _exit() in every program: only undo what this one did.  */
+/* Called from _exit() in every program: only undo what this one did.
+   2026: a fork()/vfork() child inherits (or shares) the parent's stream
+   handle and DigitalRenderer state; its exit must not close them.  */
 void
 __dsp_exit (void)
 {
+  if (dsp_owner_pid != getpid ())
+    return;
   ssb_close_stream ();
   dr_exit ();
+  /* The process is ending: the descriptors are closed after this.  */
+  dsp_opens = 0;
+  dsp_backend = BACKEND_NONE;
 }
 
 void *
@@ -951,12 +1033,19 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
   int force_dr = want && (strcasecmp (want, "DigitalRenderer") == 0
 			  || strcasecmp (want, "DRender") == 0);
   int force_ssb = want && strcasecmp (want, "SharedSound") == 0;
+  void *ret;
 
+  if (dsp_opens > 0 && dsp_backend != BACKEND_NONE)
+    {
+      dsp_opens++;
+      return (void *) 1;
+    }
   ssb_close_stream ();
   if (!force_dr && ssb_available ())
     {
       dsp_backend = BACKEND_SSB;
       ssb_set_defaults ();
+      dsp_opens = 1;
       return (void *) 1;
     }
   if (force_ssb)
@@ -965,12 +1054,21 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
       return (void *) -1;
     }
   dsp_backend = BACKEND_DR;
-  return dr_open (fd, file, mode);
+  ret = dr_open (fd, file, mode);
+  if (ret != (void *) -1)
+    dsp_opens = 1;
+  return ret;
 }
 
 int
 __dspclose (struct __unixlib_fd *fd)
 {
+  if (dsp_opens > 1)
+    {
+      dsp_opens--;		/* another descriptor still uses it */
+      return 0;
+    }
+  dsp_opens = 0;
   if (dsp_backend == BACKEND_SSB)
     {
       /* Like OSS: let what was written finish playing.  */
@@ -995,6 +1093,30 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
 int
 __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
 {
+  /* 2026: requests are matched on their low 16 bits below, but the
+     read-only SOUND_PCM_READ_* requests have the same low bits as the
+     setting ones (READ_RATE = SPEED, READ_BITS = SETFMT, READ_CHANNELS =
+     CHANNELS): READ_RATE with 0 used to set the rate to 4000 Hz.  Answer
+     them here from the full request.  SNDCTL_DSP_PROFILE (same low bits as
+     GETODELAY) is a hint: accept it and leave the argument alone.  */
+  if (request == (unsigned long) SOUND_PCM_READ_RATE
+      || request == (unsigned long) SOUND_PCM_READ_CHANNELS
+      || request == (unsigned long) SOUND_PCM_READ_BITS)
+    {
+      int ssbe = dsp_backend == BACKEND_SSB;
+      int fmt = ssbe ? ssb.format : dr_format;
+      if (!arg)
+	return __set_errno (EINVAL);
+      if (request == (unsigned long) SOUND_PCM_READ_RATE)
+	*(int *) arg = ssbe ? ssb.rate : dr_frequency;
+      else if (request == (unsigned long) SOUND_PCM_READ_CHANNELS)
+	*(int *) arg = ssbe ? ssb.channels : dr_channels;
+      else
+	*(int *) arg = (fmt == AFMT_S16_LE || fmt == AFMT_S16_BE) ? 16 : 8;
+      return 0;
+    }
+  if (request == (unsigned long) SNDCTL_DSP_PROFILE)
+    return 0;
   if (dsp_backend == BACKEND_SSB)
     return ssb_ioctl (fd, request, arg);
   return dr_ioctl (fd, request, arg);

@@ -16,6 +16,8 @@ static unsigned char synth_buf[4096], hw_buf[4096]; static int synth_len, hw_len
 static char synth_name[64], *env_midi;
 static _kernel_oserror e = { 1, "x" };
 int __ul_seterr (const _kernel_oserror *er, int en) { (void) er; errno = en; return -1; }
+int fake_pid = 100;
+int fake_getpid (void) { return fake_pid; }
 char *fake_getenv (const char *n) { return strcmp (n, "UnixLib$MIDI") == 0 ? env_midi : NULL; }
 
 /* SWI numbers the fake hands out: 0x100.. */
@@ -58,8 +60,24 @@ static struct __unixlib_fd_handle H; static struct __unixlib_fd FD;
 static void *op (int mode) { FD.devicehandle = &H; FD.fflag = mode; return H.handle = __midiopen (&FD, "/dev/midi", mode); }
 static void reset (void) { have_synth = have_hw = synth_opens = synth_closes = synth_resets = synth_len = hw_len = 0; synth_limit = 1 << 20; env_midi = NULL; }
 
+/* 2026: a fork()/vfork() child exiting must not close the parent's
+   connection (the child has a copy of, or shares, midi.c's state).  */
+static void test_fork_child_exit (void)
+{
+  reset (); have_synth = 1; fake_pid = 100;
+  CHECK (op (O_WRONLY) == (void *) 1 && synth_opens == 1, "fork test: open");
+  fake_pid = 200;			/* the child */
+  __midi_exit ();
+  CHECK (synth_closes == 0, "a child's exit leaves the parent's connection open");
+  fake_pid = 100;			/* back in the parent */
+  CHECK (__midiwrite (&FD, "\x90\x40\x7f", 3) == 3, "parent can still write");
+  __midi_exit ();
+  CHECK (synth_closes == 1, "the parent's own exit closes it");
+}
+
 int main (void)
 {
+  test_fork_child_exit ();
   static unsigned char song[] = { 0xC0, 19, 0x90, 60, 100, 64, 100, 0xF0, 1, 2, 0xF7, 0x80, 60, 0 };
   reset (); have_synth = have_hw = 1;
   CHECK (op (O_WRONLY) == (void *) 1, "open");

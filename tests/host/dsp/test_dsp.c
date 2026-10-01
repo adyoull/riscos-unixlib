@@ -240,8 +240,129 @@ static void test_dr (void)
   CHECK (dsp_open (O_WRONLY) == -1 && errno == ENODEV, "UnixLib$DSP=SharedSound without the modules -> ENODEV");
 }
 
+/* 2026: a second open shares the first one's stream and settings; closing
+   it leaves the first one playing (SDL probes the device like this).  */
+static void test_two_opens (void)
+{
+  static struct __unixlib_fd_handle H2; static struct __unixlib_fd FD2;
+  static short buf[8192];
+  fake_reset ();
+  CHECK (dsp_open (O_WRONLY) == 0, "first open");
+  CHECK (ioc (SNDCTL_DSP_SPEED, 22050) == 22050, "first: 22050 Hz");
+  CHECK (__dspwrite (&FD, buf, sizeof buf) == (int) sizeof buf, "first: write");
+  FD2.devicehandle = &H2; FD2.fflag = O_WRONLY;
+  H2.handle = __dspopen (&FD2, "/dev/dsp", O_WRONLY);
+  CHECK (H2.handle != (void *) -1, "second open");
+  CHECK (F.open && F.closes == 0, "second open doesn't close the first one's stream");
+  int x = 0;
+  CHECK (__dspioctl (&FD, SOUND_PCM_READ_RATE, &x) == 0 && x == 22050, "second open doesn't reset the rate (%d)", x);
+  CHECK (__dspclose (&FD2) == 0 && F.open && F.closes == 0, "closing the second leaves the stream open");
+  int blocks = F.blocks, acts = dr_activations;
+  CHECK (__dspwrite (&FD, buf, sizeof buf) == (int) sizeof buf, "first: write after the second closed");
+  CHECK (F.blocks > blocks && dr_activations == acts, "still SharedSoundBuffer, not DigitalRenderer");
+  __dspclose (&FD);
+  CHECK (!F.open && F.closes == 1, "last close closes the stream");
+}
+
+/* 2026: SOUND_PCM_READ_* have the same low 16 bits as SPEED, SETFMT and
+   CHANNELS; READ_RATE with 0 used to set 4000 Hz.  */
+static void test_read_ioctls (void)
+{
+  static short buf[4096];
+  int x;
+  fake_reset ();
+  dsp_open (O_WRONLY);
+  ioc (SNDCTL_DSP_SPEED, 22050);
+  ioc (SNDCTL_DSP_CHANNELS, 1);
+  __dspwrite (&FD, buf, sizeof buf);
+  x = 0;
+  CHECK (__dspioctl (&FD, SOUND_PCM_READ_RATE, &x) == 0 && x == 22050, "READ_RATE gives 22050 (%d)", x);
+  CHECK (F.rate == 22050, "READ_RATE doesn't change the stream's rate (%d)", F.rate);
+  x = 0;
+  CHECK (__dspioctl (&FD, SOUND_PCM_READ_CHANNELS, &x) == 0 && x == 1, "READ_CHANNELS gives 1 (%d)", x);
+  x = 0;
+  CHECK (__dspioctl (&FD, SOUND_PCM_READ_BITS, &x) == 0 && x == 16, "READ_BITS gives 16 (%d)", x);
+  CHECK (ioc (SNDCTL_DSP_SETFMT, AFMT_QUERY) == AFMT_S16_LE, "READ_BITS didn't change the format");
+  x = 1234;
+  CHECK (__dspioctl (&FD, SNDCTL_DSP_PROFILE, &x) == 0 && x == 1234, "PROFILE accepted, argument left alone");
+  __dspclose (&FD);
+  /* DigitalRenderer path too.  */
+  fake_reset (); F.modules = 0; dr_state = 0;
+  dsp_open (O_WRONLY);
+  ioc (SNDCTL_DSP_SPEED, 22050);
+  x = 0;
+  CHECK (__dspioctl (&FD, SOUND_PCM_READ_RATE, &x) == 0 && x == 22050, "DR: READ_RATE gives 22050 (%d)", x);
+  __dspclose (&FD);
+}
+
+/* 2026: a fork()/vfork() child's _exit() must not close the parent's
+   stream or stop its DigitalRenderer session.  */
+static void test_fork_child_exit (void)
+{
+  static short buf[4096];
+  fake_reset (); fake_pid = 100;
+  dsp_open (O_WRONLY);
+  __dspwrite (&FD, buf, sizeof buf);
+  fake_pid = 200;			/* the child */
+  __dsp_exit ();
+  CHECK (F.open && F.closes == 0, "a child's exit leaves the parent's stream open");
+  fake_pid = 100;
+  __dsp_exit ();
+  CHECK (!F.open && F.closes == 1, "the parent's own exit closes it");
+
+  fake_reset (); F.modules = 0; dr_state = 0; dr_deactivations = 0; fake_pid = 100;
+  dsp_open (O_WRONLY);
+  __dspwrite (&FD, buf, sizeof buf);
+  fake_pid = 200;
+  __dsp_exit ();
+  CHECK (dr_state == 1 && dr_deactivations == 0, "DR: a child's exit leaves the parent's session alone");
+  fake_pid = 100;
+  __dsp_exit ();
+  CHECK (dr_state == 0, "DR: the parent's own exit stops it");
+}
+
+/* 2026: program B takes DigitalRenderer over from A: A's exit must not stop
+   B's sound.  UnixLib$DSPOwner says who has it.  */
+static void test_dr_takeover (void)
+{
+  static short buf[2048];
+  fake_reset (); F.modules = 0; dr_state = 0; dr_deactivations = dr_activations = 0; fake_pid = 100;
+  dsp_open (O_WRONLY);
+  __dspwrite (&FD, buf, sizeof buf);
+  CHECK (F.var_set && strcmp (F.var_owner, "100") == 0, "activating records the owner (%s)", F.var_owner);
+  /* Program B (pid 300, also this UnixLib) takes it over.  */
+  snprintf (F.var_owner, sizeof F.var_owner, "300"); dr_state = 1;
+  int deact = dr_deactivations;
+  __dsp_exit ();
+  CHECK (dr_deactivations == deact && dr_state == 1, "A's exit leaves B's session alone");
+  CHECK (strcmp (F.var_owner, "300") == 0, "and leaves B's claim");
+
+  /* A takes it back by writing; then its exit stops it.  */
+  fake_reset (); F.modules = 0; dr_state = 0; dr_deactivations = dr_activations = 0;
+  dsp_open (O_WRONLY);
+  __dspwrite (&FD, buf, sizeof buf);
+  snprintf (F.var_owner, sizeof F.var_owner, "300");
+  deact = dr_deactivations;
+  __dspwrite (&FD, buf, sizeof buf);
+  CHECK (dr_deactivations == deact + 1 && strcmp (F.var_owner, "100") == 0, "writing after a takeover takes it back");
+  __dsp_exit ();
+  CHECK (dr_state == 0 && !F.var_set, "exit stops it and removes the claim");
+
+  /* No variable (an older UnixLib took over): behaves as before.  */
+  fake_reset (); F.modules = 0; dr_state = 0;
+  dsp_open (O_WRONLY);
+  __dspwrite (&FD, buf, sizeof buf);
+  F.var_set = 0;
+  __dsp_exit ();
+  CHECK (dr_state == 0, "without the variable, exit stops it as before");
+}
+
 int main (void)
 {
+  test_two_opens ();
+  test_read_ioctls ();
+  test_fork_child_exit ();
+  test_dr_takeover ();
   test_basic_s16_stereo ();
   test_formats ();
   test_partial_frames ();

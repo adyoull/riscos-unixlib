@@ -11,6 +11,9 @@
 struct fake F;
 int dr_state, dr_nbuf, dr_activations, dr_deactivations, dr_numbuf_calls, dr_streamed;
 char *program_invocation_short_name = "testprog";
+int fake_pid = 100;
+int fake_getpid (void) { return fake_pid; }
+static _kernel_oserror err_novar = { 4, "Variable not found" };
 static _kernel_oserror err_full = { 1, "Buffer full" };
 static _kernel_oserror err_noswi = { 2, "No such SWI" };
 static _kernel_oserror err_bad = { 3, "Bad handle" };
@@ -20,6 +23,7 @@ void fake_reset (void)
   free (F.out);
   memset (&F, 0, sizeof F);
   F.modules = 1;
+  dr_streamed = 0;
   F.out_cap = 1 << 22;
   F.out = malloc (F.out_cap);
 }
@@ -84,6 +88,16 @@ const _kernel_oserror *_swix (int swi, unsigned mask, ...)
       if (F.added - F.played > F.max_queued) F.max_queued = F.added - F.played;
       break;
     case 0x57288: r[0] = F.added; r[1] = F.played; break;
+    case OS_ReadVarVal:
+      if (strcmp ((char *) (long) in[0], "UnixLib$DSPOwner") || !F.var_set) return &err_novar;
+      { int n = (int) strlen (F.var_owner); if (n > in[2]) n = in[2];
+        memcpy ((char *) (long) in[1], F.var_owner, n); r[2] = n; }
+      break;
+    case OS_SetVarVal:
+      if (strcmp ((char *) (long) in[0], "UnixLib$DSPOwner")) break;
+      if (in[2] < 0) { if (!F.var_set) return &err_novar; F.var_set = 0; break; }
+      snprintf (F.var_owner, sizeof F.var_owner, "%.*s", in[2], (char *) (long) in[1]); F.var_set = 1;
+      break;
     default: fprintf (stderr, "unexpected SWI %x\n", swi); abort ();
     }
   for (i = 0; i < 10; i++) if (out[i]) *out[i] = r[i];
