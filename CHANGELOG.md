@@ -7,6 +7,8 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- Pi 4 with rc8: `ForkOnly`, `ForkThreads` and `ForkExec` PASS (K8, X2).
+
 ## 5.0.3.1-rc8 (2026-10-01, pre-release, tag v5.0.3.1-rc8)
 
 - RISC OS tests: every Obey file first prints the release it was built

@@ -431,7 +431,8 @@ whose fork/vfork child calls `_exit (n)` now sees `WIFEXITED` and
 
 **Verification.** Disassembly of `_exit` (shift left 8, mask, call
 `__exit_status`). On RISC OS: `ForkOnly` and `ForkThreads` check the
-fork child's `_exit (3)` with `WEXITSTATUS`.
+fork child's `_exit (3)` with `WEXITSTATUS`; both PASS on a Pi 4 with
+5.0.3.1-rc8.
 
 ### P1. `sched_get_priority_min` / `sched_get_priority_max` (new `sched/sched_prio.c`, `include/sched.h`) - commit `04408eb`
 
@@ -1070,7 +1071,9 @@ exit had freed.
 process structure (status word at 96, flag bit 24). On RISC OS:
 `ForkOnly` now also has a child return from the function that called fork
 and use 8 KB of stack over its frame; the parent checks a pattern there.
-Not yet run with the fix (rc6).
+Pi 4, 5.0.3.1-rc8 (with X2): `ForkOnly` PASS (three forks and the stack
+check), `ForkThreads` PASS (with PThreadTicker loaded: RMKill refused),
+`ForkExec` PASS (without the module).
 
 ## 5. Files over 2GB (L1-L5)
 
