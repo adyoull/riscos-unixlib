@@ -346,7 +346,7 @@ blocks up to 300 KB; the space after the first area taken (a segment
 elsewhere, nothing committed for nothing, few SWIs, the other area left
 alone); memory running out, also part of the way through a growth; a big
 maximum refused; fixed bases refused altogether (the earlier scheme); no
-`mmap` SWIs; and the areas removed at exit. 8 of these fail on 5.0.3.1-rc3
+`mmap` SWIs; and the areas removed at exit. At least 8 of these fail on 5.0.3.1-rc3
 and 7 on 5.0.3.1-rc2 (which also calls ARMEABISupport's `mmap`).
 
 **On the Pi 4 (2 GB, RISC OS 5, 2026-10-01).** With rc3 (areas wherever

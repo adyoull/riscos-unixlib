@@ -56,7 +56,7 @@ free (as RISC OS 5 does): areas end to end, blocks bigger than an area,
 random calls, the space after an area taken (a segment elsewhere),
 memory running out (also part of the way), a big maximum refused, fixed
 bases refused, no `mmap` fallback, and the areas removed at exit. 37
-checks; 5.0.3.1-rc3 fails 8.
+checks; 5.0.3.1-rc3 fails at least 8.
 
 `make check` runs them when there's a build, the cross toolchain and the
 Python `unicorn` module (`pip install unicorn`); otherwise it says SKIP.
