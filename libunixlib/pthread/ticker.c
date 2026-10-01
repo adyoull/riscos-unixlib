@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <swis.h>
 
 #include <pthread.h>
@@ -87,6 +88,20 @@ find_module (const char **base, void **ws)
   return t;
 }
 
+/* 2026: the process that claimed the RMA block and attached to the
+   module (SUL's pid, unique while the process exists).  A fork()/vfork()
+   child has a copy of, or shares, these variables, but the block and the
+   attachment belong to the parent.  */
+static pid_t owner_pid;
+
+/* Non-zero in the process that set the ticker up, zero in a fork()/vfork()
+   child of it.  */
+int
+__pthread_ticker_owner (void)
+{
+  return getpid () == owner_pid;
+}
+
 /* Called once by __pthread_prog_init: use the PThreadTicker module's
    routines if it is loaded, else copy them into the RMA block.  */
 void
@@ -96,6 +111,8 @@ __pthread_ticker_init (void)
   const struct ticker_interface *t;
   const char *base;
   void *ws;
+
+  owner_pid = getpid ();
 
   __pthread_ticker_read_task (&startup_handle, &startup_version);
 
@@ -244,7 +261,8 @@ __pthread_ticker_recheck (void)
 void
 __pthread_ticker_fini (void)
 {
-  if (module_ws != NULL)
+  /* Not in a fork()/vfork() child: the attachment is the parent's.  */
+  if (module_ws != NULL && __pthread_ticker_owner ())
     {
       __pthread_ticker_call (module_ws, detach_routine);
       module_ws = NULL;
@@ -265,7 +283,8 @@ __pthread_ticker_write_stats (void)
   const char *cmd = NULL;
   int handle = 0, version = 0, fh = 0, ext = 0, created = 0, n, i;
 
-  if (b == NULL || file == NULL || file[0] == '\0')
+  if (b == NULL || file == NULL || file[0] == '\0'
+      || !__pthread_ticker_owner ())
     return;
 
   /* The program name: the leaf of the first word of the command line

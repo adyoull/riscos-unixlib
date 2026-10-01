@@ -5,6 +5,6 @@
 cd "$(dirname "$0")"
 mkdir -p out
 gcc -O1 -g -no-pie -Wall -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast \
-  -D_GNU_SOURCE -Dgetenv=fake_getenv -Ifake -I../fake \
+  -D_GNU_SOURCE -Dgetenv=fake_getenv -Dgetpid=fake_getpid -Ifake -I../fake \
   ../../../libunixlib/pthread/ticker.c test_ticker.c -o out/test_ticker
 ./out/test_ticker

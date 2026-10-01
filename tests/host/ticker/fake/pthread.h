@@ -27,6 +27,7 @@ extern void __pthread_ticker_read_task (int *, int *);
 extern void __pthread_ticker_init (void);
 extern void __pthread_ticker_recheck (void);
 extern void __pthread_ticker_fini (void);
+extern int __pthread_ticker_owner (void);
 extern void __pthread_ticker_write_stats (void);
 extern void __pthread_start_ticker (void);
 extern void __pthread_stop_ticker (void);

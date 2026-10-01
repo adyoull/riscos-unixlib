@@ -202,6 +202,7 @@ extern void __pthread_ticker_read_task (int *__handle, int *__version);
 extern void __pthread_ticker_init (void);
 extern void __pthread_ticker_recheck (void);
 extern void __pthread_ticker_fini (void);
+extern int __pthread_ticker_owner (void);
 extern void __pthread_ticker_write_stats (void);
 
 /* The ticker routines in _context.s (internal/ticker.s), copied into

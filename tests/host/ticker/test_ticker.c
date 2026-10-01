@@ -23,6 +23,8 @@ static int modws;			/* Its workspace.  */
 #define CALL 0x999			/* Logged __pthread_ticker_call.  */
 
 struct ul_global __ul_global;
+int fake_pid = 100;
+int fake_getpid (void) { return fake_pid; }
 static struct __pthread_callevery_block blk;
 
 /* The routines _context.s would provide: 256 bytes of "code" and the
@@ -183,10 +185,33 @@ setup (int mod)
   __pthread_ticker_init ();
 }
 
+/* 2026: a fork()/vfork() child (another pid) must not detach the parent
+   from the module (its _exit used to; the parent then ran on with the
+   module able to be killed under it).  */
+static void
+test_fork_child (void)
+{
+  fake_pid = 100;
+  desktop = 1, handle = 0x1111, version = 310;
+  setup (1);
+  CHECK (__pthread_ticker_owner (), "the process that set up the ticker owns it");
+  fake_pid = 200;			/* the child */
+  CHECK (!__pthread_ticker_owner (), "a child doesn't own it");
+  nlog = 0;
+  __pthread_ticker_fini ();
+  CHECK (calls (CALL, 2, WS, MOD + 0x98) == 0, "a child's fini doesn't detach");
+  fake_pid = 100;			/* back in the parent */
+  nlog = 0;
+  __pthread_ticker_fini ();
+  CHECK (calls (CALL, 2, WS, MOD + 0x98) == 1, "the parent's fini detaches");
+}
+
 int
 main (void)
 {
   const char *code = (const char *) blk.ticker_code;
+
+  test_fork_child ();
 
   /* The module is loaded: its routines, no copy, attached.  */
   desktop = 1, handle = 0x1111, version = 310;

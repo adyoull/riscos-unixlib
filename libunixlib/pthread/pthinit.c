@@ -111,6 +111,20 @@ __pthread_prog_fini (void)
   debug_printf ("-- __pthread_prog_fini: Program finalisation\n");
 #endif
 
+  /* 2026: in a fork()/vfork() child (its _exit, e.g. after a failed exec),
+     leave the parent's things alone.  The child used to free the parent's
+     RMA block and detach it from PThreadTicker; the parent then restarted
+     its ticker on the freed block (__fork_post), which now holds running
+     code and counters.  The parent stopped its ticker before the child
+     ran and restarts it afterwards; if the child started it, stop it.  */
+  if (!__pthread_ticker_owner ())
+    {
+      if (gbl->pthread_system_running)
+	__pthread_stop_ticker ();
+      gbl->pthread_system_running = 0;
+      return;
+    }
+
   /* 2026: before the ticker is stopped (UnixLib$TickerStats).  */
   __pthread_ticker_write_stats ();
 
