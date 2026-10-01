@@ -9,7 +9,7 @@ echo "== host tests: /dev/midi"
 tests/host/midi/run.sh
 echo "== host tests: thread ticker"
 tests/host/ticker/run.sh
-echo "== host tests: swprintf/wcsftime"
+echo "== host tests: wide characters (swprintf, wcsftime, wcsto*)"
 tests/host/wchar/run.sh
 
 echo "== emulator: thread ticker machine code (needs a build + unicorn)"

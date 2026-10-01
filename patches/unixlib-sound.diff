@@ -108,8 +108,61 @@ index 606421f..952ec65 100644
       __dynamic_area_exit;
       __dynamic_area_refcount;
       __env_read;
+diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/DRender.h b/gcc4/recipe/files/gcc/libunixlib/sound/DRender.h
+index 00d5939..df9d870 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/sound/DRender.h
++++ b/gcc4/recipe/files/gcc/libunixlib/sound/DRender.h
+@@ -67,6 +67,12 @@ DRender_LoadModule(const char * path);
+ /*
+     Digital Renderer SWI calls.
+     Consult the DigitalRenderer documentation for information about these calls.
++
++    2026: the four calls that pass a sample buffer list "memory", so GCC
++    stores the whole buffer before the SWI reads it ("m" (*s) only covers
++    its first element).  The registers each SWI returns or changes have
++    not been checked against the DigitalRenderer documentation; the
++    wrappers assume R0 (and R1 where listed) only.
+ */
+ 
+ static __inline__ const _kernel_oserror * __attribute__ ((always_inline))
+@@ -163,7 +169,7 @@ DRender_NewSample (const unsigned char *Sample)
+                       : "=r" (err)
+                       : "m" (*s), "r" (s),
+                         [XDR_NewSample] "i" (DigiRendChunk + 6)
+-                      : "r14", "cc");
++                      : "r14", "cc", "memory");
+     return err;
+ }
+ 
+@@ -177,7 +183,7 @@ DRender_New16BitSample (const short *Sample)
+                       : "=r" (err)
+                       : "m" (*s), "r" (s),
+                         [XDR_New16BitSample] "i" (DigiRendChunk + 7)
+-                      : "r14", "cc");
++                      : "r14", "cc", "memory");
+     return err;
+ }
+ 
+@@ -224,7 +230,7 @@ DRender_StreamSamples (const unsigned char *Sample, int num)
+                       : "=r" (err)
+                       : "m" (*s), "r" (s), "r" (n),
+                         [XDR_StreamSamples] "i" (DigiRendChunk + 10)
+-                      : "r14", "cc");
++                      : "r14", "cc", "memory");
+     return err;
+ }
+ 
+@@ -239,7 +245,7 @@ DRender_Stream16BitSamples (const unsigned short *Sample, int num)
+                       : "=r" (err)
+                       : "m" (*s), "r" (s), "r" (n),
+                         [XDR_Stream16BitSamples] "i" (DigiRendChunk + 11)
+-                      : "r14", "cc");
++                      : "r14", "cc", "memory");
+     return err;
+ }
+ 
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
-index 8a2eb72..1feae0c 100644
+index 8a2eb72..6b098ff 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 @@ -16,6 +16,10 @@
@@ -401,7 +454,7 @@ index 8a2eb72..1feae0c 100644
  {
    request &= 0xffff;
  
-@@ -405,3 +523,637 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+@@ -405,3 +523,650 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
  
    return __set_errno (EINVAL);
  }
@@ -441,6 +494,7 @@ index 8a2eb72..1feae0c 100644
 +#define SSB_FORMATS (AFMT_S16_LE | AFMT_S16_BE | AFMT_U8 | AFMT_S8 | AFMT_MU_LAW)
 +#define SSB_OUT_FRAG_DEFAULT 4096	/* output bytes: 1024 frames */
 +#define SSB_NFRAGS_DEFAULT   8		/* ~190 ms at 44.1 kHz */
++#define SSB_CONV_SIZE        8192	/* conversion buffer, output bytes */
 +
 +/* 2026: <sys/soundcard.h> encodes requests one of two ways: with its own
 +   _SIOR (direction "out" = 0x20000000) or, when <sys/ioctl.h> was included
@@ -473,8 +527,9 @@ index 8a2eb72..1feae0c 100644
 +  unsigned int last_frag;
 +  unsigned char carry[4];	/* incomplete input frame */
 +  int carry_len;
-+  unsigned char conv[8192] __attribute__ ((aligned (4)));
-+				/* conversion buffer, output bytes */
++  unsigned char *conv;		/* SSB_CONV_SIZE output bytes; 2026:
++				   allocated on first use rather than
++				   static in every program */
 +} ssb;
 +
 +static int
@@ -535,6 +590,9 @@ index 8a2eb72..1feae0c 100644
 +  ssb.handle = ssb.stream = 0;
 +  ssb.started = 0;
 +  ssb.carry_len = 0;
++  /* 2026: GETOPTR after RESET counts from zero again (it returned the
++     closed stream's count minus nothing sensible).  */
++  ssb.played_base = ssb.last_frag = 0;
 +}
 +
 +static const _kernel_oserror *
@@ -563,7 +621,7 @@ index 8a2eb72..1feae0c 100644
 +    }
 +  /* Room for well over what we queue, so AddBlock never refuses.  */
 +  _swix (XStreamManager_SetBuffer, _INR(0,1), ssb.stream,
-+	 ssb.cap_out * 2 + (int) sizeof (ssb.conv) * 2);
++	 ssb.cap_out * 2 + SSB_CONV_SIZE * 2);
 +  _swix (XSharedSoundBuffer_SampleRate, _INR(0,1), ssb.handle,
 +	 ssb.rate * 1024);
 +  _swix (XSharedSoundBuffer_Volume, _INR(0,1), ssb.handle, 0xFFFFFFFF);
@@ -668,6 +726,8 @@ index 8a2eb72..1feae0c 100644
 +  int last_q = -1;
 +  clock_t since = clock ();
 +
++  if (ssb.conv == NULL && (ssb.conv = malloc (SSB_CONV_SIZE)) == NULL)
++    return __set_errno (ENOMEM);
 +  if (!ssb.handle && (err = ssb_open_stream ()) != NULL)
 +    return __ul_seterr (err, EOPSYS);
 +
@@ -697,8 +757,8 @@ index 8a2eb72..1feae0c 100644
 +	return done ? done : __set_errno (EIO);
 +      space = ssb.cap_out - q;
 +      frames = left / fs;
-+      if (frames > (int) sizeof (ssb.conv) / 4)
-+	frames = sizeof (ssb.conv) / 4;
++      if (frames > SSB_CONV_SIZE / 4)
++	frames = SSB_CONV_SIZE / 4;
 +      out = frames * 4;
 +      if (space < out)
 +	{
@@ -839,17 +899,23 @@ index 8a2eb72..1feae0c 100644
 +    case SNDCTL_DSP_SETFRAGMENT & 0xffff:
 +      {
 +	int frags = (*iarg >> 16) & 0x7fff;
-+	int size = 1 << (*iarg & 0xffff);
++	int shift = *iarg & 0xffff, size;
 +	int fs = ssb_in_frame ();
 +	int min_cap = ssb.rate * 4 / 50;	/* 20 ms */
 +	int max_cap = ssb.rate * 4 * 2;		/* 2 s */
 +
-+	if ((*iarg & 0xffff) > 16)
-+	  size = 65536;
-+	if (size < 128)
-+	  size = 128;
++	/* 2026: check the exponent before shifting (1 << 40 is undefined),
++	   and keep at least two fragments within the 2 s cap: a fragment
++	   bigger than the cap made GETOSPACE report 0 fragments for ever.  */
++	if (shift > 16)
++	  shift = 16;
++	if (shift < 7)
++	  shift = 7;
++	size = 1 << shift;
 +	/* Program bytes -> output bytes, whole frames.  */
 +	ssb.frag_out = (size / fs) * 4;
++	if (ssb.frag_out > ((max_cap / 2) & ~3))
++	  ssb.frag_out = (max_cap / 2) & ~3;
 +	if (ssb.frag_out < 64)
 +	  ssb.frag_out = 64;
 +	if (frags == 0 || frags == 0x7fff)
@@ -863,7 +929,7 @@ index 8a2eb72..1feae0c 100644
 +	  ssb.cap_out = max_cap;
 +	if (ssb.handle)
 +	  _swix (XStreamManager_SetBuffer, _INR(0,1), ssb.stream,
-+		 ssb.cap_out * 2 + (int) sizeof (ssb.conv) * 2);
++		 ssb.cap_out * 2 + SSB_CONV_SIZE * 2);
 +	return 0;
 +      }
 +
@@ -1041,10 +1107,10 @@ index 8a2eb72..1feae0c 100644
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/midi.c b/gcc4/recipe/files/gcc/libunixlib/sound/midi.c
 new file mode 100644
-index 0000000..359a30b
+index 0000000..074fdf6
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/midi.c
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,254 @@
 +/*
 + * /dev/midi: OSS-style raw MIDI output for RISC OS.
 + *
@@ -1075,11 +1141,14 @@ index 0000000..359a30b
 +#include <fcntl.h>
 +#include <unistd.h>
 +#include <swis.h>
++#include <time.h>
++#include <pthread.h>
 +#include <sys/types.h>
 +#include <sys/soundcard.h>
 +
 +#include <internal/os.h>
 +#include <internal/dev.h>
++#include <internal/unix.h>
 +
 +enum { MIDI_NONE, MIDI_SYNTH, MIDI_HW };
 +
@@ -1091,6 +1160,9 @@ index 0000000..359a30b
 +   a copy of (or shares) these variables but must not close the parent's
 +   connection when it exits.  */
 +static pid_t midi_owner_pid;
++/* 2026: something was sent to MIDI hardware since the connection was made
++   (close only resets the 16 channels then).  */
++static int hw_written;
 +
 +/* Avoid warnings, but don't advertise.  */
 +void __midi_exit (void);
@@ -1187,11 +1259,12 @@ index 0000000..359a30b
 +{
 +  if (midi_kind == MIDI_SYNTH)
 +    _swix (swi_close, _IN(0), synth_handle);
-+  else if (midi_kind == MIDI_HW)
++  else if (midi_kind == MIDI_HW && hw_written)
 +    hw_panic ();
 +  midi_kind = MIDI_NONE;
 +  midi_opens = 0;
 +  synth_handle = 0;
++  hw_written = 0;
 +}
 +
 +int
@@ -1203,6 +1276,16 @@ index 0000000..359a30b
 +  return 0;
 +}
 +
++/* Let other threads run while waiting, when that's allowed (pthread_yield
++   is a fatal error with thread switching held off).  */
++static void
++midi_yield (void)
++{
++  if (__ul_global.pthread_system_running
++      && __ul_global.pthread_callevery_rma->pthread_worksemaphore == 0)
++    pthread_yield ();
++}
++
 +int
 +__midiwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
 +{
@@ -1210,26 +1293,41 @@ index 0000000..359a30b
 +  const unsigned char *p = data;
 +  int i;
 +
-+  (void) fd;
 +  switch (midi_kind)
 +    {
 +    case MIDI_SYNTH:
 +      {
 +	int done = 0, n;
++	clock_t since = clock ();
 +	while (done < nbyte)
 +	  {
 +	    err = _swix (swi_write, _INR(0,2) | _OUT(0), synth_handle,
 +			 p + done, nbyte - done, &n);
 +	    if (err)
 +	      return done ? done : __ul_seterr (err, EOPSYS);
-+	    if (n <= 0)
-+	      break;		/* the module is full: report a short write */
-+	    done += n;
++	    if (n > 0)
++	      {
++		done += n;
++		since = clock ();
++		continue;
++	      }
++	    /* The module is full.  Some bytes written: a short write.
++	       2026: none written used to return 0, which a write-all loop
++	       retries for ever; now non-blocking writes fail with EAGAIN,
++	       and blocking ones wait for room (up to 2 s, then EIO).  */
++	    if (done)
++	      break;
++	    if (fd->fflag & O_NONBLOCK)
++	      return __set_errno (EAGAIN);
++	    if (clock () - since > 200)
++	      return __set_errno (EIO);
++	    midi_yield ();
 +	  }
 +	return done;
 +      }
 +
 +    case MIDI_HW:
++      hw_written = 1;
 +      for (i = 0; i < nbyte; i++)
 +	if ((err = _swix (swi_txbyte, _IN(0), p[i])) != NULL)
 +	  return i ? i : __ul_seterr (err, EOPSYS);

@@ -1,5 +1,5 @@
 diff --git a/gcc4/recipe/files/gcc/libunixlib/Makefile.am b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-index e887b17..173cb04 100644
+index e887b17..8e5e66c 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 +++ b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 @@ -676,6 +676,7 @@ pthread_src = \
@@ -51,10 +51,11 @@ index e887b17..173cb04 100644
  	incl-local/internal/tty.h \
  	incl-local/internal/unix.h \
  	incl-local/locale.h \
-@@ -1499,6 +1506,19 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
+@@ -1499,7 +1506,20 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
  	$(stdio_src) $(stdlib_src) $(string_src) $(sys_src) \
  	$(termios_src) $(time_src) $(unistd_src) $(unix_src) $(wchar_src)
  
+-libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 5:0:0 -Wl,--version-script -Wl,$(top_srcdir)/vscript
 +# 2026: the assembler sources are .s, and automake doesn't track what they
 +# include.  Rebuild them all when the shared assembler definitions change:
 +# a stale _syslib.lo once kept an old PTHREAD_CALLEVERY_STRUCT_SIZE and the
@@ -68,9 +69,10 @@ index e887b17..173cb04 100644
 +unixlib_asm_objs = $(patsubst %.s,%.lo,$(notdir $(filter %.s,$(libunixlib_la_SOURCES))))
 +$(unixlib_asm_objs) crt0.o gcrt0.o sul.o pthticker.o: $(unixlib_asm_deps)
 +
- libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 5:0:0 -Wl,--version-script -Wl,$(top_srcdir)/vscript
++libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 6:0:1 -Wl,--version-script -Wl,$(top_srcdir)/vscript
  
  libm_la_SOURCES = libm-support/libm.c
+ 
 @@ -1553,7 +1573,7 @@ gcrt0.o: crt/gcrt0.s
  # SUL module ----------------
  
@@ -96,31 +98,46 @@ index e887b17..173cb04 100644
  
  install-headers:
 diff --git a/gcc4/recipe/files/gcc/libunixlib/common/__stat.c b/gcc4/recipe/files/gcc/libunixlib/common/__stat.c
-index d7a6a30..da15f81 100644
+index d7a6a30..8a7608c 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/common/__stat.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/common/__stat.c
 @@ -91,6 +91,7 @@ __stat (unsigned objtype, unsigned loadaddr, unsigned execaddr,
        case DEV_ZERO:
        case DEV_RANDOM:
        case DEV_DSP:
-+      case DEV_MIDI:
++      case DEV_MIDI:	/* 2026: /dev/midi */
  	/* Terminal type device file.  */
  	mode |= S_IFCHR;
  	break;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/common/env.c b/gcc4/recipe/files/gcc/libunixlib/common/env.c
-index c9673b7..f2adb9a 100644
+index c9673b7..9af4dd4 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/common/env.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/common/env.c
-@@ -25,7 +25,7 @@ get_var_len (const char *name)
- 		    : "=r" (len)
- 		    : "r" (r0in),
- 		      [SWI_XOS_ReadVarVal] "i" (OS_ReadVarVal | (1<<17))
+@@ -9,6 +9,9 @@
+ #include <internal/local.h>
+ #include <internal/os.h>
+ 
++/* 2026: these wrappers list "memory" (the SWIs read the strings) and give
++   R0 as an output too (an X SWI returns its error pointer there).  */
++
+ static __inline__ size_t __attribute__ ((always_inline))
+ get_var_len (const char *name)
+ {
+@@ -22,10 +25,9 @@ get_var_len (const char *name)
+ 		    "MOV\tr3, #0\n\t"
+ 		    "MOV\tr4, #0\n\t"
+ 		    "SWI\t%[SWI_XOS_ReadVarVal]\n\t"
+-		    : "=r" (len)
+-		    : "r" (r0in),
+-		      [SWI_XOS_ReadVarVal] "i" (OS_ReadVarVal | (1<<17))
 -		    : "r1", "r3", "r4", "r14", "cc");
++		    : "=r" (len), "+r" (r0in)
++		    : [SWI_XOS_ReadVarVal] "i" (OS_ReadVarVal | (1<<17))
 +		    : "r1", "r3", "r4", "r14", "cc", "memory");
    return len;
  }
  
-@@ -43,7 +43,7 @@ set_var (const char *name, const char *value, size_t value_len)
+@@ -43,7 +45,7 @@ set_var (const char *name, const char *value, size_t value_len)
  		    : "=r" (err)
  		    : "r" (r0in), "r" (r1in), "r" (r2in),
  		      [SWI_XOS_SetVarVal] "i" (OS_SetVarVal | (1<<17))
@@ -129,11 +146,16 @@ index c9673b7..f2adb9a 100644
    return err;
  }
  
-@@ -81,7 +81,7 @@ __remenv_from_os (const char *name)
- 		    :
- 		    : "r" (r0in),
- 		      [SWI_XOS_SetVarVal] "i" (OS_SetVarVal | (1<<17))
+@@ -78,10 +80,9 @@ __remenv_from_os (const char *name)
+ 		    "MOV\tr3, #0\n\t"
+ 		    "MOV\tr4, #0\n\t"
+ 		    "SWI\t%[SWI_XOS_SetVarVal]\n\t"
+-		    :
+-		    : "r" (r0in),
+-		      [SWI_XOS_SetVarVal] "i" (OS_SetVarVal | (1<<17))
 -		    : "r1", "r2", "r3", "r4", "r14", "cc");
++		    : "+r" (r0in)
++		    : [SWI_XOS_SetVarVal] "i" (OS_SetVarVal | (1<<17))
 +		    : "r1", "r2", "r3", "r4", "r14", "cc", "memory");
  
    return 0;
@@ -686,7 +708,7 @@ index eed3e61..3a3a9b6 100644
  
  /* Called once early in program initialisation */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/socket.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/socket.h
-index b7ed72c..13293d8 100644
+index b7ed72c..b8ae177 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/socket.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/socket.h
 @@ -13,6 +13,9 @@
@@ -708,54 +730,84 @@ index b7ed72c..13293d8 100644
    return __net_error (rtrn, err);
  }
  
-@@ -46,7 +49,7 @@ _bind (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __addrlen)
- 		    : [err] "=r" (err)
- 		    : "r" (fd), "r" (addr), "r" (addrlen),
+@@ -43,10 +46,10 @@ _bind (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __addrlen)
+   __asm__ volatile ("SWI\t%[SWI_XSocket_Bind]\n\t"
+ 		    "MOVVC\t%[err], #0\n\t"
+ 		    "MOVVS\t%[err], r0\n\t"
+-		    : [err] "=r" (err)
+-		    : "r" (fd), "r" (addr), "r" (addrlen),
++		    : [err] "=r" (err), "+r" (fd)
++		    : "r" (addr), "r" (addrlen),
                        [SWI_XSocket_Bind] "i" (Socket_Bind | (1<<17))
 -		    : "r14", "cc");
 +		    : "r14", "cc", "memory");
    return __net_error (0, err);
  }
  
-@@ -63,7 +66,7 @@ _connect (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __addrlen)
- 		    : [err] "=r" (err)
- 		    : "r" (fd), "r" (addr), "r" (addrlen),
+@@ -60,10 +63,10 @@ _connect (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __addrlen)
+   __asm__ volatile ("SWI\t%[SWI_XSocket_Connect]\n\t"
+ 		    "MOVVC\t%[err], #0\n\t"
+ 		    "MOVVS\t%[err], r0\n\t"
+-		    : [err] "=r" (err)
+-		    : "r" (fd), "r" (addr), "r" (addrlen),
++		    : [err] "=r" (err), "+r" (fd)
++		    : "r" (addr), "r" (addrlen),
                        [SWI_XSocket_Connect] "i" (Socket_Connect | (1<<17))
 -		    : "r14", "cc");
 +		    : "r14", "cc", "memory");
    return __net_error (0, err);
  }
  
-@@ -80,7 +83,7 @@ _getpeername (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addrlen)
- 		    : [err] "=r" (err)
-                     : "r" (fd), "r" (addr), "r" (addrlen),
+@@ -77,10 +80,10 @@ _getpeername (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addrlen)
+   __asm__ volatile ("SWI\t%[SWI_XSocket_Getpeername_1]\n\t"
+ 		    "MOVVC\t%[err], #0\n\t"
+ 		    "MOVVS\t%[err], r0\n\t"
+-		    : [err] "=r" (err)
+-                    : "r" (fd), "r" (addr), "r" (addrlen),
++		    : [err] "=r" (err), "+r" (fd)
++                    : "r" (addr), "r" (addrlen),
                        [SWI_XSocket_Getpeername_1] "i" (Socket_Getpeername_1 | (1<<17))
 -                    : "r14", "cc");
 +                    : "r14", "cc", "memory");
    return __net_error (0, err);
  }
  
-@@ -97,7 +100,7 @@ _getsockname (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addrlen)
- 		    : [err] "=r" (err)
-                     : "r" (fd), "r" (addr), "r" (addrlen),
+@@ -94,10 +97,10 @@ _getsockname (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addrlen)
+   __asm__ volatile ("SWI\t%[SWI_XSocket_Getsockname_1]\n\t"
+ 		    "MOVVC\t%[err], #0\n\t"
+ 		    "MOVVS\t%[err], r0\n\t"
+-		    : [err] "=r" (err)
+-                    : "r" (fd), "r" (addr), "r" (addrlen),
++		    : [err] "=r" (err), "+r" (fd)
++                    : "r" (addr), "r" (addrlen),
                        [SWI_XSocket_Getsockname_1] "i" (Socket_Getsockname_1 | (1<<17))
 -                    : "r14", "cc");
 +                    : "r14", "cc", "memory");
    return __net_error (0, err);
  }
  
-@@ -117,7 +120,7 @@ _getsockopt (int __fd, int __level, int __optname, void *__restrict __optval,
- 		    : [err] "=r" (err)
-                     : "r" (fd), "r" (level), "r" (optname), "r" (optval), "r" (optlen),
+@@ -114,10 +117,10 @@ _getsockopt (int __fd, int __level, int __optname, void *__restrict __optval,
+   __asm__ volatile ("SWI\t%[SWI_XSocket_Getsockopt]\n\t"
+ 		    "MOVVC\t%[err], #0\n\t"
+ 		    "MOVVS\t%[err], r0\n\t"
+-		    : [err] "=r" (err)
+-                    : "r" (fd), "r" (level), "r" (optname), "r" (optval), "r" (optlen),
++		    : [err] "=r" (err), "+r" (fd)
++                    : "r" (level), "r" (optname), "r" (optval), "r" (optlen),
                        [SWI_XSocket_Getsockopt] "i" (Socket_Getsockopt | (1<<17))
 -                    : "r14", "cc");
 +                    : "r14", "cc", "memory");
    return __net_error (0, err);
  }
  
-@@ -133,7 +136,7 @@ _listen (int __fd, int __backlog)
- 		    : [err] "=r" (err)
-                     : "r" (fd), "r" (backlog),
+@@ -130,10 +133,10 @@ _listen (int __fd, int __backlog)
+   __asm__ volatile ("SWI\t%[SWI_XSocket_Listen]\n\t"
+ 		    "MOVVC\t%[err], #0\n\t"
+ 		    "MOVVS\t%[err], r0\n\t"
+-		    : [err] "=r" (err)
+-                    : "r" (fd), "r" (backlog),
++		    : [err] "=r" (err), "+r" (fd)
++                    : "r" (backlog),
                        [SWI_XSocket_Listen] "i" (Socket_Listen | (1<<17))
 -                    : "r14", "cc");
 +                    : "r14", "cc", "memory");
@@ -789,25 +841,35 @@ index b7ed72c..13293d8 100644
    return __net_error (rtrn, err);
  }
  
-@@ -208,7 +211,7 @@ _sclose (int __sd)
- 		    : [err] "=r" (err)
-                     : "r" (sd),
-                       [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
+@@ -205,10 +208,9 @@ _sclose (int __sd)
+   __asm__ volatile ("SWI\t%[SWI_XSocket_Close]\n\t"
+ 		    "MOVVC\t%[err], #0\n\t"
+ 		    "MOVVS\t%[err], r0\n\t"
+-		    : [err] "=r" (err)
+-                    : "r" (sd),
+-                      [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
 -                    : "r14", "cc");
++		    : [err] "=r" (err), "+r" (sd)
++                    : [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
 +                    : "r14", "cc", "memory");
    return __net_error (0, err);
  }
  
-@@ -222,7 +225,7 @@ _sclose_no_error (int __sd)
- 		    :
-                     : "r" (sd),
-                       [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
+@@ -219,10 +221,9 @@ _sclose_no_error (int __sd)
+ {
+   register int sd __asm ("r0") = __sd;
+   __asm__ volatile ("SWI\t%[SWI_XSocket_Close]\n\t"
+-		    :
+-                    : "r" (sd),
+-                      [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
 -                    : "r14", "cc");
++		    : "+r" (sd)
++                    : [SWI_XSocket_Close] "i" (Socket_Close | (1<<17))
 +                    : "r14", "cc", "memory");
  }
  
  static __inline__ int __attribute__ ((always_inline))
-@@ -243,7 +246,7 @@ _sselect (int __nfds, fd_set *__readfds, fd_set *__writefds,
+@@ -243,7 +244,7 @@ _sselect (int __nfds, fd_set *__readfds, fd_set *__writefds,
                      : "r" (nfds), "r" (readfds), "r" (writefds),
  		      "r" (exceptfds), "r" (timeout),
                        [SWI_XSocket_Select] "i" (Socket_Select | (1<<17))
@@ -816,7 +878,7 @@ index b7ed72c..13293d8 100644
    return __net_error (rtrn, err);
  }
  
-@@ -262,7 +265,7 @@ _send (int __fd, __const void *__buf, size_t __len, int __flags)
+@@ -262,7 +263,7 @@ _send (int __fd, __const void *__buf, size_t __len, int __flags)
  		    : [err] "=r" (err), "=r" (rtrn)
                      : "r" (fd), "r" (buf), "r" (len), "r" (flags),
                        [SWI_XSocket_Send] "i" (Socket_Send | (1<<17))
@@ -825,7 +887,7 @@ index b7ed72c..13293d8 100644
    return __net_error (rtrn, err);
  }
  
-@@ -280,7 +283,7 @@ _sendmsg (int __fd, __const struct msghdr *__msg, int __flags)
+@@ -280,7 +281,7 @@ _sendmsg (int __fd, __const struct msghdr *__msg, int __flags)
  		    : [err] "=r" (err), "=r" (rtrn)
                      : "r" (fd), "r" (msg), "r" (flags),
                        [SWI_XSocket_Sendmsg_1] "i" (Socket_Sendmsg_1 | (1<<17))
@@ -834,7 +896,7 @@ index b7ed72c..13293d8 100644
    return __net_error (rtrn, err);
  }
  
-@@ -303,7 +306,7 @@ _sendto (int __fd, __const void *__buf, size_t __len, int __flags,
+@@ -303,7 +304,7 @@ _sendto (int __fd, __const void *__buf, size_t __len, int __flags,
                      : "r" (fd), "r" (buf), "r" (len), "r" (flags),
  		      "r" (addr), "r" (addrlen),
                        [SWI_XSocket_Sendto] "i" (Socket_Sendto | (1<<17))
@@ -843,8 +905,14 @@ index b7ed72c..13293d8 100644
    return __net_error (rtrn, err);
  }
  
-@@ -324,7 +327,7 @@ _setsockopt (int __fd, int __level, int __optname, const void *__optval,
-                     : "r" (fd), "r" (level), "r" (optname), "r" (optval),
+@@ -320,11 +321,11 @@ _setsockopt (int __fd, int __level, int __optname, const void *__optval,
+   __asm__ volatile ("SWI\t%[SWI_XSocket_Setsockopt]\n\t"
+ 		    "MOVVC\t%[err], #0\n\t"
+ 		    "MOVVS\t%[err], r0\n\t"
+-		    : [err] "=r" (err)
+-                    : "r" (fd), "r" (level), "r" (optname), "r" (optval),
++		    : [err] "=r" (err), "+r" (fd)
++                    : "r" (level), "r" (optname), "r" (optval),
  		      "r" (optlen),
                        [SWI_XSocket_Setsockopt] "i" (Socket_Setsockopt | (1<<17))
 -                    : "r14", "cc");
@@ -852,25 +920,35 @@ index b7ed72c..13293d8 100644
    return __net_error (0, err);
  }
  
-@@ -340,7 +343,7 @@ _shutdown (int __fd, int __how)
- 		    : [err] "=r" (err)
-                     : "r" (fd), "r" (how),
+@@ -337,10 +338,10 @@ _shutdown (int __fd, int __how)
+   __asm__ volatile ("SWI\t%[SWI_XSocket_Shutdown]\n\t"
+ 		    "MOVVC\t%[err], #0\n\t"
+ 		    "MOVVS\t%[err], r0\n\t"
+-		    : [err] "=r" (err)
+-                    : "r" (fd), "r" (how),
++		    : [err] "=r" (err), "+r" (fd)
++                    : "r" (how),
                        [SWI_XSocket_Shutdown] "i" (Socket_Shutdown | (1<<17))
 -                    : "r14", "cc");
 +                    : "r14", "cc", "memory");
    return __net_error (0, err);
  }
  
-@@ -357,7 +360,7 @@ _sioctl (int __sd, unsigned long __request, void *__arg)
- 		    : [err] "=r" (err)
-                     : "r" (sd), "r" (request), "r" (arg),
+@@ -354,10 +355,10 @@ _sioctl (int __sd, unsigned long __request, void *__arg)
+   __asm__ volatile ("SWI\t%[SWI_XSocket_Ioctl]\n\t"
+ 		    "MOVVC\t%[err], #0\n\t"
+ 		    "MOVVS\t%[err], r0\n\t"
+-		    : [err] "=r" (err)
+-                    : "r" (sd), "r" (request), "r" (arg),
++		    : [err] "=r" (err), "+r" (sd)
++                    : "r" (request), "r" (arg),
                        [SWI_XSocket_Ioctl] "i" (Socket_Ioctl | (1<<17))
 -                    : "r14", "cc");
 +                    : "r14", "cc", "memory");
    return __net_error (0, err);
  }
  
-@@ -375,7 +378,7 @@ _socket (int __domain, int __type, int __protocol)
+@@ -375,7 +376,7 @@ _socket (int __domain, int __type, int __protocol)
  		    : [err] "=r" (err), "=r" (rtrn)
                      : "r" (domain), "r" (type), "r" (protocol),
                        [SWI_XSocket_Creat] "i" (Socket_Creat | (1<<17))
@@ -879,7 +957,7 @@ index b7ed72c..13293d8 100644
    return __net_error (rtrn, err);
  }
  
-@@ -393,7 +396,7 @@ _sread (int __sd, void *__buf, size_t __count)
+@@ -393,7 +394,7 @@ _sread (int __sd, void *__buf, size_t __count)
  		    : [err] "=r" (err), "=r" (rtrn)
                      : "r" (sd), "r" (buf), "r" (count),
                        [SWI_XSocket_Read] "i" (Socket_Read | (1<<17))
@@ -888,7 +966,7 @@ index b7ed72c..13293d8 100644
    return __net_error (rtrn, err);
  }
  
-@@ -411,7 +414,7 @@ _swrite (int __sd, const void *__buf, size_t __count)
+@@ -411,7 +412,7 @@ _swrite (int __sd, const void *__buf, size_t __count)
  		    : [err] "=r" (err), "=r" (rtrn)
                      : "r" (sd), "r" (buf), "r" (count),
                        [SWI_XSocket_Write] "i" (Socket_Write | (1<<17))
@@ -897,7 +975,7 @@ index b7ed72c..13293d8 100644
    return __net_error (rtrn, err);
  }
  
-@@ -429,7 +432,7 @@ _sreadv (int __sd, const struct iovec *__vector, int __count)
+@@ -429,7 +430,7 @@ _sreadv (int __sd, const struct iovec *__vector, int __count)
  		    : [err] "=r" (err), "=r" (rtrn)
  		    : "r" (sd), "r" (vector), "r" (count),
                        [SWI_XSocket_Readv] "i" (Socket_Readv | (1<<17))
@@ -906,7 +984,7 @@ index b7ed72c..13293d8 100644
    return __net_error (rtrn, err);
  }
  
-@@ -447,7 +450,7 @@ _swritev (int __sd, const struct iovec *__vector, int __count)
+@@ -447,7 +448,7 @@ _swritev (int __sd, const struct iovec *__vector, int __count)
  		    : [err] "=r" (err), "=r" (rtrn)
  		    : "r" (sd), "r" (vector), "r" (count),
                        [SWI_XSocket_Writev] "i" (Socket_Writev | (1<<17))
@@ -957,14 +1035,14 @@ index 7d5e3e9..7719f89 100644
  
  #endif
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/sched.h b/gcc4/recipe/files/gcc/libunixlib/include/sched.h
-index 2e424fb..869176c 100644
+index 2e424fb..b2d483d 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/sched.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/include/sched.h
 @@ -16,6 +16,11 @@ __BEGIN_DECLS
  
  extern int sched_yield (void);
  
-+/* The range of priorities for POLICY.  UnixLib's scheduler ignores
++/* 2026: the range of priorities for POLICY.  UnixLib's scheduler ignores
 +   priorities, so both are 0 for every policy.  */
 +extern int sched_get_priority_min (int __policy) __THROW;
 +extern int sched_get_priority_max (int __policy) __THROW;
@@ -1175,7 +1253,7 @@ index be382ba..e684348 100644
  /* Return the number of bytes in a page.  This is the system's page size,
     which is not necessarily the same as the hardware page size.  */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/locale/iconv.c b/gcc4/recipe/files/gcc/libunixlib/locale/iconv.c
-index a01ab8f..d71a429 100644
+index a01ab8f..feb5512 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/locale/iconv.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/locale/iconv.c
 @@ -38,7 +38,7 @@ SWI_Iconv_Open (const char *__tocode, const char *__fromcode, iconv_t *resultp)
@@ -1183,7 +1261,16 @@ index a01ab8f..d71a429 100644
  		    : "r" (tocode), "r" (fromcode),
  		      [SWI_XIconv_Open] "i" (Iconv_Open | (1<<17))
 -		    : "r14", "cc");
-+		    : "r14", "cc", "memory");
++		    : "r14", "cc", "memory"); /* 2026: memory */
+   *resultp = result;
+   return err;
+ }
+@@ -60,7 +60,7 @@ SWI_Iconv_Iconv (iconv_t __cd, char **__inbuf, size_t *__inbytesleft,
+ 		    : "=r" (err), "=r" (result)
+ 		    : "r" (cd), "r" (inbuf), "r" (inbytesleft), "r" (outbuf),
+ 		      "r" (outbytesleft), [SWI_XIconv_Iconv] "i" (Iconv_Iconv | (1<<17))
+-		    : "r14", "cc", "memory");
++		    : "r14", "cc", "memory"); /* 2026: memory */
    *resultp = result;
    return err;
  }
@@ -1192,16 +1279,16 @@ index a01ab8f..d71a429 100644
  		    : "=r" (err)
  		    : "r" (cd), [SWI_XIconv_Close] "i" (Iconv_Close | (1<<17))
 -		    : "r14", "cc");
-+		    : "r14", "cc", "memory");
++		    : "r14", "cc", "memory"); /* 2026: memory */
    return err;
  }
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/module/pthticker.s b/gcc4/recipe/files/gcc/libunixlib/module/pthticker.s
 new file mode 100644
-index 0000000..0b7caf3
+index 0000000..98d1e0b
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/module/pthticker.s
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,155 @@
 +@ PThreadTicker: runs UnixLib's thread ticker routines from a module
 +@ Copyright (c) 2026 UnixLib Developers
 +@
@@ -1270,7 +1357,7 @@ index 0000000..0b7caf3
 +title:
 +	.asciz	"PThreadTicker"
 +help:
-+	.asciz	"PThreadTicker\t0.01 (27 Sep 2026) riscos-unixlib"
++	.asciz	"PThreadTicker\t0.02 (01 Oct 2026) riscos-unixlib"
 +	.align
 +module_flags:
 +	.word	1				@ 32-bit compatible
@@ -1284,24 +1371,33 @@ index 0000000..0b7caf3
 +	TICKER_ROUTINES pt
 +
 +	@ Count a program using the module. ip = workspace (OS_Module 18's
-+	@ R4). Any mode; preserves all registers and flags.
++	@ R4). Preserves all registers and flags. Called from USR mode, or
++	@ with IRQs off. 0.02: the count is updated with IRQs off (OS_IntOff),
++	@ so two programs in TaskWindows can't both update it at once and
++	@ lose a count.
 +pt_attach:
-+	STMFD	sp!, {a1}
-+	LDR	a1, [ip]
-+	ADD	a1, a1, #1
-+	STR	a1, [ip]
-+	LDMFD	sp!, {a1}
-+	MOV	pc, lr
++	STMFD	sp!, {a1, a2, lr}
++	MOV	a1, #1
++	B	pt_count
 +
 +	@ ... and one that has finished with it.
 +pt_detach:
-+	STMFD	sp!, {a1}
-+	LDR	a1, [ip]
-+	SUBS	a1, a1, #1
-+	MOVMI	a1, #0
-+	STR	a1, [ip]
-+	LDMFD	sp!, {a1}
-+	MOV	pc, lr
++	STMFD	sp!, {a1, a2, lr}
++	MVN	a1, #0
++pt_count:
++	MRS	a2, CPSR
++	STMFD	sp!, {a2}
++	TST	a2, #IFlag32
++	SWIEQ	XOS_IntOff
++	LDR	a2, [ip]
++	ADDS	a2, a2, a1
++	MOVMI	a2, #0
++	STR	a2, [ip]
++	LDMFD	sp!, {a2}
++	TST	a2, #IFlag32
++	SWIEQ	XOS_IntOn
++	MSR	CPSR_f, a2
++	LDMFD	sp!, {a1, a2, pc}
 +
 +	@ Workspace: one word, the number of programs attached.
 +init_code:
@@ -1349,12 +1445,21 @@ index 0000000..0b7caf3
 +
 +	.end
 diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c b/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c
-index b6950c6..6537ebc 100644
+index b6950c6..f14c4fb 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c
-@@ -18,7 +18,7 @@ getservbyname (const char *__name, const char *__proto)
- 		  : [rtrn] "=r" (rtrn)
- 		  : "r" (name), "r" (proto),
+@@ -12,13 +12,14 @@ getservbyname (const char *__name, const char *__proto)
+   register const char *name __asm ("r0") = __name;
+   register const char *proto __asm ("r1") = __proto;
+   struct servent *rtrn;
++  /* 2026: R0 is an output too (the error pointer), and "memory".  */
+   __asm volatile ("SWI\t%[SWI_XInetServices_GetServiceByName]\n\t"
+ 		  "MOVVC\t%[rtrn], r2\n\t"
+ 		  "MOVVS\t%[rtrn], #0\n\t"
+-		  : [rtrn] "=r" (rtrn)
+-		  : "r" (name), "r" (proto),
++		  : [rtrn] "=r" (rtrn), "+r" (name)
++		  : "r" (proto),
  		    [SWI_XInetServices_GetServiceByName] "i" (InetServices_GetServiceByName | (1<<17))
 -		  : "r2", "r14", "cc");
 +		  : "r2", "r14", "cc", "memory");
@@ -1362,12 +1467,21 @@ index b6950c6..6537ebc 100644
  }
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyport.c b/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyport.c
-index 4f0199f..fd34fd4 100644
+index 4f0199f..e9551ca 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyport.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyport.c
-@@ -20,7 +20,7 @@ getservbyport (int __port, const char *__proto)
- 		  : [rtrn] "=r" (rtrn)
- 		  : "r" (port), "r" (proto),
+@@ -14,13 +14,14 @@ getservbyport (int __port, const char *__proto)
+   register int port __asm ("r0") = ntohs (__port);
+   register int proto __asm ("r1") = (int) __proto;
+   struct servent *rtrn;
++  /* 2026: R0 is an output too (the error pointer), and "memory".  */
+   __asm volatile ("SWI\t%[SWI_XInetServices_GetServiceByPort]\n\t"
+ 		  "MOVVC\t%[rtrn], r2\n\t"
+ 		  "MOVVS\t%[rtrn], #0\n\t"
+-		  : [rtrn] "=r" (rtrn)
+-		  : "r" (port), "r" (proto),
++		  : [rtrn] "=r" (rtrn), "+r" (port)
++		  : "r" (proto),
  		    [SWI_XInetServices_GetServiceByPort] "i" (InetServices_GetServiceByPort | (1<<17))
 -		  : "r2", "r14", "cc");
 +		  : "r2", "r14", "cc", "memory");
@@ -1834,10 +1948,10 @@ index f6fa1f3..641632c 100644
    thread->__policy = policy;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/ticker.c b/gcc4/recipe/files/gcc/libunixlib/pthread/ticker.c
 new file mode 100644
-index 0000000..199c0ee
+index 0000000..b82d224
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/ticker.c
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,340 @@
 +/* Thread ticker: starting and stopping it, the Wimp filters, statistics.
 +   Copyright (c) 2026 UnixLib Developers.
 +
@@ -1884,7 +1998,9 @@ index 0000000..199c0ee
 +static void *module_ws;		/* The module's workspace, if used.  */
 +static const void *detach_routine;
 +static int filters_for;		/* Task the filters are registered for.  */
-+static volatile int busy;	/* In __pthread_start/stop_ticker.  */
++static volatile int busy;	/* In __pthread_start/stop_ticker: a count,
++				   so a nested call (start inside stop, say)
++				   doesn't clear it for the outer one.  */
 +
 +/* For the statistics.  */
 +static int startup_handle, startup_version;
@@ -2058,13 +2174,13 @@ index 0000000..199c0ee
 +  if (!gbl->pthread_system_running || gbl->pthread_num_running_threads <= 1)
 +    return;
 +
-+  busy = 1;
++  busy++;
 +  set_filters (b, current_task ());
 +  ticker_on (b);
 +  if (first_start_handle == -1)
 +    first_start_handle = filters_for;
 +  starts++;
-+  busy = 0;
++  busy--;
 +}
 +
 +/* Stop the ticker and remove the filters.  */
@@ -2076,10 +2192,10 @@ index 0000000..199c0ee
 +  if (!__ul_global.pthread_system_running)
 +    return;
 +
-+  busy = 1;
++  busy++;
 +  set_filters (b, 0);
 +  ticker_off (b);
-+  busy = 0;
++  busy--;
 +}
 +
 +/* Called now and then by the context switcher (USR mode, in the
@@ -2256,7 +2372,7 @@ index 0000000..09a1e5a
 +  return 0;
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c b/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c
-index d9221ef..c1e3828 100644
+index d9221ef..da1d370 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/signal/sleep.c
 @@ -30,6 +30,7 @@
@@ -2267,7 +2383,77 @@ index d9221ef..c1e3828 100644
  
  /* #define DEBUG */
  #ifdef DEBUG
-@@ -177,24 +178,47 @@ int usleep (useconds_t usec)
+@@ -39,6 +40,21 @@
+ #define USECS_PER_CLOCK (1000000 / CLOCKS_PER_SEC)
+ #define NSECS_PER_CLOCK (1000000000 / CLOCKS_PER_SEC)
+ 
++/* 2026: yield to other threads only when that is allowed.  pthread_yield
++   is a fatal error while thread switching is held off (worksemaphore
++   non-zero), and does nothing useful before threads are started.  */
++static void
++safe_yield (void)
++{
++  if (__ul_global.pthread_system_running
++      && __ul_global.pthread_callevery_rma->pthread_worksemaphore == 0)
++    pthread_yield ();
++}
++
++/* 2026: the longest single sleep_int call.  ualarm takes a 32-bit count of
++   microseconds, which overflows above 429496 centiseconds.  */
++#define SLEEP_CHUNK ((clock_t) 400000)
++
+ /* SIGALRM signal handler for `sleep'.  This does nothing but return,
+    but SIG_IGN isn't supposed to break `pause'.  */
+ static void
+@@ -73,7 +89,7 @@ sleep_int (clock_t clockticks)
+     {
+       before = clock () + clockticks;
+       while (clock () < before)
+-	pthread_yield ();
++	safe_yield ();
+       return 0;
+     }
+ 
+@@ -151,6 +167,21 @@ sleep_int (clock_t clockticks)
+   return slept > clockticks ? 0 : clockticks - slept;
+ }
+ 
++/* 2026: sleep_int for any length, in chunks ualarm can express.  Returns
++   the ticks not slept if a signal ended the sleep early.  */
++static uint64_t
++sleep_ticks (uint64_t clockticks)
++{
++  while (clockticks > (uint64_t) SLEEP_CHUNK)
++    {
++      clock_t left = sleep_int (SLEEP_CHUNK);
++      clockticks -= (uint64_t) SLEEP_CHUNK;
++      if (left > 0)
++	return clockticks + (uint64_t) left;
++    }
++  return (uint64_t) sleep_int ((clock_t) clockticks);
++}
++
+ /* Make the process sleep for SECONDS seconds, or until a signal arrives
+    and is not ignored.  The function returns the number of seconds less
+    than SECONDS which it actually slept (zero if it slept the full time).  */
+@@ -159,7 +190,8 @@ sleep (unsigned int seconds)
+ {
+   PTHREAD_SAFE_CANCELLATION
+ 
+-  return (unsigned int) sleep_int ((clock_t)seconds * CLOCKS_PER_SEC) / CLOCKS_PER_SEC;
++  return (unsigned int) (sleep_ticks ((uint64_t) seconds * CLOCKS_PER_SEC)
++			 / CLOCKS_PER_SEC);
+ }
+ 
+ 
+@@ -171,30 +203,60 @@ int usleep (useconds_t usec)
+   /* An allowed & specified limitation. Otherwise our calculations might
+      overflow.  */
+   if (usec >= 1000000)
+-    __set_errno (EINVAL);
++    return __set_errno (EINVAL);
+ 
+   return (int) sleep_int ((usec + USECS_PER_CLOCK-1) / USECS_PER_CLOCK) * USECS_PER_CLOCK;
  }
  
  /* Sleep for time periods specified in nanoseconds.  */
@@ -2275,8 +2461,8 @@ index d9221ef..c1e3828 100644
 +
  int nanosleep (const struct timespec *req, struct timespec *rem)
  {
-   int ticks, nticks;
-+  uint64_t start, target, want;
+-  int ticks, nticks;
++  uint64_t target, want;
    PTHREAD_SAFE_CANCELLATION;
  
    if (req->tv_sec < 0 || req->tv_nsec < 0 || req->tv_nsec > 999999999)
@@ -2288,29 +2474,38 @@ index d9221ef..c1e3828 100644
 +    return __set_errno (EINVAL);
 +
 +  /* 2026: sleep with sub-centisecond accuracy.  Whole centiseconds are
-+     slept as before; the remainder is waited out against the high
-+     resolution monotonic clock (yielding to other threads).  */
++     slept as before (in chunks, so long sleeps don't overflow); the last
++     10-20 ms are waited out against the high resolution monotonic clock,
++     yielding to other threads when that's allowed.  If a sleep ends
++     early without a signal, sleep again rather than spin.  */
 +  want = (uint64_t) req->tv_sec * 1000000000u + (uint64_t) req->tv_nsec;
-+  start = __ul_monotonic_ns ();
-+  target = start + want;
-+  if (want >= 20000000u)
++  target = __ul_monotonic_ns () + want;
++  for (;;)
 +    {
-+      ticks = (int) sleep_int ((clock_t) (want / NSECS_PER_CLOCK) - 1);
-+      if (ticks > 0)
++      uint64_t now = __ul_monotonic_ns ();
++      uint64_t left;
++
++      if (now >= target)
++	break;
++      left = target - now;
++      if (left < 20000000u)
++	{
++	  safe_yield ();
++	  continue;
++	}
++      if (sleep_ticks (left / NSECS_PER_CLOCK - 1) > 0)
 +	{
 +	  /* Interrupted by a signal.  */
 +	  if (rem != NULL)
 +	    {
-+	      uint64_t now = __ul_monotonic_ns ();
-+	      uint64_t left = now < target ? target - now : 0;
++	      now = __ul_monotonic_ns ();
++	      left = now < target ? target - now : 0;
 +	      rem->tv_sec = (time_t) (left / 1000000000u);
 +	      rem->tv_nsec = (long) (left % 1000000000u);
 +	    }
 +	  return __set_errno (EINTR);
 +	}
 +    }
-+  while (__ul_monotonic_ns () < target)
-+    pthread_yield ();
  
    if (rem != NULL)
      {
@@ -2321,11 +2516,63 @@ index d9221ef..c1e3828 100644
 +      rem->tv_nsec = 0;
      }
 -
-+  (void) nticks;
    return 0;
  }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/DRender.h b/gcc4/recipe/files/gcc/libunixlib/sound/DRender.h
+index 00d5939..df9d870 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/sound/DRender.h
++++ b/gcc4/recipe/files/gcc/libunixlib/sound/DRender.h
+@@ -67,6 +67,12 @@ DRender_LoadModule(const char * path);
+ /*
+     Digital Renderer SWI calls.
+     Consult the DigitalRenderer documentation for information about these calls.
++
++    2026: the four calls that pass a sample buffer list "memory", so GCC
++    stores the whole buffer before the SWI reads it ("m" (*s) only covers
++    its first element).  The registers each SWI returns or changes have
++    not been checked against the DigitalRenderer documentation; the
++    wrappers assume R0 (and R1 where listed) only.
+ */
+ 
+ static __inline__ const _kernel_oserror * __attribute__ ((always_inline))
+@@ -163,7 +169,7 @@ DRender_NewSample (const unsigned char *Sample)
+                       : "=r" (err)
+                       : "m" (*s), "r" (s),
+                         [XDR_NewSample] "i" (DigiRendChunk + 6)
+-                      : "r14", "cc");
++                      : "r14", "cc", "memory");
+     return err;
+ }
+ 
+@@ -177,7 +183,7 @@ DRender_New16BitSample (const short *Sample)
+                       : "=r" (err)
+                       : "m" (*s), "r" (s),
+                         [XDR_New16BitSample] "i" (DigiRendChunk + 7)
+-                      : "r14", "cc");
++                      : "r14", "cc", "memory");
+     return err;
+ }
+ 
+@@ -224,7 +230,7 @@ DRender_StreamSamples (const unsigned char *Sample, int num)
+                       : "=r" (err)
+                       : "m" (*s), "r" (s), "r" (n),
+                         [XDR_StreamSamples] "i" (DigiRendChunk + 10)
+-                      : "r14", "cc");
++                      : "r14", "cc", "memory");
+     return err;
+ }
+ 
+@@ -239,7 +245,7 @@ DRender_Stream16BitSamples (const unsigned short *Sample, int num)
+                       : "=r" (err)
+                       : "m" (*s), "r" (s), "r" (n),
+                         [XDR_Stream16BitSamples] "i" (DigiRendChunk + 11)
+-                      : "r14", "cc");
++                      : "r14", "cc", "memory");
+     return err;
+ }
+ 
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
-index 8a2eb72..1feae0c 100644
+index 8a2eb72..6b098ff 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 @@ -16,6 +16,10 @@
@@ -2617,7 +2864,7 @@ index 8a2eb72..1feae0c 100644
  {
    request &= 0xffff;
  
-@@ -405,3 +523,637 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+@@ -405,3 +523,650 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
  
    return __set_errno (EINVAL);
  }
@@ -2657,6 +2904,7 @@ index 8a2eb72..1feae0c 100644
 +#define SSB_FORMATS (AFMT_S16_LE | AFMT_S16_BE | AFMT_U8 | AFMT_S8 | AFMT_MU_LAW)
 +#define SSB_OUT_FRAG_DEFAULT 4096	/* output bytes: 1024 frames */
 +#define SSB_NFRAGS_DEFAULT   8		/* ~190 ms at 44.1 kHz */
++#define SSB_CONV_SIZE        8192	/* conversion buffer, output bytes */
 +
 +/* 2026: <sys/soundcard.h> encodes requests one of two ways: with its own
 +   _SIOR (direction "out" = 0x20000000) or, when <sys/ioctl.h> was included
@@ -2689,8 +2937,9 @@ index 8a2eb72..1feae0c 100644
 +  unsigned int last_frag;
 +  unsigned char carry[4];	/* incomplete input frame */
 +  int carry_len;
-+  unsigned char conv[8192] __attribute__ ((aligned (4)));
-+				/* conversion buffer, output bytes */
++  unsigned char *conv;		/* SSB_CONV_SIZE output bytes; 2026:
++				   allocated on first use rather than
++				   static in every program */
 +} ssb;
 +
 +static int
@@ -2751,6 +3000,9 @@ index 8a2eb72..1feae0c 100644
 +  ssb.handle = ssb.stream = 0;
 +  ssb.started = 0;
 +  ssb.carry_len = 0;
++  /* 2026: GETOPTR after RESET counts from zero again (it returned the
++     closed stream's count minus nothing sensible).  */
++  ssb.played_base = ssb.last_frag = 0;
 +}
 +
 +static const _kernel_oserror *
@@ -2779,7 +3031,7 @@ index 8a2eb72..1feae0c 100644
 +    }
 +  /* Room for well over what we queue, so AddBlock never refuses.  */
 +  _swix (XStreamManager_SetBuffer, _INR(0,1), ssb.stream,
-+	 ssb.cap_out * 2 + (int) sizeof (ssb.conv) * 2);
++	 ssb.cap_out * 2 + SSB_CONV_SIZE * 2);
 +  _swix (XSharedSoundBuffer_SampleRate, _INR(0,1), ssb.handle,
 +	 ssb.rate * 1024);
 +  _swix (XSharedSoundBuffer_Volume, _INR(0,1), ssb.handle, 0xFFFFFFFF);
@@ -2884,6 +3136,8 @@ index 8a2eb72..1feae0c 100644
 +  int last_q = -1;
 +  clock_t since = clock ();
 +
++  if (ssb.conv == NULL && (ssb.conv = malloc (SSB_CONV_SIZE)) == NULL)
++    return __set_errno (ENOMEM);
 +  if (!ssb.handle && (err = ssb_open_stream ()) != NULL)
 +    return __ul_seterr (err, EOPSYS);
 +
@@ -2913,8 +3167,8 @@ index 8a2eb72..1feae0c 100644
 +	return done ? done : __set_errno (EIO);
 +      space = ssb.cap_out - q;
 +      frames = left / fs;
-+      if (frames > (int) sizeof (ssb.conv) / 4)
-+	frames = sizeof (ssb.conv) / 4;
++      if (frames > SSB_CONV_SIZE / 4)
++	frames = SSB_CONV_SIZE / 4;
 +      out = frames * 4;
 +      if (space < out)
 +	{
@@ -3055,17 +3309,23 @@ index 8a2eb72..1feae0c 100644
 +    case SNDCTL_DSP_SETFRAGMENT & 0xffff:
 +      {
 +	int frags = (*iarg >> 16) & 0x7fff;
-+	int size = 1 << (*iarg & 0xffff);
++	int shift = *iarg & 0xffff, size;
 +	int fs = ssb_in_frame ();
 +	int min_cap = ssb.rate * 4 / 50;	/* 20 ms */
 +	int max_cap = ssb.rate * 4 * 2;		/* 2 s */
 +
-+	if ((*iarg & 0xffff) > 16)
-+	  size = 65536;
-+	if (size < 128)
-+	  size = 128;
++	/* 2026: check the exponent before shifting (1 << 40 is undefined),
++	   and keep at least two fragments within the 2 s cap: a fragment
++	   bigger than the cap made GETOSPACE report 0 fragments for ever.  */
++	if (shift > 16)
++	  shift = 16;
++	if (shift < 7)
++	  shift = 7;
++	size = 1 << shift;
 +	/* Program bytes -> output bytes, whole frames.  */
 +	ssb.frag_out = (size / fs) * 4;
++	if (ssb.frag_out > ((max_cap / 2) & ~3))
++	  ssb.frag_out = (max_cap / 2) & ~3;
 +	if (ssb.frag_out < 64)
 +	  ssb.frag_out = 64;
 +	if (frags == 0 || frags == 0x7fff)
@@ -3079,7 +3339,7 @@ index 8a2eb72..1feae0c 100644
 +	  ssb.cap_out = max_cap;
 +	if (ssb.handle)
 +	  _swix (XStreamManager_SetBuffer, _INR(0,1), ssb.stream,
-+		 ssb.cap_out * 2 + (int) sizeof (ssb.conv) * 2);
++		 ssb.cap_out * 2 + SSB_CONV_SIZE * 2);
 +	return 0;
 +      }
 +
@@ -3257,10 +3517,10 @@ index 8a2eb72..1feae0c 100644
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/midi.c b/gcc4/recipe/files/gcc/libunixlib/sound/midi.c
 new file mode 100644
-index 0000000..359a30b
+index 0000000..074fdf6
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/midi.c
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,254 @@
 +/*
 + * /dev/midi: OSS-style raw MIDI output for RISC OS.
 + *
@@ -3291,11 +3551,14 @@ index 0000000..359a30b
 +#include <fcntl.h>
 +#include <unistd.h>
 +#include <swis.h>
++#include <time.h>
++#include <pthread.h>
 +#include <sys/types.h>
 +#include <sys/soundcard.h>
 +
 +#include <internal/os.h>
 +#include <internal/dev.h>
++#include <internal/unix.h>
 +
 +enum { MIDI_NONE, MIDI_SYNTH, MIDI_HW };
 +
@@ -3307,6 +3570,9 @@ index 0000000..359a30b
 +   a copy of (or shares) these variables but must not close the parent's
 +   connection when it exits.  */
 +static pid_t midi_owner_pid;
++/* 2026: something was sent to MIDI hardware since the connection was made
++   (close only resets the 16 channels then).  */
++static int hw_written;
 +
 +/* Avoid warnings, but don't advertise.  */
 +void __midi_exit (void);
@@ -3403,11 +3669,12 @@ index 0000000..359a30b
 +{
 +  if (midi_kind == MIDI_SYNTH)
 +    _swix (swi_close, _IN(0), synth_handle);
-+  else if (midi_kind == MIDI_HW)
++  else if (midi_kind == MIDI_HW && hw_written)
 +    hw_panic ();
 +  midi_kind = MIDI_NONE;
 +  midi_opens = 0;
 +  synth_handle = 0;
++  hw_written = 0;
 +}
 +
 +int
@@ -3419,6 +3686,16 @@ index 0000000..359a30b
 +  return 0;
 +}
 +
++/* Let other threads run while waiting, when that's allowed (pthread_yield
++   is a fatal error with thread switching held off).  */
++static void
++midi_yield (void)
++{
++  if (__ul_global.pthread_system_running
++      && __ul_global.pthread_callevery_rma->pthread_worksemaphore == 0)
++    pthread_yield ();
++}
++
 +int
 +__midiwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
 +{
@@ -3426,26 +3703,41 @@ index 0000000..359a30b
 +  const unsigned char *p = data;
 +  int i;
 +
-+  (void) fd;
 +  switch (midi_kind)
 +    {
 +    case MIDI_SYNTH:
 +      {
 +	int done = 0, n;
++	clock_t since = clock ();
 +	while (done < nbyte)
 +	  {
 +	    err = _swix (swi_write, _INR(0,2) | _OUT(0), synth_handle,
 +			 p + done, nbyte - done, &n);
 +	    if (err)
 +	      return done ? done : __ul_seterr (err, EOPSYS);
-+	    if (n <= 0)
-+	      break;		/* the module is full: report a short write */
-+	    done += n;
++	    if (n > 0)
++	      {
++		done += n;
++		since = clock ();
++		continue;
++	      }
++	    /* The module is full.  Some bytes written: a short write.
++	       2026: none written used to return 0, which a write-all loop
++	       retries for ever; now non-blocking writes fail with EAGAIN,
++	       and blocking ones wait for room (up to 2 s, then EIO).  */
++	    if (done)
++	      break;
++	    if (fd->fflag & O_NONBLOCK)
++	      return __set_errno (EAGAIN);
++	    if (clock () - since > 200)
++	      return __set_errno (EIO);
++	    midi_yield ();
 +	  }
 +	return done;
 +      }
 +
 +    case MIDI_HW:
++      hw_written = 1;
 +      for (i = 0; i < nbyte; i++)
 +	if ((err = _swix (swi_txbyte, _IN(0), p[i])) != NULL)
 +	  return i ? i : __ul_seterr (err, EOPSYS);
@@ -3743,40 +4035,181 @@ index 3f7c274..dce7b87 100644
 +__pthread_callevery_block_size:
 +	.word	PTHREAD_CALLEVERY_STRUCT_SIZE
 +	DECLARE_OBJECT __pthread_callevery_block_size
+diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/exec.c b/gcc4/recipe/files/gcc/libunixlib/sys/exec.c
+index cdee4d5..8da7d77 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/sys/exec.c
++++ b/gcc4/recipe/files/gcc/libunixlib/sys/exec.c
+@@ -10,6 +10,7 @@
+ #include <malloc.h>
+ #include <fcntl.h>
+ #include <unistd.h>
++#include <pthread.h>
+ #include <sys/param.h>
+ #include <swis.h>
+ #include <sys/wait.h>
+@@ -411,6 +412,11 @@ execve (const char *execname, char *const argv[], char *const envp[])
+       __pthread_stop_ticker ();
+       gbl->pthread_system_running = 0;
+     }
++  /* 2026: and detach from the PThreadTicker module (does nothing in a
++     fork/vfork child, whose parent still uses it).  The exec'd program
++     isn't this one, so the attachment would never be released and the
++     module couldn't be killed until a reboot.  */
++  __pthread_ticker_fini ();
+ 
+ #if __UNIXLIB_FEATURE_ITIMERS
+   /* Stop any interval timers that might be running.  Technically
+diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/mman-armeabi.c b/gcc4/recipe/files/gcc/libunixlib/sys/mman-armeabi.c
+index 14d4f3e..9e3f35e 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/sys/mman-armeabi.c
++++ b/gcc4/recipe/files/gcc/libunixlib/sys/mman-armeabi.c
+@@ -27,6 +27,15 @@
+ 
+ extern void __mmap_page_copy (void * dst, void * src, int len);
+ 
++/* 2026: file offsets are kept by ARMEABISupport as one 32-bit word and
++   used here as unsigned, so mmap64 can map from 2GB up to 4GB-1 (the
++   largest RISC OS file).  Positions are moved with lseek64, which also
++   saves and restores a file position above 2GB.  */
++extern __off64_t lseek64 (int __fd, __off64_t __offset, int __whence);
++#define FILE_OFFSET(o) ((__off64_t) (unsigned long) (o))
++void *__mmap_offset32 (void *addr, size_t len, int prot, int flags, int fd,
++		       unsigned long offset);
++
+ static char coredump_dir[256];
+ 
+ void
+@@ -100,6 +109,18 @@ __munmap_all (void)
+    deallocates any previous mapping for the affected region.  */
+ void *
+ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
++{
++  /* 2026: a negative offset is an error, as POSIX says (it used to seek
++     nowhere and map whatever followed the file's current position).  */
++  if (offset < 0)
++    return (void *) __set_errno (EINVAL);
++  return __mmap_offset32 (addr, len, prot, flags, fd, (unsigned long) offset);
++}
++
++/* mmap, and mmap64 for offsets up to 4GB-1.  */
++void *
++__mmap_offset32 (void *addr, size_t len, int prot, int flags, int fd,
++		 unsigned long offset)
+ {
+   struct ul_global *gbl = &__ul_global;
+ 
+@@ -139,9 +160,9 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
+   /* FIXME: Take into account file/memory protections.  */
+   int count = 0;
+ 
+-  off_t oldpos = lseek (fd, 0, SEEK_CUR);
++  __off64_t oldpos = lseek64 (fd, 0, SEEK_CUR);
+ 
+-  lseek (fd, offset, SEEK_SET);
++  lseek64 (fd, FILE_OFFSET (offset), SEEK_SET);
+ 
+   while (count < mapped_size)
+     {
+@@ -151,7 +172,7 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
+ 	{
+ 	  int save_errno = errno;
+ 	  munmap (result, mapped_size);
+-	  lseek (fd, oldpos, SEEK_SET);
++	  lseek64 (fd, oldpos, SEEK_SET);
+ 	  return (void *) __set_errno (save_errno);
+ 	}
+       else if (size == 0)
+@@ -159,7 +180,7 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
+ 
+       count += size;
+     }
+-  lseek (fd, oldpos, SEEK_SET);
++  lseek64 (fd, oldpos, SEEK_SET);
+ 
+   /* Ref: http://linux.die.net/man/2/mmap
+    * "For a file that is not a multiple of the page size, the remaining memory
+@@ -208,10 +229,10 @@ munmap (void * addr, size_t len)
+ 	     stuff back on msync(), but some software (e.g. mkimage)
+ 	     seems to rely on the writeback occuring un munmap().  */
+           /* Assume that the user only wants 'len' bytes writing.  */
+-	  off_t oldpos = lseek (fd, 0, SEEK_CUR);
+-	  lseek (fd, offset, SEEK_SET);
++	  __off64_t oldpos = lseek64 (fd, 0, SEEK_CUR);
++	  lseek64 (fd, FILE_OFFSET (offset), SEEK_SET);
+ 	  write (fd, addr, len);
+-	  lseek (fd, oldpos, SEEK_SET);
++	  lseek64 (fd, oldpos, SEEK_SET);
+ 	}
+     }
+ 
+@@ -294,10 +315,10 @@ msync (void * addr, size_t len, int syncflags __attribute__ ((__unused__)))
+       addr = mmap_addr;
+     }
+ 
+-  off_t oldpos = lseek (fd, 0, SEEK_CUR);
+-  lseek (fd, offset + addr - mmap_addr, SEEK_SET);
++  __off64_t oldpos = lseek64 (fd, 0, SEEK_CUR);
++  lseek64 (fd, FILE_OFFSET (offset) + (addr - mmap_addr), SEEK_SET);
+   int fail = write (fd, addr, len) != len;
+-  lseek (fd, oldpos, SEEK_SET);
++  lseek64 (fd, oldpos, SEEK_SET);
+ 
+   return fail ? __set_errno (EIO) : 0;
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/mmap64.c b/gcc4/recipe/files/gcc/libunixlib/sys/mmap64.c
 new file mode 100644
-index 0000000..1b3aa6c
+index 0000000..c1d8f1f
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/mmap64.c
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,43 @@
 +/* mmap64 ()
 +   Copyright (c) 2026 UnixLib Developers.
 +
 +   2026: mmap with a 64-bit offset, for programs built with
 +   _FILE_OFFSET_BITS=64 (<sys/mman.h> maps mmap to this).  Before, their
 +   64-bit offset was passed to the 32-bit mmap, which read the wrong
-+   argument.  Offsets must fit in 32 bits, as for mmap.  */
++   argument.  EABI: offsets up to 4GB-1 (the largest RISC OS file).
++   Otherwise they must fit in 32 bits signed, as for mmap.  */
 +
 +#include <errno.h>
 +#include <sys/mman.h>
 +#include <sys/types.h>
 +
++#ifdef __ARM_EABI__
++extern void *__mmap_offset32 (void *addr, size_t len, int prot, int flags,
++			      int fd, unsigned long offset);
++#endif
++
 +void *
 +mmap64 (void *addr, size_t len, int prot, int flags, int fd,
 +	__off64_t offset)
 +{
++#ifdef __ARM_EABI__
++  if (offset < 0)
++    {
++      errno = EINVAL;
++      return MAP_FAILED;
++    }
++  if (offset > (__off64_t) 0xFFFFFFFFul)
++    {
++      errno = EOVERFLOW;
++      return MAP_FAILED;
++    }
++  return __mmap_offset32 (addr, len, prot, flags, fd, (unsigned long) offset);
++#else
 +  if (offset != (__off64_t) (__off_t) offset)
 +    {
 +      errno = EOVERFLOW;
 +      return MAP_FAILED;
 +    }
 +  return mmap (addr, len, prot, flags, fd, (__off_t) offset);
++#endif
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c b/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c
-index 9927105..8cb2de5 100644
+index 9927105..a16be4e 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c
-@@ -8,6 +8,83 @@
+@@ -8,6 +8,100 @@
  #include <internal/os.h>
  #include <internal/local.h>
  
@@ -3789,6 +4222,21 @@ index 9927105..8cb2de5 100644
 +   Falls back to centisecond resolution if the HAL values look wrong.  */
 +#include <stdint.h>
 +#include <swis.h>
++
++#ifndef __TARGET_SCL__
++#  include <pthread.h>
++#  include <internal/unix.h>
++/* 2026: hr_last_ns is 64 bits, so reading or updating it takes two
++   instructions; hold off thread switches so a thread can't see half an
++   update (which could make the clock jump ahead and stick there).  */
++#  define HR_LOCK() \
++  do { if (__ul_global.pthread_system_running) __pthread_disable_ints (); } while (0)
++#  define HR_UNLOCK() \
++  do { if (__ul_global.pthread_system_running) __pthread_enable_ints (); } while (0)
++#else
++#  define HR_LOCK() do { } while (0)
++#  define HR_UNLOCK() do { } while (0)
++#endif
 +
 +#define HAL_CounterRate   19
 +#define HAL_CounterPeriod 20
@@ -3851,16 +4299,18 @@ index 9927105..8cb2de5 100644
 +
 +  /* The counter can reload a moment before the centisecond count is
 +     incremented; never let the clock go backwards.  */
++  HR_LOCK ();
 +  if (ns < hr_last_ns)
 +    ns = hr_last_ns;
 +  hr_last_ns = ns;
++  HR_UNLOCK ();
 +  return ns;
 +}
 +
  int
  clock_gettime (clockid_t clk_id, struct timespec *tp)
  {
-@@ -39,11 +116,9 @@ clock_gettime (clockid_t clk_id, struct timespec *tp)
+@@ -39,11 +133,9 @@ clock_gettime (clockid_t clk_id, struct timespec *tp)
  
        case CLOCK_MONOTONIC:
  	{
@@ -3898,7 +4348,7 @@ index b08fb6d..8b8c45b 100644
  		    : "r14", "cc", "memory");
    *termp = term;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/dev.c b/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
-index de312db..20273d7 100644
+index de312db..1906827 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
 @@ -78,6 +78,11 @@ const struct dev __dev[NDEV] = {
@@ -3937,16 +4387,16 @@ index de312db..20273d7 100644
 +   Warzone 2100; GCCSDK's fontconfig port works around the same thing).
 +   So before the SWI, read one byte of each page of the part of the buffer
 +   that lies in a stack, here in USR mode.  Nothing is written, and buffers
-+   that aren't in a stack (heap, dynamic areas) aren't touched at all.  */
++   that aren't in a stack (heap, dynamic areas) aren't touched at all.
++   ARMEABISupport is asked about every buffer: one that is in another
++   thread's stack can be anywhere, below this thread's stack pointer too.  */
 +static void
 +touch_stack_pages (const void *data, size_t nbyte)
 +{
 +  const char *lo = data, *hi = lo + nbyte;
-+  const char *sp = __builtin_frame_address (0);
 +  unsigned stack, base, top;
 +
-+  /* A buffer in a live stack frame is above the stack pointer.  */
-+  if (nbyte == 0 || hi <= sp)
++  if (nbyte == 0)
 +    return;
 +  if (_swix (ARMEABISupport_StackOp, _INR(0,1)|_OUT(1),
 +	     ARMEABISUPPORT_STACKOP_GET_STACK, lo, &stack) != NULL
@@ -4324,14 +4774,14 @@ index dee2f50..57bf85f 100644
    return lseek (fd, (__off_t) offset, whence);
  }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
-index 7f47f19..ef2abb8 100644
+index 7f47f19..d92c6ae 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
 @@ -47,6 +47,7 @@ static void __badr (void) __attribute__ ((__noreturn__));
  
  /* Only called externally from here - see comment below */
  extern void __dsp_exit(void);
-+extern void __midi_exit(void);
++extern void __midi_exit(void);	/* 2026: sound/midi.c */
  
  static struct proc ___u;
  struct proc *__u = &___u;	/* current process */
@@ -4339,7 +4789,7 @@ index 7f47f19..ef2abb8 100644
  
    /* De-register with DigitalRenderer in case of an exception */
    __dsp_exit();
-+  __midi_exit();
++  __midi_exit();	/* 2026: notes off, if this program used /dev/midi */
  
    /* Convert the 16-bit return code into an 8-bit equivalent
       for compatibility with RISC OS.
@@ -4458,11 +4908,105 @@ index ae323ac..36804df 100644
 +int iswspace (wint_t wc) { return NARROW (wc) ? isspace (wc) : 0; }
 +wint_t towupper (wint_t wc) { return NARROW (wc) ? (wint_t) toupper (wc) : wc; }
 +int iswxdigit (wint_t wc) { return NARROW (wc) ? isxdigit (wc) : 0; }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/wchar/wctype_l.c b/gcc4/recipe/files/gcc/libunixlib/wchar/wctype_l.c
+index 192a4cf..ac2e729 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/wchar/wctype_l.c
++++ b/gcc4/recipe/files/gcc/libunixlib/wchar/wctype_l.c
+@@ -1,74 +1,78 @@
+ /* iswalnum_l(), iswalpha_l(), iswcntrl_l(), iswdigit_l(), iswgraph_l(), towlower_l(),
+  * iswprint_l(), iswpunct_l(), iswspace_l(), towupper_l(), iswxdigit_l()
+  * Copyright (c) 2010 UnixLib Developers
++ * 2026: guard against wide characters outside the 8-bit ctype tables, as
++ * the non-locale versions in wctype.c do.
+  */
+ 
+ #include <ctype.h>
+ #include <locale.h>
+ #include <wctype.h>
+ 
++#define NARROW(wc) ((wc) >= 0 && (wc) < 256)
++
+ int
+ iswalnum_l (wint_t wc, locale_t locale)
+ {
+-  return isalnum_l (wc, locale);
++  return NARROW (wc) ? isalnum_l (wc, locale) : 0;
+ }
+ 
+ int
+ iswalpha_l (wint_t wc, locale_t locale)
+ {
+-  return isalpha_l (wc, locale);
++  return NARROW (wc) ? isalpha_l (wc, locale) : 0;
+ }
+ 
+ int
+ iswcntrl_l (wint_t wc, locale_t locale)
+ {
+-  return iscntrl_l (wc, locale);
++  return NARROW (wc) ? iscntrl_l (wc, locale) : 0;
+ }
+ 
+ int
+ iswdigit_l (wint_t wc, locale_t locale)
+ {
+-  return isdigit_l (wc, locale);
++  return NARROW (wc) ? isdigit_l (wc, locale) : 0;
+ }
+ 
+ int
+ iswgraph_l (wint_t wc, locale_t locale)
+ {
+-  return isgraph_l (wc, locale);
++  return NARROW (wc) ? isgraph_l (wc, locale) : 0;
+ }
+ 
+ int
+ iswprint_l (wint_t wc, locale_t locale)
+ {
+-  return isprint_l (wc, locale);
++  return NARROW (wc) ? isprint_l (wc, locale) : 0;
+ }
+ 
+ int
+ iswpunct_l (wint_t wc, locale_t locale)
+ {
+-  return ispunct_l (wc, locale);
++  return NARROW (wc) ? ispunct_l (wc, locale) : 0;
+ }
+ 
+ int
+ iswspace_l (wint_t wc, locale_t locale)
+ {
+-  return isspace_l (wc, locale);
++  return NARROW (wc) ? isspace_l (wc, locale) : 0;
+ }
+ 
+ int
+ iswxdigit_l (wint_t wc, locale_t locale)
+ {
+-  return isxdigit_l (wc, locale);
++  return NARROW (wc) ? isxdigit_l (wc, locale) : 0;
+ }
+ 
+ wint_t
+ towlower_l (wint_t wc, locale_t locale)
+ {
+-  return tolower_l (wc, locale);
++  return NARROW (wc) ? (wint_t) tolower_l (wc, locale) : wc;
+ }
+ 
+ wint_t
+ towupper_l (wint_t wc, locale_t locale)
+ {
+-  return toupper_l (wc, locale);
++  return NARROW (wc) ? (wint_t) toupper_l (wc, locale) : wc;
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/wchar/wmissing.c b/gcc4/recipe/files/gcc/libunixlib/wchar/wmissing.c
-index d3436a3..9d96848 100644
+index d3436a3..eca6ce4 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/wchar/wmissing.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/wchar/wmissing.c
-@@ -1,203 +1,264 @@
+@@ -1,203 +1,285 @@
 +/* Wide character functions that UnixLib previously stubbed out with
 +   "Not implemented" + abort().  These are simple implementations that
 +   are correct for the 8-bit range UnixLib's ctype tables cover, which is
@@ -4486,10 +5030,23 @@ index d3436a3..9d96848 100644
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
 -}
+-
+-int
+-iswupper_l (wint_t wc, locale_t locale)
+-{
+-  printf("%s: Not implemented\n", __func__);
+-  abort();
+-}
+-
+-int iswlower (wint_t __wc)
+-{
+-  printf("%s: Not implemented\n", __func__);
+-  abort();
+-}
 +#define NARROW(wc) ((wc) >= 0 && (wc) < 256)
  
 -int
--iswupper_l (wint_t wc, locale_t locale)
+-iswlower_l (wint_t wc, locale_t locale)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
@@ -4497,7 +5054,7 @@ index d3436a3..9d96848 100644
 +enum { WT_NONE, WT_ALNUM, WT_ALPHA, WT_BLANK, WT_CNTRL, WT_DIGIT, WT_GRAPH,
 +       WT_LOWER, WT_PRINT, WT_PUNCT, WT_SPACE, WT_UPPER, WT_XDIGIT };
  
--int iswlower (wint_t __wc)
+-int wcscoll (__const wchar_t *__s1, __const wchar_t *__s2)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
@@ -4509,8 +5066,8 @@ index d3436a3..9d96848 100644
 +int iswblank (wint_t wc) { return wc == L' ' || wc == L'\t'; }
 +int iswblank_l (wint_t wc, locale_t l) { (void) l; return iswblank (wc); }
  
--int
--iswlower_l (wint_t wc, locale_t locale)
+-int wcscoll_l (__const wchar_t *__s1, __const wchar_t *__s2,
+-		locale_t loc)
 +wctype_t
 +wctype (const char *name)
  {
@@ -4527,26 +5084,13 @@ index d3436a3..9d96848 100644
 +  return WT_NONE;
  }
  
--int wcscoll (__const wchar_t *__s1, __const wchar_t *__s2)
+-int wcscasecmp (__const wchar_t *__s1, __const wchar_t *__s2)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
 -}
 +wctype_t wctype_l (const char *name, locale_t l) { (void) l; return wctype (name); }
  
--int wcscoll_l (__const wchar_t *__s1, __const wchar_t *__s2,
--		locale_t loc)
--{
--  printf("%s: Not implemented\n", __func__);
--  abort();
--}
--
--int wcscasecmp (__const wchar_t *__s1, __const wchar_t *__s2)
--{
--  printf("%s: Not implemented\n", __func__);
--  abort();
--}
--
 -int wcsncasecmp (__const wchar_t *__s1, __const wchar_t *__s2,
 -		size_t __n)
 +int
@@ -4612,13 +5156,6 @@ index d3436a3..9d96848 100644
  
 -int swprintf (wchar_t *__restrict __s, size_t __n,
 -		     __const wchar_t *__restrict __format, ...)
--{
--  printf("%s: Not implemented\n", __func__);
--  abort();
--}
--
--long double wcstold (__const wchar_t *__restrict __nptr,
--			    wchar_t **__restrict __endptr)
 +int
 +wcsncasecmp (const wchar_t *s1, const wchar_t *s2, size_t n)
  {
@@ -4635,8 +5172,8 @@ index d3436a3..9d96848 100644
 +  return 0;
  }
  
--long int wcstol (__const wchar_t *__restrict __nptr,
--			wchar_t **__restrict __endptr, int __base)
+-long double wcstold (__const wchar_t *__restrict __nptr,
+-			    wchar_t **__restrict __endptr)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
@@ -4645,21 +5182,44 @@ index d3436a3..9d96848 100644
 +int wcscasecmp_l (const wchar_t *s1, const wchar_t *s2, locale_t l) { (void) l; return wcscasecmp (s1, s2); }
 +int wcsncasecmp_l (const wchar_t *s1, const wchar_t *s2, size_t n, locale_t l) { (void) l; return wcsncasecmp (s1, s2, n); }
  
--size_t wcsxfrm (wchar_t *__restrict __s1,
--		       __const wchar_t *__restrict __s2, size_t __n)
+-long int wcstol (__const wchar_t *__restrict __nptr,
+-			wchar_t **__restrict __endptr, int __base)
 +/* Numeric conversions: narrow the (ASCII) number text, convert, and map
-+   the end pointer back.  */
++   the end pointer back.  2026: the whole ASCII run is narrowed; it used to
++   be cut at 127 characters, so a longer number (leading zeros, a long
++   hex float) was converted wrongly.  Short runs use the stack buffer,
++   longer ones are allocated (falling back to the first 127 characters
++   if that fails).  */
 +#define NUMBUF 128
-+static size_t
-+narrow_num (const wchar_t *src, char *dst)
++static char *
++narrow_num (const wchar_t *src, char *buf)
  {
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
-+  size_t i;
-+  for (i = 0; i < NUMBUF - 1 && src[i] != 0 && src[i] < 128; i++)
+-}
++  size_t i, len = 0;
++  char *dst = buf;
+ 
+-size_t wcsxfrm (wchar_t *__restrict __s1,
+-		       __const wchar_t *__restrict __s2, size_t __n)
+-{
+-  printf("%s: Not implemented\n", __func__);
+-  abort();
++  while (src[len] != 0 && (unsigned long) src[len] < 128)
++    len++;
++  if (len >= NUMBUF)
++    {
++      dst = malloc (len + 1);
++      if (dst == NULL)
++	{
++	  dst = buf;
++	  len = NUMBUF - 1;
++	}
++    }
++  for (i = 0; i < len; i++)
 +    dst[i] = (char) src[i];
-+  dst[i] = 0;
-+  return i;
++  dst[len] = 0;
++  return dst;
  }
  
 -size_t wcsxfrm_l (wchar_t *__s1, __const wchar_t *__s2,
@@ -4671,12 +5231,14 @@ index d3436a3..9d96848 100644
 +#define WCSTO(name, type, call)						\
 +  type name (const wchar_t *restrict nptr, wchar_t **restrict endptr, int base) \
 +  {									\
-+    char buf[NUMBUF], *end;						\
++    char buf[NUMBUF], *str, *end;					\
 +    type r;								\
-+    narrow_num (nptr, buf);						\
-+    r = call (buf, &end, base);						\
++    str = narrow_num (nptr, buf);					\
++    r = call (str, &end, base);						\
 +    if (endptr)								\
-+      *endptr = (wchar_t *) nptr + (end - buf);				\
++      *endptr = (wchar_t *) nptr + (end - str);				\
++    if (str != buf)							\
++      free (str);							\
 +    return r;								\
 +  }
 +WCSTO (wcstol, long int, strtol)
@@ -4693,12 +5255,14 @@ index d3436a3..9d96848 100644
 +#define WCSTOF(name, type, call)					\
 +  type name (const wchar_t *restrict nptr, wchar_t **restrict endptr)	\
 +  {									\
-+    char buf[NUMBUF], *end;						\
++    char buf[NUMBUF], *str, *end;					\
 +    type r;								\
-+    narrow_num (nptr, buf);						\
-+    r = call (buf, &end);						\
++    str = narrow_num (nptr, buf);					\
++    r = call (str, &end);						\
 +    if (endptr)								\
-+      *endptr = (wchar_t *) nptr + (end - buf);				\
++      *endptr = (wchar_t *) nptr + (end - str);				\
++    if (str != buf)							\
++      free (str);							\
 +    return r;								\
 +  }
 +WCSTOF (wcstod, double, strtod)
