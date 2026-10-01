@@ -22,6 +22,10 @@ How to release: docs/MAINTAINING.md.
 - **`wcstol` and the rest of `wcsto*`:** numbers longer than 127
   characters are converted in full (they were cut short).
 
+- **`iswalpha_l` and the other `isw*_l`/`tow*_l` functions:** characters
+  outside 0-255 return 0 (or are returned unchanged) instead of reading
+  past the end of the ctype tables, as the non-locale versions already did.
+
 ## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
 
 Fixes for problems in 5.0.3 (and earlier) found by an independent review
