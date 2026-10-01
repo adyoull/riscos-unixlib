@@ -100,7 +100,7 @@ module, 17 minutes with other tasks running, no crashes):**
 ```
 warzone2100 ticks=50980 foreign=1 ... pre=9307 post=9315
  filters_for=0x35803a20 startup=0/.. cached=0x35803a20 now=0/..
- first_start=0 starts=4 filter_moves=1 filter_errors=0 post_switches=380 via=module
+ first_start=0 starts=4 filter_moves=1 filter_errors=0 via=module
 ```
 
 - **H2 was the cause.** `first_start=0`: the ticker first started with no
@@ -137,7 +137,11 @@ new; it hits any Wimp program with threads that polls quickly.
   a critical section), so the thread switch happens as `Wimp_Poll`
   returns; count it in `post_switches`. It also starts the ticker if it
   isn't running, as before;
-- start and stop clear `polling` (and stop `pending`).
+- start and stop clear `polling` (and stop `pending`);
+- the check that the program is paged in is a subroutine that saves lr
+  first: a SWI in SVC mode overwrites lr (a review caught the first
+  version looping there; `tests/emu/ticker_test.py` now models that), and
+  the pre-filter has IRQs off from the check to setting `polling`.
 
 So a program that polls fast gets a thread switch on the first return
 from `Wimp_Poll` after each 2 cs tick, and one that is paged out for a
@@ -147,7 +151,7 @@ The ticker now runs while other tasks run. That was already the case with
 H2/H3 and is harmless: the handler only counts (`foreign`) when another
 task is paged in. The cost is one `OS_ChangeEnvironment` every 2 cs.
 
-The routines grew from 256 to 464 bytes; the RMA block grew from 472 to
+The routines grew from 256 to 476 bytes (the whole room for them); the RMA block grew from 472 to
 640 bytes (`polling`, `pending`, `post_switches` at 152-163, the copy of
 the routines at 164). Module **0.03** has the new routines and interface
 version **2**. UnixLib 5.0.3.1 uses the module only if it is version 2,

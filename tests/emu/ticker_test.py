@@ -98,6 +98,10 @@ class Machine:
                                       UC_ARM_REG_R2, UC_ARM_REG_R3)]
         self.swis.append((num, r))
         cpsr = mu.reg_read(UC_ARM_REG_CPSR) & ~VFLAG
+        # A SWI from SVC mode overwrites lr_svc with its return address:
+        # model that, so code that relies on lr across a SWI fails here.
+        mu.reg_write(UC_ARM_REG_LR, pc)
+        self.irqs_at_swi = not (cpsr & IFLAG)
         if num == OS_ChangeEnvironment and r[0] == 16:
             mu.reg_write(UC_ARM_REG_R1, self.upcall[0])
             mu.reg_write(UC_ARM_REG_R2, self.upcall[1])
@@ -108,6 +112,7 @@ class Machine:
             mu.reg_write(UC_ARM_REG_R2, self.alloc)
             self.alloc += (r[3] + 15) & ~15
         elif num == OS_Exit:
+            self.exited = True
             mu.emu_stop()
         elif num == OS_IntOff:
             cpsr |= IFLAG
@@ -124,6 +129,7 @@ class Machine:
     def call(self, addr, regs=None, flags=0, irqs_on=False):
         """Call addr with regs {reg: value}, lr = RET. Returns r0-r5, cpsr."""
         self.swis = []
+        self.exited = False
         mu = self.mu
         for reg in (UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2,
                     UC_ARM_REG_R3, UC_ARM_REG_R4, UC_ARM_REG_R5):
@@ -140,8 +146,10 @@ class Machine:
         out = [mu.reg_read(x) for x in (UC_ARM_REG_R0, UC_ARM_REG_R1,
                                         UC_ARM_REG_R2, UC_ARM_REG_R3,
                                         UC_ARM_REG_R4, UC_ARM_REG_R5)]
-        check(mu.reg_read(UC_ARM_REG_SP) == STACK or mu.reg_read(UC_ARM_REG_PC) != RET,
-              "stack balanced after call to %#x" % addr)
+        returned = mu.reg_read(UC_ARM_REG_PC) == RET or self.exited
+        check(returned, "call to %#x returned (no endless loop)" % addr)
+        check(mu.reg_read(UC_ARM_REG_SP) == STACK or not returned
+              or self.exited, "stack balanced after call to %#x" % addr)
         return out, mu.reg_read(UC_ARM_REG_CPSR)
 
     def called(self, num):
@@ -204,7 +212,9 @@ def test_routines(m, name, handler, start, stop, pre, post, block):
     # preserved; the ticker keeps running; 'polling' set
     m.upcall = ours
     out, cpsr = m.call(pre, {UC_ARM_REG_R12: block, UC_ARM_REG_R0: 0x1234},
-                       CFLAG | ZFLAG)
+                       CFLAG | ZFLAG, irqs_on=True)
+    check(not m.irqs_at_swi and not cpsr & IFLAG,
+          name + ": pre-filter: IRQs off for the check, back on after")
     check(not m.called(OS_RemoveTickerEvent) and m.r(block + STARTED) == 1,
           name + ": pre-filter leaves the ticker running")
     check(m.r(block + POLLING) == 1 and m.r(block + PRE) == 1,

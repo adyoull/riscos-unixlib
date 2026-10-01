@@ -1101,7 +1101,7 @@ was running. GCCSDK UnixLib's filters did the same.
 - start and stop clear `polling`.
 
 The RMA block grew from 472 to 640 bytes (three fields at 152-163, the
-routines' copy, now 464 bytes, at 164; `tools/check-lib.sh` expects 640).
+routines' copy, now 476 bytes, the whole room, at 164; `tools/check-lib.sh` expects 640).
 PThreadTicker 0.03 has the new routines and interface version 2. UnixLib
 uses the module only if it is version 2; earlier UnixLib uses only version
 1, so neither uses a module with the other's routines or block layout,
@@ -1114,7 +1114,18 @@ as before the filters, without a callback ever landing in another task.
 Programs that poll slowly see no difference. The ticker now also runs
 while other tasks do; its handler only counts then.
 
-**Verification.** `tests/emu/ticker_test.py` (144 checks, both the
+**Review.** Before release, a review found that the first version's
+"is the program paged in?" subroutine returned through lr after a SWI,
+which in SVC mode overwrites lr: every filter call (and the handler, in
+SVC mode) would have looped for ever, i.e. the first `Wimp_Poll` of a
+threaded program would have hung the machine. The emulator's fake SWIs
+didn't touch lr, so the test missed it. Fixed (the subroutine saves lr),
+and the emulator now overwrites lr at every SWI and checks that each call
+returns; with the first version it reports 76 failures. The review also
+noted a few instructions in the pre-filter where a tick could still set a
+callback (as in the old design); IRQs are now off there.
+
+**Verification.** `tests/emu/ticker_test.py` (210 checks, both the
 module's and the RMA copy's machine code): ticks while polling set
 `pending` and no callback; the post-filter switches once and clears both;
 filters called for another task change nothing; critical sections are
