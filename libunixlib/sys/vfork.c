@@ -12,6 +12,7 @@
 #include <internal/dev.h>
 #include <internal/swiparams.h>
 #include <pthread.h>
+#include <string.h>
 
 /* #define DEBUG 1 */
 #ifdef DEBUG
@@ -21,9 +22,46 @@
 static int __saved_pthread_system_running;
 static const char *dde_prefix;
 
+#ifdef __ARM_EABI__
+/* 2026: the stack of an ARMEABI program is an ARMEABISupport stack,
+   outside application space, so SharedUnixLibrary's copy of the parent
+   for fork() doesn't include it.  The child runs on the parent's stack,
+   and anything it does there after returning from the function that
+   called fork() would be left for the parent.  So fork() keeps a copy of
+   the stack in use when it was called (from its caller's frame up to the
+   top) in the heap, which SharedUnixLibrary does copy, and the parent
+   puts it back.  */
+static void *fork_stack_copy;
+static void *fork_stack_at;
+static size_t fork_stack_size;
+
+static int
+fork_save_stack (void *sp)
+{
+  int handle;
+  unsigned int base, top;
+
+  fork_stack_copy = NULL;
+  if (_swix (ARMEABISupport_StackOp, _INR(0,1) | _OUT(1),
+	     2 /* get stack */, sp, &handle)
+      || _swix (ARMEABISupport_StackOp, _INR(0,1) | _OUTR(1,2),
+		3 /* get bounds */, handle, &base, &top)
+      || (unsigned int) sp < base || (unsigned int) sp > top)
+    return 0;			/* not an ARMEABISupport stack: nothing to do */
+  fork_stack_size = top - (unsigned int) sp;
+  if (fork_stack_size == 0)
+    return 0;
+  if ((fork_stack_copy = malloc (fork_stack_size)) == NULL)
+    return -1;
+  fork_stack_at = sp;
+  memcpy (fork_stack_copy, sp, fork_stack_size);
+  return 0;
+}
+#endif
+
 /* Do everything that needs doing before the call to sul_fork.  */
 int
-__fork_pre (int isfork, void **sul_fork, pid_t *pid)
+__fork_pre (int isfork, void **sul_fork, pid_t *pid, void *sp)
 {
   struct ul_global *gbl = &__ul_global;
   struct __sul_process *sulproc = gbl->sulproc;
@@ -44,6 +82,13 @@ __fork_pre (int isfork, void **sul_fork, pid_t *pid)
      address.  */
   if (isfork && gbl->dynamic_num != -1)
     return __set_errno (EINVAL);
+
+#ifdef __ARM_EABI__
+  if (isfork && fork_save_stack (sp) < 0)
+    return __set_errno (ENOMEM);
+#else
+  (void) sp;
+#endif
 
   if (gbl->pthread_system_running)
     {
@@ -99,16 +144,19 @@ __fork_post (pid_t pid, int isfork)
       __atomic_modify (&__dynamic_area_refcount, 1);
 
 #ifdef __ARM_EABI__
-      /* 2026: the child runs on its parent's stack, an ARMEABISupport
-	 stack whose handle SharedUnixLibrary copied into the child's
-	 process structure with everything else.  When a process exits,
-	 SharedUnixLibrary frees the stack named there, so a child's exit
-	 (after a fork, a vfork whose exec failed, or a command run by
-	 system()) freed the parent's stack, and the parent aborted when it
-	 next used it ("abort on data transfer" on returning from fork,
-	 seen on a Pi).  The stack isn't the child's to free.  A UnixLib
-	 program the child execs records its own stack here.  */
-      gbl->sulproc->stack_handle = NULL;
+      /* 2026: the child's process structure is a copy of its parent's,
+	 including the parent's ARMEABISupport stack handle and the flag
+	 that tells SharedUnixLibrary to free that stack when the process
+	 exits.  The stack isn't the child's to free: freeing it left the
+	 parent on a freed stack, and (5.0.3.1-rc5) a null handle made
+	 ARMEABISupport abort.  So the child drops the flag.  A UnixLib
+	 program the child execs sets it again with its own stack.  */
+      gbl->sulproc->status.is_armeabi = 0;
+      if (fork_stack_copy)
+	{
+	  free (fork_stack_copy);
+	  fork_stack_copy = NULL;
+	}
 #endif
 
       if (gbl->pthread_system_running)
@@ -121,6 +169,17 @@ __fork_post (pid_t pid, int isfork)
   else
     {
       /* We are the parent (including the case when sul_fork failed).  */
+
+#ifdef __ARM_EABI__
+      /* Put back the stack the child shared (see fork_save_stack).  This
+	 function's own frame is below the saved part.  */
+      if (fork_stack_copy)
+	{
+	  memcpy (fork_stack_at, fork_stack_copy, fork_stack_size);
+	  free (fork_stack_copy);
+	  fork_stack_copy = NULL;
+	}
+#endif
 
       /* Reset the DDEUtils' Prefix variable to the value before the fork,
          in case the child has changed it. */

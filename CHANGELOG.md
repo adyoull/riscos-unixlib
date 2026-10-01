@@ -7,6 +7,19 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+## 5.0.3.1-rc6 (2026-10-01, pre-release, tag v5.0.3.1-rc6)
+
+- **fork() works on EABI.** A fork child's exit aborted in ARMEABISupport
+  (rc5 gave SharedUnixLibrary a null stack handle to free; before that it
+  freed the parent's stack). The child now drops the ARMEABI flag instead,
+  so SharedUnixLibrary frees nothing. fork also keeps a copy of the stack
+  in use and puts it back in the parent, since SharedUnixLibrary's copy
+  of the parent covers application space only. Found by `ForkOnly` and
+  `ForkThreads` on the Pi. MODIFICATIONS.md K8 (rewritten: commands run
+  by `system()`/`popen()` were never affected).
+- RISC OS tests: `ForkOnly` also checks that a child using the stack
+  after returning from fork's caller leaves the parent's stack alone.
+
 ## 5.0.3.1-rc5 (2026-10-01, pre-release, tag v5.0.3.1-rc5)
 
 - **A fork/vfork child's exit no longer frees its parent's stack** (EABI).

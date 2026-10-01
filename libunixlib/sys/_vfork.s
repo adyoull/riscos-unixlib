@@ -28,6 +28,7 @@ vfork:
 fork:
 	MOV	a1, #1
 fork_common:
+	MOV	a4, sp		@ 2026: sp on entry, for __fork_pre (EABI fork)
 	STMFD	sp!, {a1, lr}
 	SUB	sp, sp, #2*4
 	ADD	a2, sp, #4	@ Space for __ul_global.sulproc->sul_fork

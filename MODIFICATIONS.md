@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 56 modified files and 7 added files).
+diff against unchanged GCCSDK UnixLib: 58 modified files and 7 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1271 |
-| Modified (listed below) | 56 |
+| Byte-identical to GCCSDK `64c6f81` | 1269 |
+| Modified (listed below) | 58 |
 | Added | 7 |
 | Removed relative to upstream | 0 |
 
@@ -56,7 +56,7 @@ the commits are named below.
 | `sched/sched_prio.c` (**new**), `include/sched.h` | P1 `sched_get_priority_min/max` |
 | `pthread/schedparam.c`, `pthread/newnode.c` | P2 `pthread_setschedparam` |
 | `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s`, `sys/exec.c` | K1-K7 thread ticker (`sys/_syslib.s` also A2) |
-| `sys/vfork.c` | K8 a fork/vfork child's exit freed the parent's stack |
+| `sys/vfork.c`, `sys/_vfork.s`, `incl-local/internal/unix.h` | K8 fork on EABI: the child's exit and the parent's stack |
 | `include/sys/stat.h`, `incl-local/sys/stat.h`, `unix/stat64.c` (**new**), `unix/stat.c`, `unix/lstat.c`, `unix/fstat.c`, `unix/scl_fstat.c` | L1 `struct stat64` with a 64-bit size |
 | `unix/ul_lseek.c`, `stdio/fseeko.c`, `stdio/ftello.c`, `stdio/fgetpos.c`, `stdio/fsetpos.c` | L2 64-bit seeking to 4GB-1 |
 | `unix/truncate.c` | L3 `truncate64`, `ftruncate64` |
@@ -989,33 +989,55 @@ file).
 **Verification.** `tests/emu/ticker_test.py` checks the SWIs, the count,
 and that flags and the I bit are restored, with IRQs on and off.
 
-### K8. A fork/vfork child's exit freed the parent's stack (`sys/vfork.c`)
+### K8. fork() on EABI: the child's exit and the parent's stack (`sys/vfork.c`, `sys/_vfork.s`)
 
-**Problem.** Found by the new `ForkExec` test on the Pi 4 (2026-10-01):
-after a vfork whose exec ran a command, a fork from the same program
-aborted ("abort on data transfer") as fork returned in the parent, at its
-first store to the stack.
+**Problem.** On the Pi 4 (2026-10-01), `ForkOnly` (fork and `_exit`, no
+threads) and `ForkThreads` aborted ("abort on data transfer at
+&206CDC14", in the RMA) as soon as the fork child exited. `ForkExec`
+(vfork + exec, `system()`) passes.
 
-**Cause.** On EABI the program's stack is an ARMEABISupport stack.
-SharedUnixLibrary records its handle in the process structure and, when a
-process exits, frees the stack named there. sul_fork copies the whole
-structure to the child, handle included, and the child runs on its
-parent's stack. So any child's exit (a fork child's `_exit`, a vfork child
-whose exec failed, a command run by `system()` or `popen()`) freed the
-parent's stack. This is in GCCSDK UnixLib as it is (SharedUnixLibrary is
-unchanged here); it may well be the abort Warzone 2100's riscos2 build hit
-in `popen()`.
+**Cause.** On EABI the program's stack is an ARMEABISupport stack, outside
+application space. SharedUnixLibrary records its handle in the process
+structure and sets the "ARMEABI" status flag; when such a process exits,
+it asks ARMEABISupport to free that stack. sul_fork copies the whole
+structure, flag and handle included, to the child, and the child runs on
+its parent's stack. Two things followed:
 
-**Change.** In the child, `__fork_post` sets the handle in the child's
-process structure to 0: the stack isn't the child's to free.
-SharedUnixLibrary then asks ARMEABISupport to free stack 0, which fails
-harmlessly. A UnixLib program the child execs records its own stack as
-before. EABI builds only.
+1. A child that exits through UnixLib (`_exit`/`exit` after fork, or
+   after a vfork whose exec failed) had SharedUnixLibrary free the
+   parent's stack. In rc5 the child's handle was set to 0 instead, but
+   ARMEABISupport's free doesn't check for 0 (GCCSDK
+   `armeabisupport/stack.c`, `stack_free`), so it aborted there: the
+   abort above. A child that execs a command is not affected: when the
+   command ends, SharedUnixLibrary replaces the status word (flags
+   included) with the return code.
+2. SharedUnixLibrary's copy of the parent for fork covers application
+   space only, so not the stack. A child that returns from the function
+   that called fork and then uses the stack overwrites the parent's
+   frames there.
 
-**Verification.** By reading SharedUnixLibrary's `sul_fork` and exit code,
-and the disassembly (`str r0, [r3, #124]`, `SULPROC_STACK`). On RISC OS:
-`ForkExec`, `ForkOnly` and `ForkThreads` in UnixLibTests.zip; not yet run
-with the fix.
+This is in GCCSDK UnixLib as it is (SharedUnixLibrary is unchanged here).
+The earlier `ForkExec` abort at &14AF0 (rc4 test) was most likely the
+test's own fault: its vfork child changed `main`'s locals, which the
+parent shares; they are static now.
+
+**Change.** EABI builds only.
+- In the child, `__fork_post` clears the ARMEABI flag in the child's
+  process structure, so SharedUnixLibrary frees no stack when the child
+  exits. A UnixLib program the child execs sets the flag again with its
+  own stack. (rc5's handle of 0 is gone.)
+- `fork` passes its entry `sp` to `__fork_pre`, which copies the stack
+  from there to the top (bounds from `ARMEABISupport_StackOp` 2 and 3)
+  into the heap, which the fork copy includes. In the parent,
+  `__fork_post` copies it back; its own frame is below that part. If the
+  copy can't be allocated, fork fails with ENOMEM. vfork doesn't copy
+  anything, as before (a vfork child must not return from its caller).
+
+**Verification.** Disassembly: the child clears bit 0 of byte 99 of the
+process structure (status word at 96, flag bit 24). On RISC OS:
+`ForkOnly` now also has a child return from the function that called fork
+and use 8 KB of stack over its frame; the parent checks a pattern there.
+Not yet run with the fix (rc6).
 
 ## 5. Files over 2GB (L1-L5)
 

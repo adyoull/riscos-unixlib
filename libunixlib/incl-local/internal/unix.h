@@ -428,7 +428,7 @@ extern void __free_process (struct __sul_process *process)
 	__nonnull ((1));
 
 extern pid_t __fork_post (pid_t pid, int isfork);
-extern int __fork_pre (int isfork, void **sul_fork, pid_t *pid);
+extern int __fork_pre (int isfork, void **sul_fork, pid_t *pid, void *sp);
 
 extern unsigned int __get_cpu_arch (void);
 
