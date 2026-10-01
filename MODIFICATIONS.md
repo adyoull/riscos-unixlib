@@ -1130,8 +1130,13 @@ module's and the RMA copy's machine code): ticks while polling set
 `pending` and no callback; the post-filter switches once and clears both;
 filters called for another task change nothing; critical sections are
 respected; R0-R3 and flags preserved. `tests/host/ticker`: a version 1
-module isn't used. On RISC OS: `Ticker` must now say PASS with both
-threads counted above 0 (it reports FAIL otherwise); not yet run.
+module isn't used. On RISC OS (Pi 4, 5.0.3.1-rc9, two runs): `Ticker`
+PASS, "1055743 polls, threads counted 1493779377 and 1486347011" and
+"1023330 polls, ... 1477175375 and 1474375386", against "598959 polls,
+threads counted 0 and 0" before. The main thread still polled about
+50000 times a second, and no other program crashed. `TickerStartTask`
+PASS too: "803771 polls, 3 child tasks, threads counted 1197408353 and
+1197078111".
 
 ## 5. Files over 2GB (L1-L5)
 
@@ -1305,7 +1310,8 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 - the sound tests (`Tone*`, `Mix`, `ExitBug`, `ExitBugSSB`);
 - a threaded program without PThreadTicker;
 - R1 and R2 (on the machine where Warzone 2100 crashed).
-- K9 (`Ticker`: both threads must be counted above 0);
+- K9: `TickerEarly` and the TickerStats lines (`Ticker` and
+  `TickerStartTask` pass with rc9);
 - S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
   from the 2026-10-01 review).
 
