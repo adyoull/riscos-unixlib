@@ -7,6 +7,12 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+## 5.0.3.1-rc2 (2026-10-01, pre-release, tag v5.0.3.1-rc2)
+
+The rest of the problems found by the 2026-10-01 review. **Not yet run on
+RISC OS.** The library's exported symbols are the same as 5.0.3.1-rc1's
+apart from one internal function (`__mmap_offset32`).
+
 - **`nanosleep`, `sleep`, `usleep`:** long sleeps are made in chunks
   `ualarm` can express (above about 71 minutes it overflowed and the sleep
   ended early, after which `nanosleep` busy-waited for the rest);
@@ -74,11 +80,12 @@ How to release: docs/MAINTAINING.md.
   used as a coding assistant; MODIFICATIONS.md has entries W3, W4, T3, T4,
   S10, S11, K6 and K7 for the fixes above.
 
-## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
+## 5.0.3.1-rc1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
 
 Fixes for problems in 5.0.3 (and earlier) found by an independent review
 of all the changes (2026-10-01). **Not yet run on RISC OS**, so released as
-a pre-release; once the Pi tests pass, the same commit is tagged v5.0.3.1.
+a pre-release (followed by 5.0.3.1-rc2; once the Pi tests pass, 5.0.3.1
+is tagged final).
 The library's exported symbols are the same as 5.0.3's apart from one
 internal function (`__pthread_ticker_owner`).
 
