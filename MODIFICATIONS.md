@@ -1160,14 +1160,17 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 - the sound tests (`Tone*`, `Mix`, `ExitBug`, `ExitBugSSB`);
 - `ExitJoin`, `FsyncRO`, `Sched`;
 - a threaded program without PThreadTicker;
-- `*RMKill PThreadTicker` refusal;
 - R1 and R2 (on the machine where Warzone 2100 crashed).
 - K5-K7, S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
-  from the 2026-10-01 review);
+  from the 2026-10-01 review); `ForkExec` (fxtest) in UnixLibTests.zip
+  covers K5/K6 (fork, vfork + failed exec, system() from a threaded
+  program).
 
-- `*RMKill PThreadTicker` while a threaded program runs: must refuse. This
-  also settles a point the review disputed (whether `OS_Module 18` returns
-  the module's private word or its address in R4).
+**Done on RISC OS:** `*RMKill PThreadTicker` while a UnixLib program was
+using the module (Pi 4, 2026-10-01) was refused with "PThreadTicker is in
+use by UnixLib programs". This settles the point the review disputed:
+`OS_Module 18` gives the private word's contents (the workspace pointer)
+in R4, as the code assumes, so the module's count works.
 
 **Stack pages and other SWIs (R2):** only `read()` on RISC OS files maps a
 stack buffer's pages first. Socket reads, OS_File loads, `readlink` and

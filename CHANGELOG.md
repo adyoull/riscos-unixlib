@@ -7,6 +7,14 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- Pi 4: `*RMKill PThreadTicker` is refused while a UnixLib program uses
+  the module, which settles the review's disputed point (OS_Module 18's
+  R4 is the private word's contents).
+- RISC OS tests: `ForkExec` (`fxtest`): fork, vfork + a failing exec, and
+  system() from a program with two busy threads; the threads must keep
+  running, and with the module loaded, its count must not change and
+  RMKill must be refused.
+
 - Pi 4 result for 5.0.3.1-rc4: `BigHeap` PASS (two full 128 MB areas and
   a third, then one 200 MB block across them), `HeapCheck` PASS. OpenTTD
   relinked with rc4 loads a 4096x4096 map.

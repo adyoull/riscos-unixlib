@@ -1,0 +1,6 @@
+| fork/vfork/exec from a threaded program: the threads must keep running
+| and (after LoadTicker) PThreadTicker must keep counting this program and
+| refuse RMKill. Must print PASS. Run it once before and once after LoadTicker.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.fxtest
