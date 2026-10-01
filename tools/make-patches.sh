@@ -9,20 +9,23 @@ cd "$(dirname "$0")/.."
 
 # The unchanged import of GCCSDK's UnixLib (see tools/import-commit.sh).
 IMPORT=$(tools/import-commit.sh)
-# The sound work on its own (for offering to GCCSDK): from the commit
-# before it to the last sound commit.
+# The sound work on its own (for offering to GCCSDK): the device hooks
+# from the original sound commits (SOUND_FROM..SOUND_TO, outside sound/),
+# plus libunixlib/sound/ as it is now, so later sound fixes are included.
 SOUND_FROM=5f334f8
 SOUND_TO=14f0161
 
 gen () {
-  git diff "$1" "$2" --src-prefix=a/gcc4/recipe/files/gcc/ \
-    --dst-prefix=b/gcc4/recipe/files/gcc/ -- libunixlib
+  a=$1 b=$2; shift 2
+  git diff "$a" "$b" --src-prefix=a/gcc4/recipe/files/gcc/ \
+    --dst-prefix=b/gcc4/recipe/files/gcc/ -- "${@:-libunixlib}"
 }
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 gen "$IMPORT" HEAD > "$tmp/unixlib-riscos.diff"
-gen "$SOUND_FROM" "$SOUND_TO" > "$tmp/unixlib-sound.diff"
+{ gen "$SOUND_FROM" "$SOUND_TO" libunixlib ':(exclude)libunixlib/sound'
+  gen "$IMPORT" HEAD libunixlib/sound; } > "$tmp/unixlib-sound.diff"
 
 if [ "$1" = "--check" ]; then
   bad=0

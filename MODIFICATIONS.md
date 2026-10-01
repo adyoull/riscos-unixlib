@@ -12,7 +12,7 @@ challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
 diff against unchanged GCCSDK UnixLib: 49 modified files and 7 added files).
-`patches/unixlib-sound.diff` is the sound part (S1-S5) on its own. Each
+`patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
 

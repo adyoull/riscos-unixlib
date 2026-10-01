@@ -50,8 +50,66 @@ index e45417e..86e7c5a 100644
  /* /dev/custom support */
  extern void *__customopen (struct __unixlib_fd *__fd, const char *file, int __mode);
  extern int __customclose (struct __unixlib_fd *__fd);
+diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/dev.c b/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
+index de312db..a529ff2 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
++++ b/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
+@@ -78,6 +78,11 @@ const struct dev __dev[NDEV] = {
+   /* DEV_EVENTFD */
+   {__nullopen, __eventfd_close, __eventfd_read, __eventfd_write,
+    __nulllseek, __nullioctl, __eventfd_select, __nullstat, __nullfstat,
++   __nullstat},
++
++  /* DEV_MIDI */
++  {__midiopen, __midiclose, __nullread, __midiwrite,
++   __nulllseek, __midiioctl, __nullselect, __nullstat, __nullfstat,
+    __nullstat}
+ };
+ 
+@@ -105,6 +110,9 @@ static const struct sfile __sfile[] = {
+   {"random", DEV_RANDOM},
+   {"urandom", DEV_RANDOM},
+   {"dsp", DEV_DSP},
++  {"midi", DEV_MIDI},
++  {"midi0", DEV_MIDI},
++  {"midi00", DEV_MIDI},
+   {"custom", DEV_CUSTOM},
+ /*   {"pipe", DEV_PIPE}, does open on /dev/pipe make sense ?  */
+ /*   {"socket", DEV_SOCKET}, does open on /dev/socket make sense ?  */
+diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
+index 7f47f19..ef2abb8 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
++++ b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
+@@ -47,6 +47,7 @@ static void __badr (void) __attribute__ ((__noreturn__));
+ 
+ /* Only called externally from here - see comment below */
+ extern void __dsp_exit(void);
++extern void __midi_exit(void);
+ 
+ static struct proc ___u;
+ struct proc *__u = &___u;	/* current process */
+@@ -386,6 +387,7 @@ _exit (int return_code)
+ 
+   /* De-register with DigitalRenderer in case of an exception */
+   __dsp_exit();
++  __midi_exit();
+ 
+   /* Convert the 16-bit return code into an 8-bit equivalent
+      for compatibility with RISC OS.
+diff --git a/gcc4/recipe/files/gcc/libunixlib/vscript b/gcc4/recipe/files/gcc/libunixlib/vscript
+index 606421f..952ec65 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/vscript
++++ b/gcc4/recipe/files/gcc/libunixlib/vscript
+@@ -16,6 +16,7 @@ VERSION {
+      __close;
+      __custom*;
+      __dsp*;
++     __midi*;
+      __dynamic_area_exit;
+      __dynamic_area_refcount;
+      __env_read;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
-index 8a2eb72..faa63d0 100644
+index 8a2eb72..1feae0c 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 @@ -16,6 +16,10 @@
@@ -74,16 +132,92 @@ index 8a2eb72..faa63d0 100644
  
  #include <internal/os.h>
  #include <internal/dev.h>
-@@ -46,17 +52,21 @@ static int dr_frequency = 44100;
+@@ -46,19 +52,96 @@ static int dr_frequency = 44100;
  
  static int dr_buffers = 0;     /* Number of buffers in use */
  static int dr_fragscale = 1;
 +static int dr_owner = 0;       /* Non-zero once this program activated it */
++
++/* 2026: the process whose SharedSoundBuffer stream or DigitalRenderer
++   session this is.  A fork()/vfork() child has a copy of (or shares) these
++   variables but not the session: its _exit() must leave the parent's sound
++   alone.  */
++static pid_t dsp_owner_pid;
++
++/* 2026: DigitalRenderer has one user at a time and doesn't say who.  A
++   program that activates it puts its pid in this system variable; one that
++   finds another pid there has been taken over and must not deactivate the
++   new owner's session.  A program that doesn't set it (one built with an
++   older UnixLib, or not using UnixLib) can't be detected: after it takes
++   over, the variable still holds this program's pid, and this program
++   stops DigitalRenderer when it closes or exits, as it always did.  If the
++   variable can't be read, it is assumed to be this program's.  */
++#define DR_OWNER_VAR "UnixLib$DSPOwner"
++
++/* Static, like the rest of this device's state (and so the host tests can
++   pass it through their 32-bit fake SWI registers).  */
++static char dr_var_buf[16];
++
++static void
++dr_claim (void)
++{
++  char *buf = dr_var_buf;
++  int len = snprintf (buf, sizeof dr_var_buf, "%d", (int) getpid ());
++  _swix (OS_SetVarVal, _INR(0,4), DR_OWNER_VAR, buf, len, 0, 0);
++}
  
++static void
++dr_unclaim (void)
++{
++  _swix (OS_SetVarVal, _INR(0,4), DR_OWNER_VAR, NULL, -1, 0, 0);
++}
++
++/* Set when another program (with this UnixLib) took DigitalRenderer over
++   from this one.  */
++static int dr_taken_over;
++
++/* Non-zero if this program activated DigitalRenderer and nobody has taken
++   it over since.  */
++static int
++dr_is_ours (void)
++{
++  char *buf = dr_var_buf;
++  int len = 0;
++
++  if (!dr_owner || dsp_owner_pid != getpid ())
++    return 0;
++  if (_swix (OS_ReadVarVal, _INR(0,4) | _OUT(2), DR_OWNER_VAR, buf,
++	     (int) sizeof dr_var_buf - 1, 0, 0, &len) != NULL)
++    return 1;			/* no variable: assume ours, as before */
++  buf[len < 0 ? 0 : len] = '\0';
++  if (atoi (buf) == (int) getpid ())
++    return 1;
++  dr_owner = 0;			/* taken over by another program */
++  dr_taken_over = 1;
++  return 0;
++}
++
++/* Stop DigitalRenderer if it is ours.  */
++static const _kernel_oserror *
++dr_release (void)
++{
++  const _kernel_oserror *err;
++
++  if (!dr_is_ours ())
++    {
++      dr_owner = 0;
++      return NULL;
++    }
++  dr_owner = 0;
++  dr_unclaim ();
++  err = DRender_Deactivate ();
++  DRender_NumBuffers (0);
++  return err;
++}
  
 -/* Avoid warnings, but don't advertise */
 -void __dsp_exit (void);
--
+ 
  /* Close /dev/dsp upon exit if it's still open.  This is mostly
     to ensure that DigitalRenderer is in a good state after
     an Alt-Break or an exception.  */
@@ -92,16 +226,16 @@ index 8a2eb72..faa63d0 100644
 +static void
 +dr_exit (void)
  {
+-  DRender_Deactivate ();
+-  DRender_NumBuffers (0);
 +  /* 2026: only if this program started DigitalRenderer.  _exit() calls this
 +     in every program, so it used to stop the sound of whichever other
 +     program was playing whenever any UnixLib program quit.  */
-+  if (!dr_owner)
-+    return;
-+  dr_owner = 0;
-   DRender_Deactivate ();
-   DRender_NumBuffers (0);
++  (void) dr_release ();
  }
-@@ -91,6 +101,18 @@ static const _kernel_oserror *
+ 
+ 
+@@ -91,6 +174,18 @@ static const _kernel_oserror *
  activate_defaults (void)
  {
    const _kernel_oserror *err;
@@ -120,16 +254,21 @@ index 8a2eb72..faa63d0 100644
    if (dr_format == AFMT_S16_LE)
      {
        if ((err = DRender_Activate16 (dr_channels, DRENDERER_BUFFER_SIZE,
-@@ -109,6 +131,8 @@ activate_defaults (void)
+@@ -109,6 +204,13 @@ activate_defaults (void)
        err = DRender_Activate (dr_channels, DRENDERER_BUFFER_SIZE,
                                1e6 / dr_frequency, NULL);
      }
 +  if (err == NULL)
-+    dr_owner = 1;
++    {
++      dr_owner = 1;
++      dr_taken_over = 0;
++      dsp_owner_pid = getpid ();
++      dr_claim ();
++    }
    return err;
  }
  
-@@ -123,8 +147,13 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
+@@ -123,8 +225,14 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
    if ((err = check_state (&old_state)) != NULL)
      return err;
  
@@ -137,15 +276,16 @@ index 8a2eb72..faa63d0 100644
 -    DRender_Deactivate ();
 +  /* Only stop DigitalRenderer if this program is the one playing; the new
 +     settings take effect at the next write.  */
-+  if (dr_owner && (old_state & DRState_Active) && (old_state != -1))
++  if (dr_is_ours () && (old_state & DRState_Active) && (old_state != -1))
 +    {
++      dr_unclaim ();
 +      DRender_Deactivate ();
 +      dr_owner = 0;
 +    }
  
    if (channels)
      dr_channels = channels;
-@@ -148,12 +177,7 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
+@@ -148,12 +256,7 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
                       )
                  + 1;
      }
@@ -159,7 +299,7 @@ index 8a2eb72..faa63d0 100644
  
  #if 0 /* Defer re-activating until samples are written to the stream */
    if ((old_state & DRState_Active) && (old_state != -1))
-@@ -164,8 +188,8 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
+@@ -164,8 +267,8 @@ set_defaults (struct __unixlib_fd *fd, int channels, int format, int frequency,
  }
  
  
@@ -170,7 +310,7 @@ index 8a2eb72..faa63d0 100644
  {
    const _kernel_oserror *err = NULL;
    dr_fragscale = 1;
-@@ -181,7 +205,7 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
+@@ -181,7 +284,7 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
    */
    {
      int state;
@@ -179,7 +319,7 @@ index 8a2eb72..faa63d0 100644
          && (err = check_state (&state)) == NULL
          && !(state & DRState_Active)
         )
-@@ -191,7 +215,7 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
+@@ -191,7 +294,7 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
    /*
      Set the defaults but don't activate them yet.
    */
@@ -188,7 +328,7 @@ index 8a2eb72..faa63d0 100644
  #endif
    if (err)
      return (void *) __ul_seterr (err, EOPSYS);
-@@ -199,12 +223,15 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
+@@ -199,15 +302,16 @@ __dspopen (struct __unixlib_fd *fd, const char *file, int mode)
  }
  
  
@@ -199,14 +339,18 @@ index 8a2eb72..faa63d0 100644
  {
    if (fd->devicehandle->handle)
      {
-       const _kernel_oserror *err;
-+      if (!dr_owner)
-+        return 0;	/* Never played anything: leave others' sound alone.  */
-+      dr_owner = 0;
-       if ((err = DRender_Deactivate ()) != NULL)
+-      const _kernel_oserror *err;
+-      if ((err = DRender_Deactivate ()) != NULL)
++      /* Only if this program is still the one playing: leave others'
++         sound alone.  */
++      const _kernel_oserror *err = dr_release ();
++      if (err != NULL)
          return __ul_seterr (err, EOPSYS);
-       DRender_NumBuffers (0);
-@@ -221,8 +248,8 @@ __dsplseek (struct __unixlib_fd *fd, __off_t lpos, int whence)
+-      DRender_NumBuffers (0);
+     }
+   return 0;
+ }
+@@ -221,8 +325,8 @@ __dsplseek (struct __unixlib_fd *fd, __off_t lpos, int whence)
  }
  
  
@@ -217,27 +361,36 @@ index 8a2eb72..faa63d0 100644
  {
    const _kernel_oserror *err;
  
-@@ -240,9 +267,16 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
+@@ -240,10 +344,24 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
    */
    {
      int state;
 -    if (   (err = check_state (&state)) == NULL
 -        && !(state & DRState_Active)
 -       )
-+    if ((err = check_state (&state)) == NULL && !dr_owner)
+-      err = activate_defaults ();
++    if ((err = check_state (&state)) == NULL)
 +      {
-+        /* Someone else is playing: DigitalRenderer has one user at a
-+           time, so take it over (as before), but only now that this
-+           program has something to play.  */
-+        if (state & DRState_Active)
-+          DRender_Deactivate ();
-+        err = activate_defaults ();
++        int ours = dr_is_ours ();
++        if (!(state & DRState_Active))
++          err = activate_defaults ();	/* nobody is playing */
++        else if (!ours && !dr_taken_over)
++          {
++            /* Someone else is playing: DigitalRenderer has one user at a
++               time, so take it over (as before), but only now that this
++               program has something to play.  */
++            DRender_Deactivate ();
++            err = activate_defaults ();
++          }
++        /* 2026: else either ours, or another program took it over from
++           this one: then stream into its session, as before, rather than
++           take it back on every write (two programs would fight over it
++           and both stutter).  Its exit is its business.  */
 +      }
-+    else if (err == NULL && !(state & DRState_Active))
-       err = activate_defaults ();
      if (err)
        return __ul_seterr (err, EOPSYS);
-@@ -280,8 +314,8 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
+   }
+@@ -280,8 +398,8 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
  }
  
  
@@ -248,7 +401,7 @@ index 8a2eb72..faa63d0 100644
  {
    request &= 0xffff;
  
-@@ -405,3 +439,563 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+@@ -405,3 +523,637 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
  
    return __set_errno (EINVAL);
  }
@@ -289,8 +442,25 @@ index 8a2eb72..faa63d0 100644
 +#define SSB_OUT_FRAG_DEFAULT 4096	/* output bytes: 1024 frames */
 +#define SSB_NFRAGS_DEFAULT   8		/* ~190 ms at 44.1 kHz */
 +
++/* 2026: <sys/soundcard.h> encodes requests one of two ways: with its own
++   _SIOR (direction "out" = 0x20000000) or, when <sys/ioctl.h> was included
++   first, with _IOR (0x40000000).  A program may use either, so the
++   read-only requests told apart by their full value are checked in both.
++   (With the second encoding, a read request has the same value as the
++   first encoding's _SIOW write request: only treat a value as a read
++   where no write request of that number is handled.)  */
++#define OSS_READ(enc, n)  ((unsigned long) ((enc) | ((sizeof (int) & 0x1fff) << 16) | ('P' << 8) | (n)))
++#define OSS_IS_READ(req, n)  ((req) == OSS_READ (0x20000000, n) || (req) == OSS_READ (0x40000000, n))
++
 +enum { BACKEND_NONE, BACKEND_DR, BACKEND_SSB };
 +static int dsp_backend = BACKEND_NONE;
++/* 2026: /dev/dsp descriptors open in this program (dup()s share one).  The
++   device state is per program, so a second open shares the first one's
++   stream and settings; it used to close the first one's stream and reset
++   its settings, and its close switched the first one to DigitalRenderer
++   (SDL probes the device like this).  */
++static int dsp_opens;
++static pid_t dsp_open_pid;	/* the process that opened it */
 +
 +static struct
 +{
@@ -398,6 +568,7 @@ index 8a2eb72..faa63d0 100644
 +	 ssb.rate * 1024);
 +  _swix (XSharedSoundBuffer_Volume, _INR(0,1), ssb.handle, 0xFFFFFFFF);
 +  ssb.played_base = ssb.last_frag = 0;
++  dsp_owner_pid = getpid ();
 +  /* Paused until a fragment is queued, so it doesn't start by running
 +     dry.  */
 +  ssb_pause (1);
@@ -736,7 +907,10 @@ index 8a2eb72..faa63d0 100644
 +      return 0;
 +
 +    case SNDCTL_DSP_GETTRIGGER & 0xffff:	/* and SETTRIGGER */
-+      if (full_request == (unsigned long) SNDCTL_DSP_GETTRIGGER)
++      /* GETTRIGGER in either encoding (OSS_READ).  The second one has the
++	 same value as SETTRIGGER in the first; writing PCM_ENABLE_OUTPUT
++	 back to a SETTRIGGER caller is harmless (it is ignored anyway).  */
++      if (OSS_IS_READ (full_request, 16))
 +	*iarg = PCM_ENABLE_OUTPUT;
 +      return 0;
 +    }
@@ -749,12 +923,24 @@ index 8a2eb72..faa63d0 100644
 +
 +void __dsp_exit (void);
 +
-+/* Called from _exit() in every program: only undo what this one did.  */
++/* Called from _exit() in every program: only undo what this one did.
++   2026: a fork()/vfork() child inherits (or shares) the parent's stream
++   handle and DigitalRenderer state; its exit must not close them.  */
 +void
 +__dsp_exit (void)
 +{
++  if (dsp_owner_pid != getpid ())
++    return;
 +  ssb_close_stream ();
 +  dr_exit ();
++  /* The process is ending: the descriptors are closed after this.  Not if
++     another process (the parent of a vfork child that played on the
++     parent's descriptor) opened them: they are still the parent's.  */
++  if (dsp_open_pid == getpid ())
++    {
++      dsp_opens = 0;
++      dsp_backend = BACKEND_NONE;
++    }
 +}
 +
 +void *
@@ -764,12 +950,20 @@ index 8a2eb72..faa63d0 100644
 +  int force_dr = want && (strcasecmp (want, "DigitalRenderer") == 0
 +			  || strcasecmp (want, "DRender") == 0);
 +  int force_ssb = want && strcasecmp (want, "SharedSound") == 0;
++  void *ret;
 +
++  if (dsp_opens > 0 && dsp_backend != BACKEND_NONE)
++    {
++      dsp_opens++;
++      return (void *) 1;
++    }
 +  ssb_close_stream ();
 +  if (!force_dr && ssb_available ())
 +    {
 +      dsp_backend = BACKEND_SSB;
 +      ssb_set_defaults ();
++      dsp_opens = 1;
++      dsp_open_pid = getpid ();
 +      return (void *) 1;
 +    }
 +  if (force_ssb)
@@ -778,12 +972,24 @@ index 8a2eb72..faa63d0 100644
 +      return (void *) -1;
 +    }
 +  dsp_backend = BACKEND_DR;
-+  return dr_open (fd, file, mode);
++  ret = dr_open (fd, file, mode);
++  if (ret != (void *) -1)
++    {
++      dsp_opens = 1;
++      dsp_open_pid = getpid ();
++    }
++  return ret;
 +}
 +
 +int
 +__dspclose (struct __unixlib_fd *fd)
 +{
++  if (dsp_opens > 1)
++    {
++      dsp_opens--;		/* another descriptor still uses it */
++      return 0;
++    }
++  dsp_opens = 0;
 +  if (dsp_backend == BACKEND_SSB)
 +    {
 +      /* Like OSS: let what was written finish playing.  */
@@ -808,16 +1014,37 @@ index 8a2eb72..faa63d0 100644
 +int
 +__dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
 +{
++  /* 2026: requests are matched on their low 16 bits below, but the
++     read-only SOUND_PCM_READ_* requests have the same low bits as the
++     setting ones (READ_RATE = SPEED, READ_BITS = SETFMT, READ_CHANNELS =
++     CHANNELS): READ_RATE with 0 used to set the rate to 4000 Hz.  Answer
++     them here from the full request, in either encoding (see
++     OSS_READ).  */
++  if (OSS_IS_READ (request, 2) || OSS_IS_READ (request, 5)
++      || OSS_IS_READ (request, 6))
++    {
++      int ssbe = dsp_backend == BACKEND_SSB;
++      int fmt = ssbe ? ssb.format : dr_format;
++      if (!arg)
++	return __set_errno (EINVAL);
++      if (OSS_IS_READ (request, 2))
++	*(int *) arg = ssbe ? ssb.rate : dr_frequency;
++      else if (OSS_IS_READ (request, 6))
++	*(int *) arg = ssbe ? ssb.channels : dr_channels;
++      else
++	*(int *) arg = (fmt == AFMT_S16_LE || fmt == AFMT_S16_BE) ? 16 : 8;
++      return 0;
++    }
 +  if (dsp_backend == BACKEND_SSB)
 +    return ssb_ioctl (fd, request, arg);
 +  return dr_ioctl (fd, request, arg);
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/midi.c b/gcc4/recipe/files/gcc/libunixlib/sound/midi.c
 new file mode 100644
-index 0000000..47cb3e8
+index 0000000..359a30b
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/midi.c
-@@ -0,0 +1,215 @@
+@@ -0,0 +1,222 @@
 +/*
 + * /dev/midi: OSS-style raw MIDI output for RISC OS.
 + *
@@ -846,6 +1073,7 @@ index 0000000..47cb3e8
 +#include <string.h>
 +#include <strings.h>
 +#include <fcntl.h>
++#include <unistd.h>
 +#include <swis.h>
 +#include <sys/types.h>
 +#include <sys/soundcard.h>
@@ -859,6 +1087,10 @@ index 0000000..47cb3e8
 +static int midi_opens;			/* open /dev/midi descriptors */
 +static int swi_open, swi_close, swi_write, swi_reset, swi_txbyte;
 +static int synth_handle;
++/* 2026: the process that made the connection.  A fork()/vfork() child has
++   a copy of (or shares) these variables but must not close the parent's
++   connection when it exits.  */
++static pid_t midi_owner_pid;
 +
 +/* Avoid warnings, but don't advertise.  */
 +void __midi_exit (void);
@@ -934,6 +1166,7 @@ index 0000000..47cb3e8
 +	{
 +	  midi_kind = MIDI_SYNTH;
 +	  midi_opens = 1;
++	  midi_owner_pid = getpid ();
 +	  return (void *) 1;
 +	}
 +      if (only_synth)
@@ -943,6 +1176,7 @@ index 0000000..47cb3e8
 +    {
 +      midi_kind = MIDI_HW;
 +      midi_opens = 1;
++      midi_owner_pid = getpid ();
 +      return (void *) 1;
 +    }
 +  return (void *) __set_errno (ENODEV);
@@ -1030,64 +1264,6 @@ index 0000000..47cb3e8
 +void
 +__midi_exit (void)
 +{
-+  if (midi_kind != MIDI_NONE)
++  if (midi_kind != MIDI_NONE && midi_owner_pid == getpid ())
 +    midi_disconnect ();
 +}
-diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/dev.c b/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
-index de312db..a529ff2 100644
---- a/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
-+++ b/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
-@@ -78,6 +78,11 @@ const struct dev __dev[NDEV] = {
-   /* DEV_EVENTFD */
-   {__nullopen, __eventfd_close, __eventfd_read, __eventfd_write,
-    __nulllseek, __nullioctl, __eventfd_select, __nullstat, __nullfstat,
-+   __nullstat},
-+
-+  /* DEV_MIDI */
-+  {__midiopen, __midiclose, __nullread, __midiwrite,
-+   __nulllseek, __midiioctl, __nullselect, __nullstat, __nullfstat,
-    __nullstat}
- };
- 
-@@ -105,6 +110,9 @@ static const struct sfile __sfile[] = {
-   {"random", DEV_RANDOM},
-   {"urandom", DEV_RANDOM},
-   {"dsp", DEV_DSP},
-+  {"midi", DEV_MIDI},
-+  {"midi0", DEV_MIDI},
-+  {"midi00", DEV_MIDI},
-   {"custom", DEV_CUSTOM},
- /*   {"pipe", DEV_PIPE}, does open on /dev/pipe make sense ?  */
- /*   {"socket", DEV_SOCKET}, does open on /dev/socket make sense ?  */
-diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
-index 7f47f19..ef2abb8 100644
---- a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
-+++ b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
-@@ -47,6 +47,7 @@ static void __badr (void) __attribute__ ((__noreturn__));
- 
- /* Only called externally from here - see comment below */
- extern void __dsp_exit(void);
-+extern void __midi_exit(void);
- 
- static struct proc ___u;
- struct proc *__u = &___u;	/* current process */
-@@ -386,6 +387,7 @@ _exit (int return_code)
- 
-   /* De-register with DigitalRenderer in case of an exception */
-   __dsp_exit();
-+  __midi_exit();
- 
-   /* Convert the 16-bit return code into an 8-bit equivalent
-      for compatibility with RISC OS.
-diff --git a/gcc4/recipe/files/gcc/libunixlib/vscript b/gcc4/recipe/files/gcc/libunixlib/vscript
-index 606421f..952ec65 100644
---- a/gcc4/recipe/files/gcc/libunixlib/vscript
-+++ b/gcc4/recipe/files/gcc/libunixlib/vscript
-@@ -16,6 +16,7 @@ VERSION {
-      __close;
-      __custom*;
-      __dsp*;
-+     __midi*;
-      __dynamic_area_exit;
-      __dynamic_area_refcount;
-      __env_read;
