@@ -81,7 +81,10 @@ Version numbers are **UnixLib versions**, continuing from the GCCSDK
 UnixLib the repo is based on (5.0; `AC_INIT` in `libunixlib/configure.ac`
 and `libunixlib/doc/UnixLib/Help` carry the number, change both). A PATCH
 release (5.0.1, 5.0.2...) is fixes and small additions; bigger additions
-(new devices, many new functions) make a MINOR one (5.1). If we move to a
+(new devices, many new functions) make a MINOR one (5.1). Fixes to a
+release that went out with problems can take a fourth number (5.0.3.1,
+the fixes from the 2026-10-01 review of 5.0.3); the tools take any
+`vX.Y.Z[.W][-rcN]` tag. If we move to a
 newer GCCSDK UnixLib, continue from its number. The first releases were
 numbered 0.1.x (`v0.1.0` = `22511f2`, `v0.1.1-rc1`).
 Anything not yet run on RISC OS is released as a **pre-release**

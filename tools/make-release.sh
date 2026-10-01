@@ -1,12 +1,12 @@
 #!/bin/sh -e
 # Build everything for a GitHub release from a clean tree at a tag:
-#   tools/make-release.sh vX.Y.Z[-rcN]
+#   tools/make-release.sh vX.Y.Z[.W][-rcN]
 # Output: out/release/<tag>/ (libunixlib.a, patches, UnixLibTests.zip,
 # PThreadTicker-<version>.zip for RISC OS users, SHA256SUMS).
 # Needs everything `make lib` and `make riscos-tests` need.
 cd "$(dirname "$0")/.."
 TAG=$1
-[ -n "$TAG" ] || { echo "usage: $0 vX.Y.Z[-rcN]" >&2; exit 1; }
+[ -n "$TAG" ] || { echo "usage: $0 vX.Y.Z[.W][-rcN]" >&2; exit 1; }
 git diff --quiet HEAD || { echo "uncommitted changes; commit first" >&2; exit 1; }
 git rev-parse -q --verify "refs/tags/$TAG" >/dev/null ||
   { echo "no tag $TAG; tag the release commit first" >&2; exit 1; }

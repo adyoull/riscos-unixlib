@@ -7,8 +7,15 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
-Found by an independent review of all the changes (2026-10-01). Not yet
-run on RISC OS.
+## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
+
+Fixes for problems in 5.0.3 (and earlier) found by an independent review
+of all the changes (2026-10-01). **Not yet run on RISC OS**, so released as
+a pre-release; once the Pi tests pass, the same commit is tagged v5.0.3.1.
+The library's exported symbols are the same as 5.0.3's apart from one
+internal function (`__pthread_ticker_owner`).
+
+- Numbered as UnixLib 5.0.3.1 (`configure.ac`, `doc/UnixLib/Help`).
 
 - **Thread ticker: a fork/vfork child's exit no longer tears down the
   parent's ticker.** `_exit()` in the child (e.g. after a failed `exec`)

@@ -13,7 +13,7 @@ with the fixes made while porting programs to RISC OS: OpenTTD 14.1,
 Warzone 2100 2.3.9 and the riscos-mesa SDL2 work. One place for all UnixLib
 changes, so every port links against the same library.
 
-**Version: UnixLib 5.0.3.** Base: UnixLib 5.0, `gcc4/recipe/files/gcc/libunixlib`
+**Version: UnixLib 5.0.3.1 (pre-release 5.0.3.1-rc1).** Base: UnixLib 5.0, `gcc4/recipe/files/gcc/libunixlib`
 from [jhamby/riscos-gccsdk](https://github.com/jhamby/riscos-gccsdk) at
 `64c6f81` (2023-08-11). The first commit is that copy, unchanged; every change
 after it is a separate commit.
