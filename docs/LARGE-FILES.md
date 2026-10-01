@@ -48,7 +48,7 @@ headers** into a new program:
 | `lseek64`, `fseeko64`, `ftello64`, `fgetpos64` | up to 2GB-1 | up to 4GB-1 (same signatures) |
 | `fsetpos64` | broken (used the pointer, not the position) | fixed |
 | `truncate`/`ftruncate` with `_FILE_OFFSET_BITS=64` | 32-bit length | `truncate64`/`ftruncate64` |
-| `mmap` with `_FILE_OFFSET_BITS=64` | offset passed in the wrong place | `mmap64` |
+| `mmap` with `_FILE_OFFSET_BITS=64` | offset passed in the wrong place | `mmap64` (offsets to 4GB-1 since 5.0.3.1-rc2; 2GB-1 before) |
 | `FILE`, `fpos_t`, `off_t` | | unchanged in every mode |
 
 The new `struct stat64` layout comes with **new symbol names**, so old

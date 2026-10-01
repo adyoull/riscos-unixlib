@@ -27,6 +27,15 @@
 
 extern void __mmap_page_copy (void * dst, void * src, int len);
 
+/* 2026: file offsets are kept by ARMEABISupport as one 32-bit word and
+   used here as unsigned, so mmap64 can map from 2GB up to 4GB-1 (the
+   largest RISC OS file).  Positions are moved with lseek64, which also
+   saves and restores a file position above 2GB.  */
+extern __off64_t lseek64 (int __fd, __off64_t __offset, int __whence);
+#define FILE_OFFSET(o) ((__off64_t) (unsigned long) (o))
+void *__mmap_offset32 (void *addr, size_t len, int prot, int flags, int fd,
+		       unsigned long offset);
+
 static char coredump_dir[256];
 
 void
@@ -101,6 +110,18 @@ __munmap_all (void)
 void *
 mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
 {
+  /* 2026: a negative offset is an error, as POSIX says (it used to seek
+     nowhere and map whatever followed the file's current position).  */
+  if (offset < 0)
+    return (void *) __set_errno (EINVAL);
+  return __mmap_offset32 (addr, len, prot, flags, fd, (unsigned long) offset);
+}
+
+/* mmap, and mmap64 for offsets up to 4GB-1.  */
+void *
+__mmap_offset32 (void *addr, size_t len, int prot, int flags, int fd,
+		 unsigned long offset)
+{
   struct ul_global *gbl = &__ul_global;
 
   PTHREAD_UNSAFE
@@ -139,9 +160,9 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
   /* FIXME: Take into account file/memory protections.  */
   int count = 0;
 
-  off_t oldpos = lseek (fd, 0, SEEK_CUR);
+  __off64_t oldpos = lseek64 (fd, 0, SEEK_CUR);
 
-  lseek (fd, offset, SEEK_SET);
+  lseek64 (fd, FILE_OFFSET (offset), SEEK_SET);
 
   while (count < mapped_size)
     {
@@ -151,7 +172,7 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
 	{
 	  int save_errno = errno;
 	  munmap (result, mapped_size);
-	  lseek (fd, oldpos, SEEK_SET);
+	  lseek64 (fd, oldpos, SEEK_SET);
 	  return (void *) __set_errno (save_errno);
 	}
       else if (size == 0)
@@ -159,7 +180,7 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
 
       count += size;
     }
-  lseek (fd, oldpos, SEEK_SET);
+  lseek64 (fd, oldpos, SEEK_SET);
 
   /* Ref: http://linux.die.net/man/2/mmap
    * "For a file that is not a multiple of the page size, the remaining memory
@@ -208,10 +229,10 @@ munmap (void * addr, size_t len)
 	     stuff back on msync(), but some software (e.g. mkimage)
 	     seems to rely on the writeback occuring un munmap().  */
           /* Assume that the user only wants 'len' bytes writing.  */
-	  off_t oldpos = lseek (fd, 0, SEEK_CUR);
-	  lseek (fd, offset, SEEK_SET);
+	  __off64_t oldpos = lseek64 (fd, 0, SEEK_CUR);
+	  lseek64 (fd, FILE_OFFSET (offset), SEEK_SET);
 	  write (fd, addr, len);
-	  lseek (fd, oldpos, SEEK_SET);
+	  lseek64 (fd, oldpos, SEEK_SET);
 	}
     }
 
@@ -294,10 +315,10 @@ msync (void * addr, size_t len, int syncflags __attribute__ ((__unused__)))
       addr = mmap_addr;
     }
 
-  off_t oldpos = lseek (fd, 0, SEEK_CUR);
-  lseek (fd, offset + addr - mmap_addr, SEEK_SET);
+  __off64_t oldpos = lseek64 (fd, 0, SEEK_CUR);
+  lseek64 (fd, FILE_OFFSET (offset) + (addr - mmap_addr), SEEK_SET);
   int fail = write (fd, addr, len) != len;
-  lseek (fd, oldpos, SEEK_SET);
+  lseek64 (fd, oldpos, SEEK_SET);
 
   return fail ? __set_errno (EIO) : 0;
 }

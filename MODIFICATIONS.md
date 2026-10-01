@@ -822,8 +822,14 @@ under `_FILE_OFFSET_BITS=64`, but the library's `mmap` takes a 32-bit offset.
 Such programs passed the offset where `mmap` didn't look for it.
 
 **Change.** `mmap` is declared with `__off_t`. Under `_FILE_OFFSET_BITS=64`
-it maps to the new `mmap64`, which takes a 64-bit offset. The offset must fit
-in 32 bits, otherwise `EOVERFLOW`.
+it maps to the new `mmap64`, which takes a 64-bit offset. On EABI (since
+5.0.3.1-rc2) offsets up to 4GB-1, the largest RISC OS file, are mapped:
+ARMEABISupport keeps the offset as one 32-bit word, which `mmap`, `munmap`
+and `msync` now treat as unsigned, moving the file position with `lseek64`.
+Larger offsets give `EOVERFLOW`. `mmap` itself refuses a negative offset
+(`EINVAL`, as POSIX says); it used to seek nowhere and map whatever
+followed the file's current position. Other builds: the offset must fit in
+32 bits signed.
 
 **Effect.** New compiles are correct. Objects already compiled with
 `_FILE_OFFSET_BITS=64` that call `mmap` still pass the offset wrongly, as

@@ -52,6 +52,11 @@ How to release: docs/MAINTAINING.md.
   quitting at once in TaskWindows can't lose a count. Same interface;
   works with every UnixLib that uses the module.
 
+- **`mmap64`** maps file offsets from 2GB up to 4GB-1 on EABI (it gave
+  `EOVERFLOW` above 2GB-1); `munmap`/`msync` write back to the right place
+  for them. `mmap` with a negative offset fails with `EINVAL` (it mapped
+  from the wrong place). Compiled and checked by reading, not yet run.
+
 ## 5.0.3.1 (2026-10-01, pre-release, tag v5.0.3.1-rc1)
 
 Fixes for problems in 5.0.3 (and earlier) found by an independent review
