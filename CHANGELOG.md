@@ -7,7 +7,8 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
-- Pi 4 with rc8: `ForkOnly`, `ForkThreads` and `ForkExec` PASS (K8, X2).
+- Pi 4 with rc8: `ForkOnly`, `ForkThreads` and `ForkExec` PASS (K8, X2);
+  `ExitJoin` (X1), `FsyncRO` (F1) and `Sched` (P1, P2) PASS.
 
 ## 5.0.3.1-rc8 (2026-10-01, pre-release, tag v5.0.3.1-rc8)
 
