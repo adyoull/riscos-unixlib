@@ -2,7 +2,7 @@
    Two threads write 1 to an eventfd as fast as they can for about 10
    seconds while the main thread reads it (non-blocking); every write must
    be counted exactly once.  Then a blocking read must wake when another
-   thread writes.  Before 5.0.3.2-rc1 the counter's load and store could
+   thread writes (rc1 stopped there: "pthread_yield called with context switching disabled").  Before 5.0.3.2-rc1 the counter's load and store could
    be split by a thread switch, losing counts (GLib's main-loop wakeups
    use an eventfd).  */
 #include <errno.h>

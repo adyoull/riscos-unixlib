@@ -16,10 +16,9 @@
 #define MAX_COUNTER (UINT64_MAX - 1)
 
 /* 2026: the counter's read-modify-write is done with thread switching held
-   off.  write () and read () don't hold it off themselves, so a thread
-   switch between the load and the store could lose an increment or hand
-   the same count to two readers.  It's released again before
-   pthread_yield ().  */
+   off.  write () doesn't hold it off itself, so a thread switch between
+   the load and the store could lose an increment.  It's released again
+   before waiting for the other side.  */
 static void
 counter_lock (void)
 {
@@ -32,6 +31,32 @@ counter_unlock (void)
 {
   if (__ul_global.pthread_system_running)
     __pthread_enable_ints ();
+}
+
+/* 2026: a blocking read or write waits for the other side.  read (),
+   readv () and writev () hold thread switching off for the whole call
+   (PTHREAD_UNSAFE_CANCELLATION); write () doesn't.  pthread_yield () with
+   switching held off is a fatal error ("pthread_yield called with context
+   switching disabled"), so a blocking eventfd read never worked with
+   threads running.  If our caller holds switching off, release that hold
+   around the yield, as dsp.c does for its own.  The hold's return address
+   is a single global that another thread's PTHREAD_UNSAFE call can replace
+   while this one waits, so keep ours and put it back once switching is
+   held off again.  */
+static void
+wait_for_other_side (void)
+{
+  if (__ul_global.pthread_system_running
+      && __ul_global.pthread_callevery_rma->pthread_worksemaphore != 0)
+    {
+      void *ret = __ul_global.pthread_return_address;
+      __pthread_enable_ints ();
+      pthread_yield ();
+      __pthread_disable_ints ();
+      __ul_global.pthread_return_address = ret;
+    }
+  else
+    pthread_yield ();
 }
 
 int
@@ -106,7 +131,7 @@ __eventfd_read (struct __unixlib_fd *file_desc, void *data, int nbyte)
 
 	/* If we are blocking, then yield to other threads so the one doing the writing
 	 * can signal when it's ready (by incrementing the counter).  */
-	pthread_yield();
+	wait_for_other_side ();
     }
 
   return __set_errno (EAGAIN);
@@ -151,7 +176,7 @@ __eventfd_write (struct __unixlib_fd *file_desc, const void *data, int nbyte)
 
       /* If we are blocking, then yield to other threads so that the one doing the
        * reading can signal when it's ready (by reducing the counter).  */
-      pthread_yield();
+      wait_for_other_side ();
     }
 
   return __set_errno (EAGAIN);

@@ -1,4 +1,4 @@
-| eventfd between threads (counts lost or doubled before 5.0.3.2-rc1)
+| eventfd between threads (counts lost before 5.0.3.2-rc1; blocking read EMT in rc1)
 Set UST$Dir <Obey$Dir>
 WimpSlot -min 8000K
 Run <UST$Dir>.efdtest

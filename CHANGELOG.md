@@ -5,6 +5,17 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.2-rc2 (2026-10-03, pre-release, tag v5.0.3.2-rc2)
+
+- **A blocking eventfd read works with threads running.** On the Pi,
+  rc1's `EventFD` stopped with "EMT - pthread_yield called with context
+  switching disabled": `read()` holds thread switching off for the whole
+  call and the eventfd read waited with `pthread_yield ()`. It always did
+  (GCCSDK's code too), so GLib's blocking reads would have stopped the
+  same way. The wait now releases `read()`'s hold around the yield and
+  keeps its return address. The same for a blocking `writev()`.
+  MODIFICATIONS.md E1.
+
 ## 5.0.3.2-rc1 (2026-10-03, pre-release, tag v5.0.3.2-rc1)
 
 Fixes reported by the GTK port. Not yet run on RISC OS.

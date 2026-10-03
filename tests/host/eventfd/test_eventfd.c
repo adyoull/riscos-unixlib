@@ -21,8 +21,10 @@ static int failures, checks;
 #define CHECK(c) do { checks++; if (!(c)) { failures++; \
   printf ("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
 
-/* Thread-switch hold.  */
-static int depth, max_depth, holds, bad_enable, yield_while_held;
+/* Thread-switch hold: the work semaphore, as the real one.  */
+static struct __pthread_callevery_block rma;
+#define depth (rma.pthread_worksemaphore)
+static int max_depth, holds, bad_enable, yield_while_held;
 int __pthread_disable_ints (void)
 {
   holds++;
@@ -55,7 +57,7 @@ static void *fake_malloc (int pid, int size) { (void) pid; return malloc (size);
 static void fake_free (int pid, void *p) { (void) pid; free (p); }
 static struct __sul_process proc = { 1, sizeof (struct __unixlib_fd_handle),
 				     fake_malloc, fake_free };
-struct ul_global __ul_global = { &proc, 1 };
+struct ul_global __ul_global = { &proc, 1, &rma, NULL };
 
 static struct __unixlib_fd fds[4];
 int __alloc_file_descriptor (int start) { (void) start; return 3; }
@@ -69,6 +71,14 @@ static void other_writes_2 (void)
   eventfd_t two = 2;
   other_thread = NULL;
   __eventfd_write (efd, &two, sizeof two);
+}
+
+/* Another thread's PTHREAD_UNSAFE call replaces the hold's return
+   address while the reader waits.  */
+static void other_writes_2_unsafe (void)
+{
+  __ul_global.pthread_return_address = (void *) 0xDEAD;
+  other_writes_2 ();
 }
 
 static void other_reads (void)
@@ -133,6 +143,20 @@ int main (void)
   CHECK (__eventfd_read (efd, &v, sizeof v) == sizeof v && v == 2);
   CHECK (yields == 1 && !yield_while_held && depth == 0 && !bad_enable);
 
+  /* The same through read (), which holds switching off for the whole
+     call (PTHREAD_UNSAFE_CANCELLATION): the wait must release that hold
+     around pthread_yield and give back read ()'s return address.  Before,
+     this was "pthread_yield called with context switching disabled".  */
+  reset ();
+  depth = 1;
+  __ul_global.pthread_return_address = (void *) 0x8123;
+  other_thread = other_writes_2_unsafe;
+  CHECK (__eventfd_read (efd, &v, sizeof v) == sizeof v && v == 2);
+  CHECK (yields == 1 && !yield_while_held && !bad_enable);
+  CHECK (depth == 1);
+  CHECK (__ul_global.pthread_return_address == (void *) 0x8123);
+  depth = 0;
+
   /* Blocking write that would overflow yields, unheld, until a read.  */
   *(eventfd_t *) efd->devicehandle->handle = UINT64_MAX - 1;
   reset ();
@@ -141,6 +165,18 @@ int main (void)
   CHECK (__eventfd_write (efd, &v, sizeof v) == sizeof v);
   CHECK (yields == 1 && !yield_while_held && depth == 0 && !bad_enable);
   CHECK (*(eventfd_t *) efd->devicehandle->handle == 1);
+
+  /* The same through writev (), which holds switching off.  */
+  *(eventfd_t *) efd->devicehandle->handle = UINT64_MAX - 1;
+  reset ();
+  depth = 1;
+  __ul_global.pthread_return_address = (void *) 0x8456;
+  other_thread = other_reads;
+  v = 1;
+  CHECK (__eventfd_write (efd, &v, sizeof v) == sizeof v);
+  CHECK (yields == 1 && !yield_while_held && depth == 1 && !bad_enable);
+  CHECK (__ul_global.pthread_return_address == (void *) 0x8456);
+  depth = 0;
 
   /* Non-blocking overflowing write: EAGAIN.  UINT64_MAX: EINVAL.  */
   efd->dflag = EFD_NONBLOCK;

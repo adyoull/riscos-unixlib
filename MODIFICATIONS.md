@@ -474,34 +474,49 @@ there).
 **Verification.** `tests/host/getserv` (13 checks): the copy, aliases, an
 odd buffer address, not found, too small, the exact size and one byte short.
 
-### E1. eventfd's counter is updated with thread switching held off (`unix/eventfd.c`)
+### E1. eventfd's counter is updated with thread switching held off; blocking reads work with threads (`unix/eventfd.c`)
 
 **Problem.** Reported by the GTK port (2026-10-03), from reading the code:
 GLib wakes its main loop through an eventfd, written from other threads.
 
 **Cause.** `__eventfd_write` and `__eventfd_read` load the 64-bit counter,
 work out the new value and store it, with nothing stopping a thread
-switch in between: `write()` doesn't hold switching off at all, and
-`read()` only holds off cancellation. A switch between the load and the
-store loses the other thread's update (an increment, or a read's reset to
-0, so a count could be delivered twice). On ARM the 64-bit load is two
-words, so `select()` could also see half an update.
+switch in between in `write()`, which doesn't hold switching off. A switch
+between the load and the store loses the other thread's increment. On ARM
+the 64-bit load is two words, so `select()` could also see half an
+update. (`read()`, `readv()` and `writev()` hold switching off for the
+whole call with `PTHREAD_UNSAFE_CANCELLATION`.)
+
+**Second problem, found on the Pi with 5.0.3.2-rc1.** A blocking read
+of a zero counter (`EventFD`) stopped with "EMT - pthread_yield called
+with context switching disabled". It waited with `pthread_yield ()`, but
+`read()` holds switching off, so a blocking eventfd read never worked with
+threads running (the GCCSDK code has the same fault). A blocking
+`writev()` would do the same.
 
 **Change.** The load, check and store are done between
 `__pthread_disable_ints ()` and `__pthread_enable_ints ()` once threads are
-running, as `malloc` does. The hold is released before `pthread_yield ()`,
-so a blocking read or write still lets the other side run. `select()`
-reads the counter under the hold. No change to the device handle or the
-counter's storage.
+running, as `malloc` does, and released before waiting. `select()` reads
+the counter under the hold. To wait, if the caller holds switching off
+(the work semaphore isn't 0) that hold is released around `pthread_yield
+()`, as `dsp.c` does for its own. The hold's return address
+(`__ul_global.pthread_return_address`) is a single global that another
+thread's `PTHREAD_UNSAFE` call replaces, so it's saved before the yield and
+put back after the hold is taken again. No change to the device handle or
+the counter's storage.
 
-**Verification.** `tests/host/eventfd` (28 checks) counts the hold: read,
-write and select take it, it's always released, it's never held across
-`pthread_yield ()`, and none is taken before threads start; plus the
-semantics (semaphore mode, `EAGAIN`, `EINVAL`, a blocking read woken by a
-write, a blocking write woken by a read). It fails on the old code. On
-RISC OS, `EventFD` (`tests/riscos/efdtest.c`) has two threads write for
-about 10 seconds while the main thread reads, and checks every write is
-counted once; not yet run.
+**Verification.** `tests/host/eventfd` (35 checks) models the work
+semaphore: read, write and select take the hold and release it, it's never
+held across `pthread_yield ()`, and none is taken before threads start. A
+blocking read and write called as `read()`/`writev()` call them (hold
+already taken) release it to yield and get back the same semaphore and
+return address after another thread replaced it. Plus the semantics
+(semaphore mode, `EAGAIN`, `EINVAL`, a blocking read woken by a write, a
+blocking write woken by a read). The first version fails 3 checks; the
+original, more. On RISC OS, `EventFD` (`tests/riscos/efdtest.c`) has two
+threads write for about 10 seconds while the main thread reads, checks
+every write is counted once, then does a blocking read woken by another
+thread. With rc1 its blocking read hit the EMT above.
 
 ### P1. `sched_get_priority_min` / `sched_get_priority_max` (new `sched/sched_prio.c`, `include/sched.h`) - commit `04408eb`
 
