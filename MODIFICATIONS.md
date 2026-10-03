@@ -498,8 +498,10 @@ counter's storage.
 write and select take it, it's always released, it's never held across
 `pthread_yield ()`, and none is taken before threads start; plus the
 semantics (semaphore mode, `EAGAIN`, `EINVAL`, a blocking read woken by a
-write, a blocking write woken by a read). It fails on the old code. Not
-yet run on RISC OS.
+write, a blocking write woken by a read). It fails on the old code. On
+RISC OS, `EventFD` (`tests/riscos/efdtest.c`) has two threads write for
+about 10 seconds while the main thread reads, and checks every write is
+counted once; not yet run.
 
 ### P1. `sched_get_priority_min` / `sched_get_priority_max` (new `sched/sched_prio.c`, `include/sched.h`) - commit `04408eb`
 

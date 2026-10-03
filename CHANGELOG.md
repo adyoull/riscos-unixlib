@@ -22,7 +22,7 @@ Fixes reported by the GTK port. Not yet run on RISC OS.
   interleave between loading and storing the 64-bit counter, losing an
   increment or giving the same count to two readers. `select()` also reads
   it under the hold, so it can't see half an update. Found by the GTK port
-  (GLib's wakeups). MODIFICATIONS.md E1.
+  (GLib's wakeups). MODIFICATIONS.md E1. New RISC OS test `EventFD`.
 
 - **`getservbyname_r`, `getservbyport_r`, `getservent_r` exist.** They
   were declared in `<netdb.h>` but missing from the library, so a
