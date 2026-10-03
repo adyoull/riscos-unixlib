@@ -5,7 +5,17 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
-## Unreleased
+## 5.0.3.2-rc1 (2026-10-03, pre-release, tag v5.0.3.2-rc1)
+
+Fixes reported by the GTK port. Not yet run on RISC OS.
+
+- libtool `-version-info` 7:0:2 (interfaces added); the shared library's
+  major version stays 5.
+
+- **Not changed: `<dlfcn.h>`.** `dlopen` and friends come from GCCSDK's
+  `libdl` (the shared-library loader's, with ENOSYS stubs in its
+  `libdl.a`), not from UnixLib, so the header stays. `RTLD_NOLOAD` isn't
+  added: that `libdl` would load the library anyway.
 
 - **eventfd's counter is updated with thread switching held off.** A
   `write()` and a `read()` (or two writes) in different threads could

@@ -1340,11 +1340,13 @@ file:
 
 ## 6. Version, build and symbols
 
-### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, and the 5.0.3 and 5.0.3.1 release commits
+### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1 and 5.0.3.2 release commits
 
-`AC_INIT` and the Help file say **5.0.3.1**. Releases continue UnixLib's own
-numbering from GCCSDK's 5.0. The libtool version stays `5:0:0`, because no
-interface was removed.
+`AC_INIT` and the Help file say **5.0.3.2**. Releases continue UnixLib's own
+numbering from GCCSDK's 5.0. The libtool `-version-info` is `7:0:2`:
+interfaces have been added (6:0:1 for 5.0.3.1; `getservbyname_r` and
+friends for 5.0.3.2) and none removed, so the shared library's major
+version stays 5.
 
 ### D1. Unofficial fork (`doc/UnixLib/Help`, `configure.ac`; README and other docs)
 
