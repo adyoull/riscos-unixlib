@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 59 modified files and 7 added files).
+diff against unchanged GCCSDK UnixLib: 60 modified files and 7 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1268 |
-| Modified (listed below) | 59 |
+| Byte-identical to GCCSDK `64c6f81` | 1267 |
+| Modified (listed below) | 60 |
 | Added | 7 |
 | Removed relative to upstream | 0 |
 
@@ -67,6 +67,7 @@ the commits are named below.
 | `time/stdtime.c`, `incl-local/internal/os.h`, `incl-local/sys/socket.h`, `common/env.c`, `locale/iconv.c`, `stdio/err.c`, `netlib/scl_getservbyname.c`, `netlib/scl_getservbyport.c`, `resolv/scl_gethostbyname.c` | R1 inline SWI wrappers (`ctime` bad pointer) |
 | `configure.ac`, `doc/UnixLib/Help` | V1 version number, D1 unofficial fork |
 | `unix/unix.c`, `signal/post.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `vscript` | X2 `_exit` takes an exit code |
+| `include/limits.h` | H1 `LLONG_MIN` type |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
 
 The modified files keep their original copyright lines. Code added to them
@@ -433,6 +434,25 @@ whose fork/vfork child calls `_exit (n)` now sees `WIFEXITED` and
 `__exit_status`). On RISC OS: `ForkOnly` and `ForkThreads` check the
 fork child's `_exit (3)` with `WEXITSTATUS`; both PASS on a Pi 4 with
 5.0.3.1-rc8.
+
+### H1. `LLONG_MIN` has type `long long` (`include/limits.h`)
+
+**Problem.** Reported by the GTK port (2026-10-03): harfbuzz 8.3.0's
+`hb_integral_constant<signed long long, LLONG_MIN>` failed to compile
+("narrowing conversion of '9223372036854775808' from 'long long unsigned
+int'").
+
+**Cause.** `LLONG_MIN` was `0x8000000000000000LL`. A hexadecimal constant
+that doesn't fit `long long` has type `unsigned long long`, so `LLONG_MIN`
+was a large positive number: in C, `LLONG_MIN < 0` was false and
+`x < LLONG_MIN` compared as unsigned, silently.
+
+**Change.** `#define LLONG_MIN (-LLONG_MAX - 1LL)`, as `LONG_LONG_MIN` two
+lines above already was and as GCC's own `limits.h` does.
+
+**Verification.** `tests/abi/check.sh` compiles static assertions on the
+type, sign and value of the long long limits in C (`-std=c99`) and the
+harfbuzz construct in C++; both fail with the old header.
 
 ### P1. `sched_get_priority_min` / `sched_get_priority_max` (new `sched/sched_prio.c`, `include/sched.h`) - commit `04408eb`
 

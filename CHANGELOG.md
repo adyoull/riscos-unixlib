@@ -7,6 +7,11 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **`LLONG_MIN` is a negative `long long`.** It was written as
+  `0x8000000000000000LL`, which is an `unsigned long long`, so it compared
+  as a large positive number and C++ rejected it in constant expressions
+  (harfbuzz). Found by the GTK port. MODIFICATIONS.md H1.
+
 ## 5.0.3.1 (2026-10-01, tag v5.0.3.1)
 
 The same code as 5.0.3.1-rc9. Changes since 5.0.3, in short (details in

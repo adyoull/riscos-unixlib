@@ -59,7 +59,10 @@
 
 #ifdef __USE_ISOC99
 /* Minimum and maximum that a signed long long int can hold.  */
-#define LLONG_MIN 0x8000000000000000LL
+/* 2026: was 0x8000000000000000LL, which is an unsigned long long
+   (the value doesn't fit long long), so LLONG_MIN compared as a large
+   positive number.  */
+#define LLONG_MIN (-LLONG_MAX - 1LL)
 #define LLONG_MAX 0x7fffffffffffffffLL
 
 /* Maximum value that an unsigned long long int can hold.  */

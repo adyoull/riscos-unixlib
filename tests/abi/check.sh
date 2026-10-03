@@ -49,4 +49,12 @@ else
   cat out/cxx.log; fail=1
 fi
 
+# 5. <limits.h>: long long limits (C and C++, with -std=c99 and gnu++).
+if $P-gcc -std=c99 -isystem $I -c limits.c -o out/limits.o 2>out/limits.log &&
+   $P-g++ -isystem $I -c limitsxx.cc -o out/limitsxx.o 2>>out/limits.log; then
+  echo "limits.h: OK"
+else
+  cat out/limits.log; fail=1
+fi
+
 exit $fail
