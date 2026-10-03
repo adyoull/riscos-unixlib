@@ -13,6 +13,8 @@ echo "== host tests: wide characters (swprintf, wcsftime, wcsto*)"
 tests/host/wchar/run.sh
 echo "== host tests: getservbyname_r and friends"
 tests/host/getserv/run.sh
+echo "== host tests: eventfd counter"
+tests/host/eventfd/run.sh
 
 echo "== emulator: thread ticker machine code (needs a build + unicorn)"
 GCCSDK_ENV=${GCCSDK_ENV:-$HOME/gccsdk/env}

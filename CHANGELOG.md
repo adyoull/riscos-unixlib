@@ -7,6 +7,13 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **eventfd's counter is updated with thread switching held off.** A
+  `write()` and a `read()` (or two writes) in different threads could
+  interleave between loading and storing the 64-bit counter, losing an
+  increment or giving the same count to two readers. `select()` also reads
+  it under the hold, so it can't see half an update. Found by the GTK port
+  (GLib's wakeups). MODIFICATIONS.md E1.
+
 - **`getservbyname_r`, `getservbyport_r`, `getservent_r` exist.** They
   were declared in `<netdb.h>` but missing from the library, so a
   configure check that only compiles (GLib) passed and the link failed.

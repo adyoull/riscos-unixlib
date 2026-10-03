@@ -15,6 +15,25 @@
 
 #define MAX_COUNTER (UINT64_MAX - 1)
 
+/* 2026: the counter's read-modify-write is done with thread switching held
+   off.  write () and read () don't hold it off themselves, so a thread
+   switch between the load and the store could lose an increment or hand
+   the same count to two readers.  It's released again before
+   pthread_yield ().  */
+static void
+counter_lock (void)
+{
+  if (__ul_global.pthread_system_running)
+    __pthread_disable_ints ();
+}
+
+static void
+counter_unlock (void)
+{
+  if (__ul_global.pthread_system_running)
+    __pthread_enable_ints ();
+}
+
 int
 eventfd(unsigned int counter_start, int flags)
 {
@@ -60,21 +79,26 @@ __eventfd_read (struct __unixlib_fd *file_desc, void *data, int nbyte)
   eventfd_t *count_ptr = (eventfd_t *)file_desc->devicehandle->handle;
   for (;;)
     {
+      counter_lock ();
       eventfd_t counter = *count_ptr;
       if (counter != 0)
 	{
+	  eventfd_t value;
 	  if (file_desc->dflag & EFD_SEMAPHORE)
 	    {
-	      *((eventfd_t *)data) = 1;
+	      value = 1;
 	      *count_ptr = counter - 1;
 	    }
 	  else
 	    {
-	      *((eventfd_t *)data) = counter;
+	      value = counter;
 	      *count_ptr = 0;
 	    }
+	  counter_unlock ();
+	  *((eventfd_t *)data) = value;
 	  return sizeof(eventfd_t);
 	}
+      counter_unlock ();
 
 	/* If we're not blocking, then we break out of the loop and return EAGAIN.  */
 	if (file_desc->dflag & EFD_NONBLOCK)
@@ -104,6 +128,7 @@ __eventfd_write (struct __unixlib_fd *file_desc, const void *data, int nbyte)
 
   for (;;)
     {
+      counter_lock ();
       eventfd_t counter = *count_ptr;
 
       eventfd_t remaining = MAX_COUNTER - counter;
@@ -114,8 +139,10 @@ __eventfd_write (struct __unixlib_fd *file_desc, const void *data, int nbyte)
 	  /* The increment will not overflow, so do it and return number of bytes
 	   * written.  */
 	  *count_ptr = counter + inc;
+	  counter_unlock ();
 	  return sizeof(eventfd_t);
 	}
+      counter_unlock ();
 
       /* The addition will overflow, if we're not blocking, then break out of
        * loop and return EAGAIN.  */
@@ -135,7 +162,9 @@ __eventfd_select (struct __unixlib_fd *file_desc, int fd, fd_set *read,
 		  fd_set *write, fd_set *except)
 {
   eventfd_t *count_ptr = (eventfd_t *)file_desc->devicehandle->handle;
+  counter_lock ();
   eventfd_t counter = *count_ptr;
+  counter_unlock ();
   int num_fds = 0;
 
   if (read)

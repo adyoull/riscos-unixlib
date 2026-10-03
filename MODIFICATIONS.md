@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1267 |
-| Modified (listed below) | 60 |
+| Byte-identical to GCCSDK `64c6f81` | 1266 |
+| Modified (listed below) | 61 |
 | Added | 8 |
 | Removed relative to upstream | 0 |
 
@@ -69,6 +69,7 @@ the commits are named below.
 | `unix/unix.c`, `signal/post.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `vscript` | X2 `_exit` takes an exit code |
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends |
+| `unix/eventfd.c` | E1 counter updated with thread switching held off |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
 
 The modified files keep their original copyright lines. Code added to them
@@ -472,6 +473,33 @@ there).
 
 **Verification.** `tests/host/getserv` (13 checks): the copy, aliases, an
 odd buffer address, not found, too small, the exact size and one byte short.
+
+### E1. eventfd's counter is updated with thread switching held off (`unix/eventfd.c`)
+
+**Problem.** Reported by the GTK port (2026-10-03), from reading the code:
+GLib wakes its main loop through an eventfd, written from other threads.
+
+**Cause.** `__eventfd_write` and `__eventfd_read` load the 64-bit counter,
+work out the new value and store it, with nothing stopping a thread
+switch in between: `write()` doesn't hold switching off at all, and
+`read()` only holds off cancellation. A switch between the load and the
+store loses the other thread's update (an increment, or a read's reset to
+0, so a count could be delivered twice). On ARM the 64-bit load is two
+words, so `select()` could also see half an update.
+
+**Change.** The load, check and store are done between
+`__pthread_disable_ints ()` and `__pthread_enable_ints ()` once threads are
+running, as `malloc` does. The hold is released before `pthread_yield ()`,
+so a blocking read or write still lets the other side run. `select()`
+reads the counter under the hold. No change to the device handle or the
+counter's storage.
+
+**Verification.** `tests/host/eventfd` (28 checks) counts the hold: read,
+write and select take it, it's always released, it's never held across
+`pthread_yield ()`, and none is taken before threads start; plus the
+semantics (semaphore mode, `EAGAIN`, `EINVAL`, a blocking read woken by a
+write, a blocking write woken by a read). It fails on the old code. Not
+yet run on RISC OS.
 
 ### P1. `sched_get_priority_min` / `sched_get_priority_max` (new `sched/sched_prio.c`, `include/sched.h`) - commit `04408eb`
 
