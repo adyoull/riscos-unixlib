@@ -1,0 +1,7 @@
+| Reproducer for a GCCSDK report: claims the physical page at this program's
+| &8000 (as contiguous-memory drivers can), which RISC OS moves; then asks
+| whether ARMEABISupport still finds the program. With ARMEABISupport 1.08:
+| REPRODUCED, and *ARMEABISupport_Info lists an App left by it (reboot after).
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 2000K
+Run <UST$Dir>.pmovtest
