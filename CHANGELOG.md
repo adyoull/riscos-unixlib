@@ -14,7 +14,8 @@ How to release: docs/MAINTAINING.md.
   (GCCSDK's code too), so GLib's blocking reads would have stopped the
   same way. The wait now releases `read()`'s hold around the yield and
   keeps its return address. The same for a blocking `writev()`.
-  MODIFICATIONS.md E1.
+  MODIFICATIONS.md E1. `EventFD` passes on a Pi 4 with rc2, the blocking
+  read woken by another thread.
 - RISC OS test `PageMove` (the ARMEABISupport 1.08 reproducer) prints
   REPRODUCED on a Pi 4 with ARMEABISupport 1.08.
 
