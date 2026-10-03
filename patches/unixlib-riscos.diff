@@ -1,8 +1,16 @@
 diff --git a/gcc4/recipe/files/gcc/libunixlib/Makefile.am b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-index e887b17..8e5e66c 100644
+index e887b17..43674a2 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 +++ b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-@@ -676,6 +676,7 @@ pthread_src = \
+@@ -622,6 +622,7 @@ netlib_src = \
+ endif
+ netlib_src += \
+ 	netlib/accept.c \
++	netlib/getserv_r.c \
+ 	netlib/bind.c \
+ 	netlib/connect.c \
+ 	netlib/getpeernam.c \
+@@ -676,6 +677,7 @@ pthread_src = \
  	pthread/self.c \
  	pthread/sem.c \
  	pthread/testcancel.c \
@@ -10,7 +18,7 @@ index e887b17..8e5e66c 100644
  	pthread/_context.s \
  	pthread/_exit.s \
  	pthread/_ints.s \
-@@ -771,6 +772,7 @@ if UNIXLIB_BUILDING_SCL
+@@ -771,6 +773,7 @@ if UNIXLIB_BUILDING_SCL
  sched_src =
  else
  sched_src = \
@@ -18,7 +26,7 @@ index e887b17..8e5e66c 100644
  	sched/syield.c
  endif
  
-@@ -863,6 +865,7 @@ sound_src =
+@@ -863,6 +866,7 @@ sound_src =
  else
  sound_src = \
  	sound/dsp.c \
@@ -26,7 +34,7 @@ index e887b17..8e5e66c 100644
  	sound/DRender.s
  endif
  
-@@ -1070,6 +1073,8 @@ else
+@@ -1070,6 +1074,8 @@ else
  sys_src += \
  	sys/mman.c
  endif
@@ -35,7 +43,7 @@ index e887b17..8e5e66c 100644
  endif
  sys_src += \
  	sys/errlist.c
-@@ -1220,6 +1225,7 @@ unix_src = \
+@@ -1220,6 +1226,7 @@ unix_src = \
  	unix/ul_select.c \
  	unix/ul_setenv.c \
  	unix/stat.c \
@@ -43,7 +51,7 @@ index e887b17..8e5e66c 100644
  	unix/statfs.c \
  	unix/sync.c \
  	unix/sysconf.c \
-@@ -1469,6 +1475,7 @@ nobase_noinst_HEADERS = \
+@@ -1469,6 +1476,7 @@ nobase_noinst_HEADERS = \
  	incl-local/internal/sigstate.h \
  	incl-local/internal/swiparams.h \
  	incl-local/internal/symlinks.h \
@@ -51,7 +59,7 @@ index e887b17..8e5e66c 100644
  	incl-local/internal/tty.h \
  	incl-local/internal/unix.h \
  	incl-local/locale.h \
-@@ -1499,7 +1506,20 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
+@@ -1499,7 +1507,20 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
  	$(stdio_src) $(stdlib_src) $(string_src) $(sys_src) \
  	$(termios_src) $(time_src) $(unistd_src) $(unix_src) $(wchar_src)
  
@@ -73,7 +81,7 @@ index e887b17..8e5e66c 100644
  
  libm_la_SOURCES = libm-support/libm.c
  
-@@ -1553,7 +1573,7 @@ gcrt0.o: crt/gcrt0.s
+@@ -1553,7 +1574,7 @@ gcrt0.o: crt/gcrt0.s
  # SUL module ----------------
  
  # Build the SharedUnixLibrary module
@@ -82,7 +90,7 @@ index e887b17..8e5e66c 100644
  
  sul.o: module/sul.s
  	$(CCASCOMPILE) -o sul.o -c `test -f 'module/sul.s' || echo '$(srcdir)/'`module/sul.s
-@@ -1564,6 +1584,14 @@ sul.o: module/sul.s
+@@ -1564,6 +1585,14 @@ sul.o: module/sul.s
  sul$(EXEEXT): sul.o
  	$(STRIP) -O binary -o sul$(EXEEXT) sul.o
  
@@ -1168,6 +1176,22 @@ index 81bf3f8..3d262f6 100644
  
  __END_DECLS
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/include/limits.h b/gcc4/recipe/files/gcc/libunixlib/include/limits.h
+index 898d16e..ca57fdb 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/include/limits.h
++++ b/gcc4/recipe/files/gcc/libunixlib/include/limits.h
+@@ -59,7 +59,10 @@
+ 
+ #ifdef __USE_ISOC99
+ /* Minimum and maximum that a signed long long int can hold.  */
+-#define LLONG_MIN 0x8000000000000000LL
++/* 2026: was 0x8000000000000000LL, which is an unsigned long long
++   (the value doesn't fit long long), so LLONG_MIN compared as a large
++   positive number.  */
++#define LLONG_MIN (-LLONG_MAX - 1LL)
+ #define LLONG_MAX 0x7fffffffffffffffLL
+ 
+ /* Maximum value that an unsigned long long int can hold.  */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/sched.h b/gcc4/recipe/files/gcc/libunixlib/include/sched.h
 index 2e424fb..b2d483d 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/sched.h
@@ -1579,6 +1603,115 @@ index 0000000..351ad91
 +	MOV	pc, lr
 +
 +	.end
+diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/getserv_r.c b/gcc4/recipe/files/gcc/libunixlib/netlib/getserv_r.c
+new file mode 100644
+index 0000000..9832bed
+--- /dev/null
++++ b/gcc4/recipe/files/gcc/libunixlib/netlib/getserv_r.c
+@@ -0,0 +1,103 @@
++/* getservbyname_r (), getservbyport_r (), getservent_r ()
++   Copyright (c) 2026 UnixLib Developers.
++
++   2026: <netdb.h> declared these but the library didn't have them, so
++   configure checks that only compile (GLib's meson) took them as present
++   and the link failed.  They call the non-reentrant functions with thread
++   switching held off and copy the result into the caller's buffer.
++
++   As glibc: 0 on success with *result set; 0 with *result NULL if there is
++   no such service; ERANGE (with *result NULL) if BUF is too small.  */
++
++#include <errno.h>
++#include <netdb.h>
++#include <stddef.h>
++#include <string.h>
++
++#include <pthread.h>
++#include <internal/unix.h>
++
++static int
++copy_servent (const struct servent *src, struct servent *dst,
++	      char *buf, size_t buflen, struct servent **result)
++{
++  size_t naliases = 0, need, i, len;
++  char **aliases;
++  char *p;
++
++  *result = NULL;
++  if (src == NULL)
++    return 0;
++
++  while (src->s_aliases && src->s_aliases[naliases])
++    naliases++;
++
++  /* Pointer array first (aligned), then the strings.  */
++  need = (naliases + 1) * sizeof (char *);
++  need += strlen (src->s_name) + 1;
++  need += (src->s_proto ? strlen (src->s_proto) : 0) + 1;
++  for (i = 0; i < naliases; i++)
++    need += strlen (src->s_aliases[i]) + 1;
++
++  i = (sizeof (char *) - ((size_t) buf & (sizeof (char *) - 1)))
++      & (sizeof (char *) - 1);
++  if (buflen < i || buflen - i < need)
++    return ERANGE;
++
++  aliases = (char **) (buf + i);
++  p = (char *) (aliases + naliases + 1);
++
++  len = strlen (src->s_name) + 1;
++  dst->s_name = memcpy (p, src->s_name, len);
++  p += len;
++
++  len = (src->s_proto ? strlen (src->s_proto) : 0) + 1;
++  dst->s_proto = memcpy (p, src->s_proto ? src->s_proto : "", len);
++  p += len;
++
++  for (i = 0; i < naliases; i++)
++    {
++      len = strlen (src->s_aliases[i]) + 1;
++      aliases[i] = memcpy (p, src->s_aliases[i], len);
++      p += len;
++    }
++  aliases[naliases] = NULL;
++  dst->s_aliases = aliases;
++  dst->s_port = src->s_port;
++
++  *result = dst;
++  return 0;
++}
++
++int
++getservbyname_r (const char *name, const char *proto,
++		 struct servent *result_buf, char *buf, size_t buflen,
++		 struct servent **result)
++{
++  PTHREAD_UNSAFE
++
++  return copy_servent (getservbyname (name, proto), result_buf, buf, buflen,
++		       result);
++}
++
++int
++getservbyport_r (int port, const char *proto,
++		 struct servent *result_buf, char *buf, size_t buflen,
++		 struct servent **result)
++{
++  PTHREAD_UNSAFE
++
++  return copy_servent (getservbyport (port, proto), result_buf, buf, buflen,
++		       result);
++}
++
++#ifndef __TARGET_SCL__
++int
++getservent_r (struct servent *result_buf, char *buf, size_t buflen,
++	      struct servent **result)
++{
++  PTHREAD_UNSAFE
++
++  return copy_servent (getservent (), result_buf, buf, buflen, result);
++}
++#endif
 diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c b/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c
 index b6950c6..f14c4fb 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c
