@@ -1,0 +1,8 @@
+| As EABIExit with Reel's memory: WimpSlot -min 40960K -max 40960K.
+| Logs to <Wimp$ScrapDir>.EABIExit whether ARMEABISupport still finds this
+| program at each stage up to its exit (PASS/FAIL), then shows that file.
+| Afterwards *ARMEABISupport_Info should list no App left by it.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 40960K -max 40960K
+Run <UST$Dir>.eabxtest 
+Type <Wimp$ScrapDir>.EABIExit

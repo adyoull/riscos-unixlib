@@ -34,6 +34,19 @@ MIDI        scale and chords through /dev/midi. Needs the MIDISynth
             either it says "Operation not supported by device": that's
             the expected result for now.
 
+EABIExit    does ARMEABISupport still know the program when it exits?
+            A Wimp task with two threads polls for 3 s, then
+            Wimp_CloseDown and exit (as Reel quits). It logs, at each
+            stage, the physical page at &8000 (how ARMEABISupport tells
+            programs apart) and whether ARMEABISupport finds the program,
+            to <Wimp$ScrapDir>.EABIExit, and shows that file: PASS or
+            FAIL. A FAIL means its record (and stacks) stay behind, which
+            can make a later program trap at start-up ("code 6").
+            EABIExitNoClose  without Wimp_CloseDown
+            EABIExitBig      with Reel's 40 MB WimpSlot
+            EABIExitPlain    a plain command-line program
+            After each, *ARMEABISupport_Info should list no App left by it.
+
 ExitJoin    a thread joined from an atexit() handler: must print PASS,
             no "Aborted" (Warzone 2100 aborted like this on quit)
 FsyncRO     fsync() on a read-only file: must print PASS
