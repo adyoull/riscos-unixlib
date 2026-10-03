@@ -52,7 +52,8 @@ PageMove    a reproducer: claims the physical page at the program's own
             &8000, which RISC OS then replaces, and asks whether
             ARMEABISupport still finds the program. With ARMEABISupport
             1.08 it prints REPRODUCED and leaves an App in
-            *ARMEABISupport_Info (reboot afterwards).
+            *ARMEABISupport_Info (reboot afterwards). Reproduced on a
+            Pi 4 (RISC OS 5, ARMEABISupport 1.08), 2026-10-03.
 
 ExitJoin    a thread joined from an atexit() handler: must print PASS,
             no "Aborted" (Warzone 2100 aborted like this on quit)

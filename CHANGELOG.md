@@ -15,6 +15,8 @@ How to release: docs/MAINTAINING.md.
   same way. The wait now releases `read()`'s hold around the yield and
   keeps its return address. The same for a blocking `writev()`.
   MODIFICATIONS.md E1.
+- RISC OS test `PageMove` (the ARMEABISupport 1.08 reproducer) prints
+  REPRODUCED on a Pi 4 with ARMEABISupport 1.08.
 
 ## 5.0.3.2-rc1 (2026-10-03, pre-release, tag v5.0.3.2-rc1)
 
