@@ -45,6 +45,7 @@ EABIExit    does ARMEABISupport still know the program when it exits?
             EABIExitNoClose  without Wimp_CloseDown
             EABIExitBig      with Reel's 40 MB WimpSlot
             EABIExitPlain    a plain command-line program
+            EABIExitRunning  exits with its threads still running
             After each, *ARMEABISupport_Info should list no App left by it.
 
 ExitJoin    a thread joined from an atexit() handler: must print PASS,

@@ -18,7 +18,9 @@
      and in an atexit handler (the last thing before SharedUnixLibrary's
      exit code).
 
-     eabxtest [-nowimp] [-nothreads] [-noclose] [-s secs]
+     eabxtest [-nowimp] [-nothreads] [-noclose] [-nojoin] [-s secs]
+   -nojoin    exit with the two threads still running (as a program
+              whose audio thread is still busy when it quits)
 
    Results are appended to <Wimp$ScrapDir>.EABIExit.  Afterwards,
    *ARMEABISupport_Info should list no App left by it.  */
@@ -97,7 +99,7 @@ static void at_exit (void)
 
 int main (int argc, char **argv)
 {
-  int wimp = 1, threads = 1, closedown = 1, secs = 3, i, handle = 0;
+  int wimp = 1, threads = 1, closedown = 1, join = 1, secs = 3, i, handle = 0;
   pthread_t t[2];
   static int block[64];
   static const int messages[] = { 0 };
@@ -106,12 +108,14 @@ int main (int argc, char **argv)
     if (!strcmp (argv[i], "-nowimp")) wimp = 0;
     else if (!strcmp (argv[i], "-nothreads")) threads = 0;
     else if (!strcmp (argv[i], "-noclose")) closedown = 0;
+    else if (!strcmp (argv[i], "-nojoin")) join = 0;
     else if (!strcmp (argv[i], "-s") && i + 1 < argc) secs = atoi (argv[++i]);
 
   logf = fopen ("/<Wimp$ScrapDir>/EABIExit", "a");
   if (logf)
-    fprintf (logf, "eabxtest%s%s%s:\n", wimp ? "" : " -nowimp",
-	     threads ? "" : " -nothreads", closedown ? "" : " -noclose");
+    fprintf (logf, "eabxtest%s%s%s%s:\n", wimp ? "" : " -nowimp",
+	     threads ? "" : " -nothreads", closedown ? "" : " -noclose",
+	     join ? "" : " -nojoin");
   atexit (at_exit);
   note ("start");
 
@@ -140,7 +144,7 @@ int main (int argc, char **argv)
       note ("after polling");
     }
 
-  if (threads)
+  if (threads && join)
     {
       stop = 1;
       for (i = 0; i < 2; i++)

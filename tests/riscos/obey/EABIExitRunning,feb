@@ -1,0 +1,8 @@
+| As EABIExit, but exits with both threads still running (not joined).
+| Logs to <Wimp$ScrapDir>.EABIExit whether ARMEABISupport still finds this
+| program at each stage up to its exit (PASS/FAIL), then shows that file.
+| Afterwards *ARMEABISupport_Info should list no App left by it.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.eabxtest -nojoin
+Type <Wimp$ScrapDir>.EABIExit
