@@ -7,6 +7,11 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **`getservbyname_r`, `getservbyport_r`, `getservent_r` exist.** They
+  were declared in `<netdb.h>` but missing from the library, so a
+  configure check that only compiles (GLib) passed and the link failed.
+  Found by the GTK port. MODIFICATIONS.md N1.
+
 - **`LLONG_MIN` is a negative `long long`.** It was written as
   `0x8000000000000000LL`, which is an `unsigned long long`, so it compared
   as a large positive number and C++ rejected it in constant expressions

@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 60 modified files and 7 added files).
+diff against unchanged GCCSDK UnixLib: 60 modified files and 8 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -37,7 +37,7 @@ the commits are named below.
 |---|---|
 | Byte-identical to GCCSDK `64c6f81` | 1267 |
 | Modified (listed below) | 60 |
-| Added | 7 |
+| Added | 8 |
 | Removed relative to upstream | 0 |
 
 | File | Change |
@@ -68,10 +68,11 @@ the commits are named below.
 | `configure.ac`, `doc/UnixLib/Help` | V1 version number, D1 unofficial fork |
 | `unix/unix.c`, `signal/post.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `vscript` | X2 `_exit` takes an exit code |
 | `include/limits.h` | H1 `LLONG_MIN` type |
+| `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
 
 The modified files keep their original copyright lines. Code added to them
-is marked with a `2026:` comment. The 7 new files carry
+is marked with a `2026:` comment. The 8 new files carry
 "Copyright (c) 2026 UnixLib Developers" and are under UnixLib's licence,
 like the rest of the library.
 
@@ -453,6 +454,24 @@ lines above already was and as GCC's own `limits.h` does.
 **Verification.** `tests/abi/check.sh` compiles static assertions on the
 type, sign and value of the long long limits in C (`-std=c99`) and the
 harfbuzz construct in C++; both fail with the old header.
+
+### N1. `getservbyname_r`, `getservbyport_r`, `getservent_r` (new `netlib/getserv_r.c`, `Makefile.am`)
+
+**Problem.** Reported by the GTK port (2026-10-03): `<netdb.h>` declared the
+reentrant service lookups but the library didn't define them. GLib 2.80's
+meson check only compiles, so it took `getservbyname_r` as present and the
+link failed.
+
+**Change.** The three functions call `getservbyname`, `getservbyport` and
+`getservent` with thread switching held off (`PTHREAD_UNSAFE`) and copy the
+result (name, protocol, alias array and strings) into the caller's buffer,
+pointer-aligned. As glibc: 0 with `*result` set; 0 with `*result` NULL if
+there's no such service; `ERANGE` if the buffer is too small.
+`getservent_r` isn't in the SharedCLibrary build (there's no `getservent`
+there).
+
+**Verification.** `tests/host/getserv` (13 checks): the copy, aliases, an
+odd buffer address, not found, too small, the exact size and one byte short.
 
 ### P1. `sched_get_priority_min` / `sched_get_priority_max` (new `sched/sched_prio.c`, `include/sched.h`) - commit `04408eb`
 

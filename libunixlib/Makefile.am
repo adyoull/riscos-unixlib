@@ -622,6 +622,7 @@ netlib_src = \
 endif
 netlib_src += \
 	netlib/accept.c \
+	netlib/getserv_r.c \
 	netlib/bind.c \
 	netlib/connect.c \
 	netlib/getpeernam.c \
