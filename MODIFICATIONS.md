@@ -547,11 +547,12 @@ the caller's hold around `pthread_yield ()` and put back the hold's
 return address (`__ul_global.pthread_return_address`, a single global
 another thread's `PTHREAD_UNSAFE` call replaces). Since 5.0.3.3-rc1 the
 wait is `__pthread_held_wait` (Y1): it's a cancellation point, and when
-the hold is nested (a read or write through stdio) the call fails with
-`EAGAIN` instead of yielding (fatal) or spinning for ever. No change to
+the hold is nested (a write through `fwrite`, 2 deep; `fread` → `read` is
+only 1 deep) or in a signal handler, the call fails with `EAGAIN` instead
+of yielding (fatal) or spinning for ever. No change to
 the device handle or the counter's storage.
 
-**Verification.** `tests/host/eventfd` (35 checks) models the work
+**Verification.** `tests/host/eventfd` (38 checks since Y1) models the work
 semaphore: read, write and select take the hold and release it, it's never
 held across `pthread_yield ()`, and none is taken before threads start. A
 blocking read and write called as `read()`/`writev()` call them (hold
@@ -572,7 +573,7 @@ Pi with rc2.
 **Problem.** Found by the 2026-10-04 code audit.
 - **`/dev/dsp`:** a blocking write through stdio (`fwrite`, `fputc`, `fflush`) in a threaded program stopped with "pthread_yield called with context switching disabled" on the first full queue, on both back ends.
 - **`/dev/midi`:** the S11 wait for a full MIDISynth never yielded, so the program's other threads stopped for up to 2 s.
-- **eventfd:** E1's wait had the stdio problem too, and a blocking read couldn't be cancelled.
+- **eventfd:** E1's wait had the same problem for a blocking write through `fwrite`, and a blocking read couldn't be cancelled.
 
 **Cause.** `write()` holds thread switching off (`__pthread_disable_ints`), and `read()`, `readv()`, `writev()` and stdio do (`PTHREAD_UNSAFE`). A yield with switching held off is a fatal error.
 - `dsp.c` released one level and yielded. Through stdio the hold is 2 deep, so the yield was still fatal.
@@ -582,7 +583,8 @@ Pi with rc2.
 - **threads not running:** returns 1 without yielding;
 - **hold 0:** yields;
 - **hold 1** (the call's own): released around the yield, then taken again with its return address put back;
-- **hold 2 or more** (the caller is inside stdio or a lock): returns 0 without yielding.
+- **hold 2 or more** (the caller is inside stdio or a lock), **or in a signal handler** (other threads mustn't run while `executing_signalhandler` is set): returns 0 without yielding.
+- While the hold is released, `pthread_return_address` is empty, as `__UNIXLIB_PARANOID` builds check (peer review).
 
 What the callers do:
 - **`/dev/dsp` and `/dev/midi`:** with a nested hold they spin within their existing 2 s stall limits (the sound queue drains by interrupt). The DigitalRenderer write wait, which waited for ever, gets the same 2 s limit (`EIO`, or a short write).
@@ -591,7 +593,7 @@ What the callers do:
 **Known limit.** Nested `PTHREAD_UNSAFE` doesn't add to the hold, so `fread()` → `read()` is 1 deep, and the wait releases stdio's hold. Another thread could then use the same `FILE` while the first is part way through refilling it.
 
 **Verification.**
-- `tests/host/heldwait` (13 checks): every hold depth, the return address, and cancellation only with the hold released.
+- `tests/host/heldwait` (16 checks): every hold depth, the return address (empty while released, put back after), a signal handler, and cancellation only with the hold released.
 - The sound fakes now model the hold:
   - **dsp:** a blocking write with `write()`'s hold yields with it released; with a nested hold, no yield at all. The old code fails with 408 fatal yields.
   - **midi:** the blocking wait yields 3 times with `write()`'s hold. The old code yielded 0 times.
@@ -1021,21 +1023,29 @@ versions aren't checked.
 
 **Problem.** Found by the 2026-10-04 audit.
 - **S10 only covered the SharedSoundBuffer path.** On the DigitalRenderer path, `SNDCTL_DSP_SETFRAGMENT` still shifted by an unchecked exponent and took any fragment count. The common `0x7fff000a` ("no limit" × 1 KB) asked DigitalRenderer for 32,767 buffers, about 6 minutes of sound.
-- **`GETBLKSIZE` doubled the block size for mu-law instead of for 16-bit samples** (inherited from GCCSDK). It disagreed with the buffer `dr_write` actually fills.
+- **`GETBLKSIZE` was wrong twice over** (inherited from GCCSDK):
+  - it doubled the block size for mu-law instead of for 16-bit samples;
+  - it ignored the fragment size, so after `SETFRAGMENT` it disagreed with `GETOSPACE`'s `fragsize`.
 
 **Change.**
 - The exponent is limited to 7–16 before the shift.
 - At least 2 buffers, at most about 2 s (`rate × 2 / 512`).
 - "No limit" (0x7fff) and 0 mean the most allowed.
-- `GETBLKSIZE` doubles for 16-bit samples.
+- A fragment is at most half the limit. Found in peer review: a 64 KB fragment at 8 kHz mono mu-law was bigger than the whole limit, so `GETOSPACE` reported 0 fragments.
+- `GETBLKSIZE` doubles for 16-bit samples and is the fragment size, the same as `GETOSPACE`'s `fragsize`.
+- An error from DigitalRenderer part way through a write returns what was written.
 - (Y1 gave this path's write wait a 2 s limit.)
 
-**Verification.** `tests/host/dsp` (173 checks) gains a DigitalRenderer case:
-- `GETBLKSIZE` = 2048 for 16-bit stereo;
-- `0x7fff000a` and exponent 40 give at most 172 buffers;
+**Known limit.** As on the SharedSoundBuffer path, the limits use the format, channels and rate in force when `SETFRAGMENT` is called. OSS programs often call it first, so a later lower `SPEED` gives more time than 2 s: 172 buffers at 8 kHz is about 11 s.
+
+**Verification.** `tests/host/dsp` (177 checks) gains a DigitalRenderer case:
+- `GETBLKSIZE` = 2048 for 16-bit stereo, and equal to `GETOSPACE`'s `fragsize`;
+- `0x7fff000a` gives exactly 172 buffers;
+- exponent 40 stays within the limit;
+- `0x7fff0010` at 8 kHz mono mu-law still gives at least 2 fragments;
 - a write gives up with `EIO` after about 2 s when nothing plays.
 
-The old code gives 1024 and 32767. Not yet run on RISC OS.
+The old code gives 1024 and 32767 (and hangs in the last case). Not yet run on RISC OS.
 
 ### S11. `/dev/midi` when MIDISynth is full; closing MIDI hardware (`sound/midi.c`) - commit `53e4add`
 

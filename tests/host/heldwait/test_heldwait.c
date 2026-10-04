@@ -14,7 +14,8 @@ static struct __pthread_callevery_block rma;
 struct ul_global __ul_global = { 1, &rma, NULL };
 #define held (rma.pthread_worksemaphore)
 
-static int yields, fatal, bad_enable, cancels, cancel_held;
+static int yields_check_ret;
+static int yields, fatal, bad_enable, cancels, cancel_held, ret_not_empty;
 int __pthread_disable_ints (void) { held++; return 0; }
 int __pthread_enable_ints (void)
 { if (held <= 0) bad_enable++; else held--; return 0; }
@@ -23,6 +24,10 @@ void pthread_yield (void)
   yields++;
   if (held != 0)
     fatal++;			/* the real one is a fatal error */
+  /* __UNIXLIB_PARANOID: another thread's PTHREAD_UNSAFE call would stop
+     if the return address weren't empty while the hold is released.  */
+  if (__ul_global.pthread_return_address != NULL && held == 0 && yields_check_ret)
+    ret_not_empty++;
   /* Another thread's PTHREAD_UNSAFE call replaces the return address.  */
   __ul_global.pthread_return_address = (void *) 0xDEAD;
 }
@@ -31,7 +36,7 @@ void pthread_testcancel (void)
 
 static void reset (int h)
 {
-  held = h; yields = fatal = bad_enable = cancels = cancel_held = 0;
+  held = h; yields = fatal = bad_enable = cancels = cancel_held = ret_not_empty = 0;
   __ul_global.pthread_return_address = (void *) 0x8000;
 }
 
@@ -47,6 +52,20 @@ int main (void)
   CHECK (__pthread_held_wait (0) == 1);
   CHECK (yields == 1 && !fatal && !bad_enable && held == 1);
   CHECK (__ul_global.pthread_return_address == (void *) 0x8000);
+
+  /* While hold 1 is released, the return address is empty.  */
+  reset (1);
+  yields_check_ret = 1;
+  CHECK (__pthread_held_wait (0) == 1 && ret_not_empty == 0);
+  CHECK (__ul_global.pthread_return_address == (void *) 0x8000);
+  yields_check_ret = 0;
+
+  /* In a signal handler: no yield, as for a nested hold.  */
+  reset (1);
+  __ul_global.executing_signalhandler = 1;
+  CHECK (__pthread_held_wait (1) == 0 && yields == 0 && cancels == 0
+	 && held == 1);
+  __ul_global.executing_signalhandler = 0;
 
   /* Hold 2 (fwrite -> write): must not yield, must not change the hold.  */
   reset (2);

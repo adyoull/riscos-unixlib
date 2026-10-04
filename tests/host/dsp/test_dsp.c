@@ -409,11 +409,27 @@ static void test_dr_limits (void)
   CHECK (__dspioctl (&FD, SNDCTL_DSP_SETFRAGMENT, &fr) == 0, "DR SETFRAGMENT 0x7fff000a");
   short s[1024] = {0};
   __dspwrite (&FD, s, sizeof s);
-  CHECK (dr_nbuf >= 2 && dr_nbuf <= 44100 * 2 / 512, "DR buffers kept to about 2 s (%d)", dr_nbuf);
+  CHECK (dr_nbuf == 44100 * 2 / 512, "DR 'no limit' = the 2 s maximum, 172 buffers (%d)", dr_nbuf);
+  audio_buf_info bi;
+  __dspioctl (&FD, SNDCTL_DSP_GETOSPACE, &bi);
+  CHECK (bi.fragsize == ioc (SNDCTL_DSP_GETBLKSIZE, 0), "DR GETBLKSIZE = GETOSPACE fragsize (%d, %d)", ioc (SNDCTL_DSP_GETBLKSIZE, 0), bi.fragsize);
   fr = (4 << 16) | 40;				/* exponent 40 */
   CHECK (__dspioctl (&FD, SNDCTL_DSP_SETFRAGMENT, &fr) == 0, "DR SETFRAGMENT exponent 40 accepted");
   __dspwrite (&FD, s, sizeof s);
   CHECK (dr_nbuf >= 2 && dr_nbuf <= 44100 * 2 / 512, "DR exponent 40 within limits (%d)", dr_nbuf);
+  /* Review: a 64 KB fragment at 8 kHz mono mu-law is bigger than the
+     2 s limit; GETOSPACE reported 0 fragments.  */
+  ioc (SNDCTL_DSP_SPEED, 8000);
+  ioc (SNDCTL_DSP_CHANNELS, 1);
+  ioc (SNDCTL_DSP_SETFMT, AFMT_MU_LAW);
+  fr = 0x7fff0010;
+  CHECK (__dspioctl (&FD, SNDCTL_DSP_SETFRAGMENT, &fr) == 0, "DR SETFRAGMENT 0x7fff0010 at 8 kHz");
+  __dspioctl (&FD, SNDCTL_DSP_GETOSPACE, &bi);
+  CHECK (bi.fragstotal >= 2 && bi.fragments >= 2, "DR big fragment: GETOSPACE %d of %d fragments", bi.fragments, bi.fragstotal);
+  CHECK (bi.fragsize == ioc (SNDCTL_DSP_GETBLKSIZE, 0), "DR GETBLKSIZE = fragsize at 8 kHz (%d, %d)", ioc (SNDCTL_DSP_GETBLKSIZE, 0), bi.fragsize);
+  ioc (SNDCTL_DSP_SPEED, 44100);
+  ioc (SNDCTL_DSP_CHANNELS, 2);
+  ioc (SNDCTL_DSP_SETFMT, AFMT_S16_LE);
   dr_waiting = 1 << 20;				/* never drains */
   errno = 0;
   long long t0 = F.now_us;

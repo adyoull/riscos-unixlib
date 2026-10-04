@@ -10,8 +10,8 @@ How to release: docs/MAINTAINING.md.
 - **Waiting for another thread inside `write()`/`read()` and stdio.**
   - A blocking `/dev/dsp` write through stdio (`fwrite`, `fflush`) stopped a threaded program with "pthread_yield called with context switching disabled". The hold was nested 2 deep and only one level was released.
   - The `/dev/midi` wait for a full MIDISynth never let other threads run.
-  - A blocking eventfd read couldn't be cancelled, and through stdio it had the same fatal yield.
-  - One helper, `__pthread_held_wait`, now does these waits: it releases only the call's own hold, and doesn't yield when the hold is nested.
+  - A blocking eventfd read couldn't be cancelled. A blocking eventfd write through `fwrite` had the same fatal yield.
+  - One helper, `__pthread_held_wait`, now does these waits: it releases only the call's own hold, and doesn't yield when the hold is nested or in a signal handler.
   - The DigitalRenderer write wait now gives up after 2 s, like the SharedSoundBuffer one.
   - Found by the 2026-10-04 audit. MODIFICATIONS.md Y1.
 - **fork() in a threaded EABI program (K10):**

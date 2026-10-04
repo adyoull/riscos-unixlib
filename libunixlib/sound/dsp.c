@@ -403,7 +403,8 @@ dr_write (struct __unixlib_fd *fd, const void *data, int nbyte)
       if ((err = (dr_format == AFMT_S16_LE)
                  ? DRender_Stream16BitSamples (next, towrite >> 1)
                  : DRender_StreamSamples (next, towrite)) != NULL)
-        return __ul_seterr (err, EOPSYS);
+        /* 2026: what was already written counts (a short write).  */
+        return nbyte - left > 0 ? nbyte - left : __ul_seterr (err, EOPSYS);
 
       left -= buffer_byte_size;
     }
@@ -460,9 +461,12 @@ dr_ioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
           int blksize = DRENDERER_BUFFER_SIZE * dr_channels;
 
           /* 2026 (audit): a buffer is twice as many bytes for 16-bit
-             samples, as dr_write has it; this doubled for mu-law.  */
+             samples, as dr_write has it; this doubled for mu-law.  And
+             it's the fragment size, as GETOSPACE reports it (OSS
+             programs take it as that): dr_fragscale buffers.  */
           if (dr_format == AFMT_S16_LE)
             blksize <<= 1;
+          blksize *= dr_fragscale;
           *((int *)arg) = blksize;
 
           return 0;
@@ -505,10 +509,14 @@ dr_ioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
 
           if (dr_fragscale == 0)
             dr_fragscale = 1;
-          fragments *= dr_fragscale;
           max_buffers = dr_frequency * 2 / DRENDERER_BUFFER_SIZE;
           if (max_buffers < 2)
             max_buffers = 2;
+          /* At least two fragments within the limit (a fragment bigger
+             than half of it made GETOSPACE report 0 fragments).  */
+          if (dr_fragscale > max_buffers / 2)
+            dr_fragscale = max_buffers / 2 > 0 ? max_buffers / 2 : 1;
+          fragments *= dr_fragscale;
           if (unlimited || fragments > max_buffers)
             fragments = max_buffers;
 

@@ -69,6 +69,13 @@ int main (int argc, char **argv)
   pthread_join (t, NULL);
   printf ("wrote %u bytes through fwrite; worker ran %lu times\n",
 	  (unsigned) total, ticks - t0);
+  /* With the hold nested the wait spins without yielding, but between
+     fwrite calls (and in fclose's wait) the worker runs.  */
+  if (ticks == t0)
+    {
+      printf ("the worker never ran\n");
+      bad = 1;
+    }
   printf ("%s\n", bad ? "FAIL" : "PASS");
   return bad;
 }

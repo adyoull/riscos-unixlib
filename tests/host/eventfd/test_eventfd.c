@@ -160,8 +160,10 @@ int main (void)
   CHECK (__ul_global.pthread_return_address == (void *) 0x8123);
   depth = 0;
 
-  /* Through fread or fwrite the hold is nested (2): the wait mustn't
-     yield (fatal) and can't let the other side run, so EAGAIN.  */
+  /* A nested hold (2: fwrite -> write, or a caller's own
+     __pthread_disable_ints): the wait mustn't yield (fatal) and can't let
+     the other side run, so EAGAIN.  (fread -> read is only 1 deep:
+     nested PTHREAD_UNSAFE doesn't add to the hold.)  */
   reset ();
   depth = 2;
   other_thread = other_writes_2;

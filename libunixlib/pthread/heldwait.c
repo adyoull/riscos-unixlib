@@ -18,6 +18,7 @@
      - hold 2 or more: the caller is inside something else that holds
        switching off (stdio, a library lock); don't yield, return 0.  The
        caller must not then wait for another thread for ever.
+     - in a signal handler: as for a nested hold, return 0.
 
    With CANCEL set, the wait is a cancellation point (blocking read and
    write are, in POSIX).
@@ -33,6 +34,7 @@
    while that caller is part way through; a blocking read through a FILE
    from two threads at once is the case that could notice.  */
 
+#include <stddef.h>
 #include <pthread.h>
 
 #include <internal/unix.h>
@@ -45,6 +47,12 @@ __pthread_held_wait (int cancel)
   if (!gbl->pthread_system_running)
     return 1;
 
+  /* In a signal handler the hold includes the handler's own, and other
+     threads mustn't run while executing_signalhandler (a global) is set:
+     treat it as nested.  */
+  if (gbl->executing_signalhandler)
+    return 0;
+
   int held = gbl->pthread_callevery_rma->pthread_worksemaphore;
   if (held == 0)
     {
@@ -56,7 +64,11 @@ __pthread_held_wait (int cancel)
   if (held != 1)
     return 0;
 
+  /* Empty while released: in __UNIXLIB_PARANOID builds another thread's
+     PTHREAD_UNSAFE call checks that it is (and if this thread is
+     cancelled below, nothing stale is left).  */
   void *ret = gbl->pthread_return_address;
+  gbl->pthread_return_address = NULL;
   __pthread_enable_ints ();
   if (cancel)
     pthread_testcancel ();
