@@ -1637,10 +1637,10 @@ index 0000000..351ad91
 +	.end
 diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/getserv_r.c b/gcc4/recipe/files/gcc/libunixlib/netlib/getserv_r.c
 new file mode 100644
-index 0000000..9832bed
+index 0000000..5871b82
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/netlib/getserv_r.c
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,130 @@
 +/* getservbyname_r (), getservbyport_r (), getservent_r ()
 +   Copyright (c) 2026 UnixLib Developers.
 +
@@ -1650,7 +1650,8 @@ index 0000000..9832bed
 +   switching held off and copy the result into the caller's buffer.
 +
 +   As glibc: 0 on success with *result set; 0 with *result NULL if there is
-+   no such service; ERANGE (with *result NULL) if BUF is too small.  */
++   no such service; ERANGE (with *result NULL) if BUF is too small; and
++   for getservent_r, ENOENT at the end of the file.  */
 +
 +#include <errno.h>
 +#include <netdb.h>
@@ -1735,13 +1736,39 @@ index 0000000..9832bed
 +}
 +
 +#ifndef __TARGET_SCL__
++extern unsigned int __servent_generation;
++
++/* 2026 (audit): as glibc, ENOENT at the end of the file (it was 0 with
++   *result NULL, so the usual while (getservent_r (...) == 0) loop used
++   NULL), and after ERANGE the same entry again on the next call (it was
++   skipped), unless the services file has been read or rewound since.  */
 +int
 +getservent_r (struct servent *result_buf, char *buf, size_t buflen,
 +	      struct servent **result)
 +{
++  static struct servent *pending;
++  static unsigned int pending_generation;
++  struct servent *serv;
++  int err;
++
 +  PTHREAD_UNSAFE
 +
-+  return copy_servent (getservent (), result_buf, buf, buflen, result);
++  if (pending && pending_generation == __servent_generation)
++    serv = pending;
++  else
++    serv = getservent ();
++  pending = NULL;
++
++  err = copy_servent (serv, result_buf, buf, buflen, result);
++  if (err == ERANGE)
++    {
++      pending = serv;
++      pending_generation = __servent_generation;
++      return ERANGE;
++    }
++  if (err == 0 && *result == NULL)
++    return ENOENT;
++  return err;
 +}
 +#endif
 diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c b/gcc4/recipe/files/gcc/libunixlib/netlib/scl_getservbyname.c
@@ -1788,6 +1815,116 @@ index 4f0199f..e9551ca 100644
    return rtrn;
  }
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/ul_serv.c b/gcc4/recipe/files/gcc/libunixlib/netlib/ul_serv.c
+index 50bc9f2..11fec89 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/netlib/ul_serv.c
++++ b/gcc4/recipe/files/gcc/libunixlib/netlib/ul_serv.c
+@@ -22,6 +22,11 @@ static FILE *servfile = NULL;
+ static int keepopen = 0;
+ 
+ static int __setservent (int allowrewind);
++
++/* 2026: changes whenever __getservent's static entry may change, so
++   getservent_r (getserv_r.c) can tell whether the entry it couldn't copy
++   (ERANGE) is still there to hand back.  */
++unsigned int __servent_generation;
+ static struct servent *__getservent (void);
+ 
+ /* Open and rewind the services file.  */
+@@ -40,6 +45,9 @@ setservent (int stayopen)
+ static int
+ __setservent (int allowrewind)
+ {
++  /* 2026: the static entry is about to mean something else.  */
++  __servent_generation++;
++
+   /* Open or rewind the file as necessary */
+   if (servfile)
+     {
+@@ -70,10 +78,11 @@ getservent ()
+   /* Do the actual read */
+   serv = __getservent ();
+ 
+-  /* Close the file unless the user has prohibited it */
+-  if (!keepopen)
+-    endservent ();
+-
++  /* 2026: the file stays open until endservent (), as in glibc: closing
++     it here unless setservent (1) had been called meant every call
++     reopened it and returned the first entry again, so a getservent ()
++     loop never ended.  (getservbyname () and getservbyport () rewind,
++     and still close it unless setservent (1) was called.)  */
+   return serv;
+ }
+ 
+@@ -103,34 +112,44 @@ __getservent ()
+       serv.s_name = NULL;
+     }
+ 
+-  /* Read a line from the file */
+-  if (__net_readline (servfile, line, sizeof (line) - 1) == NULL)
+-    return NULL;
++  /* 2026: strtok_r, not strtok: strtok's single saved pointer belongs to
++     the program, and getservbyname_r () and friends (getserv_r.c) are
++     reentrant; a program's strtok loop that called one was left pointing
++     into this function's dead stack frame.  And a line without a name,
++     port and protocol (only blanks, say) is skipped: strdup (NULL) and
++     atoi (NULL) used to crash on it.  */
++  __servent_generation++;
++  for (;;)
++    {
++      char *save, *name, *port, *protocol;
+ 
+-  /* Extract the offical service name from the line */
+-  element = strtok (line, " \t");
+-  serv.s_name = strdup (element);
++      /* Read a line from the file */
++      if (__net_readline (servfile, line, sizeof (line) - 1) == NULL)
++	return NULL;
+ 
+-  /* Extract the port number from the line */
+-  element = strtok (NULL, "/");
+-  serv.s_port = htons (atoi (element));
++      if ((name = strtok_r (line, " \t", &save)) == NULL
++	  || (port = strtok_r (NULL, "/", &save)) == NULL
++	  || (protocol = strtok_r (NULL, " \t", &save)) == NULL)
++	continue;
+ 
+-  /* Extract the protocol name from the line */
+-  element = strtok (NULL, " \t");
+-  serv.s_proto = strdup (element);
++      serv.s_name = strdup (name);
++      serv.s_port = htons (atoi (port));
++      serv.s_proto = strdup (protocol);
+ 
+-  /* Initialise the alias list */
+-  serv.s_aliases = malloc (sizeof (char *));
+-  serv.s_aliases[0] = NULL;
+-  aliases = 1;
++      /* Initialise the alias list */
++      serv.s_aliases = malloc (sizeof (char *));
++      serv.s_aliases[0] = NULL;
++      aliases = 1;
+ 
+-  /* Extract the aliases */
+-  while ((element = strtok (NULL, " \t")) != NULL)
+-    {
+-      aliases += 1;
+-      serv.s_aliases = realloc (serv.s_aliases, aliases * sizeof (char *));
+-      serv.s_aliases[aliases - 2] = strdup (element);
+-      serv.s_aliases[aliases - 1] = NULL;
++      /* Extract the aliases */
++      while ((element = strtok_r (NULL, " \t", &save)) != NULL)
++	{
++	  aliases += 1;
++	  serv.s_aliases = realloc (serv.s_aliases, aliases * sizeof (char *));
++	  serv.s_aliases[aliases - 2] = strdup (element);
++	  serv.s_aliases[aliases - 1] = NULL;
++	}
++      break;
+     }
+ 
+   return &serv;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s b/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
 index fada843..856bb59 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
@@ -6103,7 +6240,7 @@ index 7f47f19..43df299 100644
    /* Convert the 16-bit return code into an 8-bit equivalent
       for compatibility with RISC OS.
 diff --git a/gcc4/recipe/files/gcc/libunixlib/vscript b/gcc4/recipe/files/gcc/libunixlib/vscript
-index 606421f..baf8902 100644
+index 606421f..db2d388 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/vscript
 +++ b/gcc4/recipe/files/gcc/libunixlib/vscript
 @@ -16,12 +16,19 @@ VERSION {
@@ -6137,11 +6274,12 @@ index 606421f..baf8902 100644
       __pthread_init;
       __pthread_fatal_error;
       __pthread_new_node;
-@@ -137,6 +148,7 @@ VERSION {
+@@ -137,6 +148,8 @@ VERSION {
       __pthread_atfork_callparentchild;
       __pthread_new_stack;
       __pthread_context_switch;
 +     __pthread_held_wait;
++     __servent_generation;
       __pthread_init_save_area;
       __pthread_exit;
       __pthread_protect_unsafe;
