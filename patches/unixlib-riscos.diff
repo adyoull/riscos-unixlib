@@ -6525,10 +6525,10 @@ index 192a4cf..ac2e729 100644
 +  return NARROW (wc) ? (wint_t) toupper_l (wc, locale) : wc;
  }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/wchar/wmissing.c b/gcc4/recipe/files/gcc/libunixlib/wchar/wmissing.c
-index d3436a3..eca6ce4 100644
+index d3436a3..ac0b04e 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/wchar/wmissing.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/wchar/wmissing.c
-@@ -1,203 +1,285 @@
+@@ -1,203 +1,386 @@
 +/* Wide character functions that UnixLib previously stubbed out with
 +   "Not implemented" + abort().  These are simple implementations that
 +   are correct for the 8-bit range UnixLib's ctype tables cover, which is
@@ -6536,6 +6536,7 @@ index d3436a3..eca6ce4 100644
 +   iswctype() while initialising std::locale).
 +   2026 Andrew Youll.  */
 +
++#include <limits.h>
  #include <locale.h>
 +#include <stdarg.h>
  #include <stdio.h>
@@ -6552,23 +6553,10 @@ index d3436a3..eca6ce4 100644
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
 -}
--
--int
--iswupper_l (wint_t wc, locale_t locale)
--{
--  printf("%s: Not implemented\n", __func__);
--  abort();
--}
--
--int iswlower (wint_t __wc)
--{
--  printf("%s: Not implemented\n", __func__);
--  abort();
--}
 +#define NARROW(wc) ((wc) >= 0 && (wc) < 256)
  
 -int
--iswlower_l (wint_t wc, locale_t locale)
+-iswupper_l (wint_t wc, locale_t locale)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
@@ -6576,7 +6564,14 @@ index d3436a3..eca6ce4 100644
 +enum { WT_NONE, WT_ALNUM, WT_ALPHA, WT_BLANK, WT_CNTRL, WT_DIGIT, WT_GRAPH,
 +       WT_LOWER, WT_PRINT, WT_PUNCT, WT_SPACE, WT_UPPER, WT_XDIGIT };
  
--int wcscoll (__const wchar_t *__s1, __const wchar_t *__s2)
+-int iswlower (wint_t __wc)
+-{
+-  printf("%s: Not implemented\n", __func__);
+-  abort();
+-}
+-
+-int
+-iswlower_l (wint_t wc, locale_t locale)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
@@ -6588,8 +6583,7 @@ index d3436a3..eca6ce4 100644
 +int iswblank (wint_t wc) { return wc == L' ' || wc == L'\t'; }
 +int iswblank_l (wint_t wc, locale_t l) { (void) l; return iswblank (wc); }
  
--int wcscoll_l (__const wchar_t *__s1, __const wchar_t *__s2,
--		locale_t loc)
+-int wcscoll (__const wchar_t *__s1, __const wchar_t *__s2)
 +wctype_t
 +wctype (const char *name)
  {
@@ -6606,15 +6600,15 @@ index d3436a3..eca6ce4 100644
 +  return WT_NONE;
  }
  
--int wcscasecmp (__const wchar_t *__s1, __const wchar_t *__s2)
+-int wcscoll_l (__const wchar_t *__s1, __const wchar_t *__s2,
+-		locale_t loc)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
 -}
 +wctype_t wctype_l (const char *name, locale_t l) { (void) l; return wctype (name); }
  
--int wcsncasecmp (__const wchar_t *__s1, __const wchar_t *__s2,
--		size_t __n)
+-int wcscasecmp (__const wchar_t *__s1, __const wchar_t *__s2)
 +int
 +iswctype (wint_t wc, wctype_t desc)
  {
@@ -6638,16 +6632,16 @@ index d3436a3..eca6ce4 100644
 +    }
  }
  
--int wcscasecmp_l (__const wchar_t *__s1, __const wchar_t *__s2,
--		 locale_t __loc)
+-int wcsncasecmp (__const wchar_t *__s1, __const wchar_t *__s2,
+-		size_t __n)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
 -}
 +int iswctype_l (wint_t wc, wctype_t d, locale_t l) { (void) l; return iswctype (wc, d); }
  
--int wcsncasecmp_l (__const wchar_t *__s1, __const wchar_t *__s2,
--		size_t __n, locale_t __loc)
+-int wcscasecmp_l (__const wchar_t *__s1, __const wchar_t *__s2,
+-		 locale_t __loc)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
@@ -6655,8 +6649,8 @@ index d3436a3..eca6ce4 100644
 +int wcscoll (const wchar_t *s1, const wchar_t *s2) { return wcscmp (s1, s2); }
 +int wcscoll_l (const wchar_t *s1, const wchar_t *s2, locale_t l) { (void) l; return wcscmp (s1, s2); }
  
--unsigned long int wcstoul (__const wchar_t *__restrict __nptr,
--				  wchar_t **__restrict __endptr, int __base)
+-int wcsncasecmp_l (__const wchar_t *__s1, __const wchar_t *__s2,
+-		size_t __n, locale_t __loc)
 +size_t
 +wcsxfrm (wchar_t *restrict s1, const wchar_t *restrict s2, size_t n)
  {
@@ -6668,16 +6662,16 @@ index d3436a3..eca6ce4 100644
 +  return len;
  }
  
--long long int wcstoll (__const wchar_t *__restrict __nptr,
--			      wchar_t **__restrict __endptr, int __base)
+-unsigned long int wcstoul (__const wchar_t *__restrict __nptr,
+-				  wchar_t **__restrict __endptr, int __base)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
 -}
 +size_t wcsxfrm_l (wchar_t *s1, const wchar_t *s2, size_t n, locale_t l) { (void) l; return wcsxfrm (s1, s2, n); }
  
--int swprintf (wchar_t *__restrict __s, size_t __n,
--		     __const wchar_t *__restrict __format, ...)
+-long long int wcstoll (__const wchar_t *__restrict __nptr,
+-			      wchar_t **__restrict __endptr, int __base)
 +int
 +wcsncasecmp (const wchar_t *s1, const wchar_t *s2, size_t n)
  {
@@ -6694,8 +6688,8 @@ index d3436a3..eca6ce4 100644
 +  return 0;
  }
  
--long double wcstold (__const wchar_t *__restrict __nptr,
--			    wchar_t **__restrict __endptr)
+-int swprintf (wchar_t *__restrict __s, size_t __n,
+-		     __const wchar_t *__restrict __format, ...)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
@@ -6704,8 +6698,8 @@ index d3436a3..eca6ce4 100644
 +int wcscasecmp_l (const wchar_t *s1, const wchar_t *s2, locale_t l) { (void) l; return wcscasecmp (s1, s2); }
 +int wcsncasecmp_l (const wchar_t *s1, const wchar_t *s2, size_t n, locale_t l) { (void) l; return wcsncasecmp (s1, s2, n); }
  
--long int wcstol (__const wchar_t *__restrict __nptr,
--			wchar_t **__restrict __endptr, int __base)
+-long double wcstold (__const wchar_t *__restrict __nptr,
+-			    wchar_t **__restrict __endptr)
 +/* Numeric conversions: narrow the (ASCII) number text, convert, and map
 +   the end pointer back.  2026: the whole ASCII run is narrowed; it used to
 +   be cut at 127 characters, so a longer number (leading zeros, a long
@@ -6722,8 +6716,8 @@ index d3436a3..eca6ce4 100644
 +  size_t i, len = 0;
 +  char *dst = buf;
  
--size_t wcsxfrm (wchar_t *__restrict __s1,
--		       __const wchar_t *__restrict __s2, size_t __n)
+-long int wcstol (__const wchar_t *__restrict __nptr,
+-			wchar_t **__restrict __endptr, int __base)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
@@ -6744,8 +6738,8 @@ index d3436a3..eca6ce4 100644
 +  return dst;
  }
  
--size_t wcsxfrm_l (wchar_t *__s1, __const wchar_t *__s2,
--		size_t __n, locale_t __loc)
+-size_t wcsxfrm (wchar_t *__restrict __s1,
+-		       __const wchar_t *__restrict __s2, size_t __n)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
@@ -6768,8 +6762,8 @@ index d3436a3..eca6ce4 100644
 +WCSTO (wcstoll, long long int, strtoll)
 +WCSTO (wcstoull, unsigned long long int, strtoull)
  
--float wcstof (__const wchar_t *__restrict __nptr,
--		     wchar_t **__restrict __endptr)
+-size_t wcsxfrm_l (wchar_t *__s1, __const wchar_t *__s2,
+-		size_t __n, locale_t __loc)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
@@ -6791,20 +6785,34 @@ index d3436a3..eca6ce4 100644
 +WCSTOF (wcstof, float, strtof)
 +WCSTOF (wcstold, long double, strtold)
  
+-float wcstof (__const wchar_t *__restrict __nptr,
+-		     wchar_t **__restrict __endptr)
+-{
+-  printf("%s: Not implemented\n", __func__);
+-  abort();
+-}
++/* 2026: swprintf and wcsftime work through the narrow functions in
++   UTF-8, UnixLib's multibyte encoding (wcrtomb and mbrtowc are always
++   UTF-8): the format is narrowed to UTF-8, vsnprintf turns %ls and %lc
++   arguments into UTF-8 itself, and the result is widened back from
++   UTF-8.  (Narrowing to Latin-1 and widening byte by byte, as 5.0.3.1
++   did, made %ls and %lc arguments come out as their UTF-8 bytes, one
++   character each: the 2026-10-04 audit.)  A byte that isn't part of a
++   valid UTF-8 sequence (a narrow %s argument in Latin-1, say) is taken as
++   Latin-1, as before.  */
+ 
 -double wcstod (__const wchar_t *__restrict __nptr,
 -		      wchar_t **__restrict __endptr)
-+/* 2026: narrow a wide format string for the narrow functions.  Only
-+   Latin-1 can be narrowed: a character above 0xFF used to be cut to its
-+   low byte, so U+FF25 (fullwidth E) and others became '%' and started a
-+   conversion with no argument behind it.  Returns NULL (errno EILSEQ or
-+   ENOMEM) for such a format.  */
++/* Narrow FORMAT to UTF-8.  NULL with errno EILSEQ for a character that
++   isn't Unicode (a surrogate, or above 0x10FFFF), or ENOMEM.  UTF-8 bytes
++   are all 0x80 or above, so none can be taken for a '%'.  */
 +static char *
 +narrow_format (const wchar_t *format)
  {
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
 -}
-+  size_t flen = wcslen (format), i;
++  size_t flen = wcslen (format), i, o = 0;
 +  char *nfmt;
  
 -int iswblank (wint_t __wc)
@@ -6812,49 +6820,123 @@ index d3436a3..eca6ce4 100644
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
 +  for (i = 0; i < flen; i++)
-+    if ((unsigned long) format[i] > 0xFF)
-+      {
-+	errno = EILSEQ;
-+	return NULL;
-+      }
-+  if ((nfmt = malloc (flen + 1)) == NULL)
++    {
++      unsigned long c = (unsigned long) format[i];
++      if (c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF))
++	{
++	  errno = EILSEQ;
++	  return NULL;
++	}
++    }
++  if ((nfmt = malloc (flen * 4 + 1)) == NULL)
 +    return NULL;
-+  for (i = 0; i <= flen; i++)
-+    nfmt[i] = (char) format[i];
++  for (i = 0; i < flen; i++)
++    {
++      unsigned long c = (unsigned long) format[i];
++      if (c < 0x80)
++	nfmt[o++] = (char) c;
++      else if (c < 0x800)
++	{
++	  nfmt[o++] = (char) (0xC0 | (c >> 6));
++	  nfmt[o++] = (char) (0x80 | (c & 0x3F));
++	}
++      else if (c < 0x10000)
++	{
++	  nfmt[o++] = (char) (0xE0 | (c >> 12));
++	  nfmt[o++] = (char) (0x80 | ((c >> 6) & 0x3F));
++	  nfmt[o++] = (char) (0x80 | (c & 0x3F));
++	}
++      else
++	{
++	  nfmt[o++] = (char) (0xF0 | (c >> 18));
++	  nfmt[o++] = (char) (0x80 | ((c >> 12) & 0x3F));
++	  nfmt[o++] = (char) (0x80 | ((c >> 6) & 0x3F));
++	  nfmt[o++] = (char) (0x80 | (c & 0x3F));
++	}
++    }
++  nfmt[o] = '\0';
 +  return nfmt;
  }
  
-+/* swprintf: narrow the format (Latin-1 only, see narrow_format), format
-+   with vsnprintf, then widen the result.  */
- int
+-int
 -iswblank_l (wint_t __wc, locale_t __locale)
--{
++/* Widen LEN bytes of IN from UTF-8, storing at most MAX characters in OUT
++   (OUT may be NULL); returns the number of characters in all of IN.
++   Invalid, overlong or truncated sequences and surrogates are taken a
++   byte at a time as Latin-1.  */
++static size_t
++widen_utf8 (const char *in, size_t len, wchar_t *out, size_t max)
+ {
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
 -}
--
++  const unsigned char *p = (const unsigned char *) in;
++  size_t i = 0, n = 0;
+ 
 -int iswctype (wint_t __wc, wctype_t __desc)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
 -}
--
++  while (i < len)
++    {
++      unsigned long c = p[i];
++      size_t k = 0;
+ 
 -int iswctype_l (wint_t __wc, wctype_t __desc, locale_t __locale)
 -{
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
--}
--
++      if (c >= 0xC2 && c <= 0xDF)
++	k = 1, c &= 0x1F;
++      else if (c >= 0xE0 && c <= 0xEF)
++	k = 2, c &= 0x0F;
++      else if (c >= 0xF0 && c <= 0xF4)
++	k = 3, c &= 0x07;
++      if (k)
++	{
++	  size_t j;
++	  for (j = 1; j <= k; j++)
++	    {
++	      if (i + j >= len || (p[i + j] & 0xC0) != 0x80)
++		break;
++	      c = (c << 6) | (p[i + j] & 0x3F);
++	    }
++	  if (j > k
++	      && !(k == 2 && c < 0x800)
++	      && !(k == 3 && (c < 0x10000 || c > 0x10FFFF))
++	      && !(c >= 0xD800 && c <= 0xDFFF))
++	    {
++	      if (out && n < max)
++		out[n] = (wchar_t) c;
++	      n++;
++	      i += k + 1;
++	      continue;
++	    }
++	}
++      if (out && n < max)
++	out[n] = (wchar_t) p[i];
++      n++;
++      i++;
++    }
++  return n;
+ }
+ 
 -unsigned long long int wcstoull (__const wchar_t *__restrict __nptr,
 -					wchar_t **__restrict __endptr,
 -					int __base)
++/* swprintf: narrow the format, format with vsnprintf, widen the result
++   (see above).  As glibc: -1 if the result doesn't fit in N characters
++   (the first N - 1 are stored, then a terminator).  2026 (audit): S is
++   terminated on every error too, when N isn't 0.  */
++int
 +swprintf (wchar_t *restrict s, size_t n, const wchar_t *restrict format, ...)
  {
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
 -}
 +  char *nfmt, *out;
-+  size_t i, outsize;
++  size_t wlen;
 +  int len;
 +  va_list ap, ap2;
  
@@ -6865,41 +6947,37 @@ index d3436a3..eca6ce4 100644
 -  abort();
 +  if (n == 0)
 +    return -1;
++  s[0] = 0;
 +  if ((nfmt = narrow_format (format)) == NULL)
 +    return -1;
-+  /* Measure first, so a large n (e.g. INT_MAX as "no limit") doesn't make
-+     the scratch buffer that large.  */
++  /* Measure first, then format into a buffer just big enough (a large n,
++     e.g. INT_MAX as "no limit", mustn't make the buffer that large).  */
 +  va_start (ap, format);
 +  va_copy (ap2, ap);
 +  len = vsnprintf (NULL, 0, nfmt, ap);
 +  va_end (ap);
-+  if (len < 0)
++  if (len < 0 || (out = malloc ((size_t) len + 1)) == NULL)
 +    {
 +      va_end (ap2);
 +      free (nfmt);
 +      return -1;
 +    }
-+  outsize = (size_t) len + 1 < n ? (size_t) len + 1 : n;
-+  if ((out = malloc (outsize)) == NULL)
-+    {
-+      va_end (ap2);
-+      free (nfmt);
-+      return -1;
-+    }
-+  vsnprintf (out, outsize, nfmt, ap2);
++  vsnprintf (out, (size_t) len + 1, nfmt, ap2);
 +  va_end (ap2);
-+  for (i = 0; i < outsize && out[i] != 0; i++)
-+    s[i] = (unsigned char) out[i];
-+  s[i < outsize ? i : outsize - 1] = 0;
-+  if ((size_t) len >= n)
-+    len = -1;
++  wlen = widen_utf8 (out, (size_t) len, s, n - 1);
++  s[wlen < n ? wlen : n - 1] = 0;
 +  free (nfmt);
 +  free (out);
-+  return len;
++  if (wlen >= n || wlen > INT_MAX)
++    return -1;
++  return (int) wlen;
  }
  
 -wint_t putwc(wchar_t wc, FILE *stream)
-+/* wcsftime: as swprintf.  Returns 0 for a format that isn't Latin-1.  */
++/* wcsftime: as swprintf.  Returns 0 for a format that isn't Unicode, or
++   if the result (with its terminator) doesn't fit in MAXSIZE characters.
++   2026 (audit): the scratch buffer grows as needed instead of being
++   MAXSIZE bytes (a huge MAXSIZE as "no limit" made it fail).  */
 +size_t
 +wcsftime (wchar_t *restrict wcs, size_t maxsize,
 +	  const wchar_t *restrict format, const struct tm *restrict timeptr)
@@ -6907,8 +6985,8 @@ index d3436a3..eca6ce4 100644
 -  printf("%s: Not implemented\n", __func__);
 -  abort();
 -}
-+  size_t i, r;
-+  char *nfmt, *out;
++  size_t r = 0, w, size, limit;
++  char *nfmt, *out = NULL;
  
 -wctype_t  wctype(const char *name)
 -{
@@ -6916,21 +6994,39 @@ index d3436a3..eca6ce4 100644
 -  abort();
 +  if (maxsize == 0)
 +    return 0;
++  wcs[0] = 0;
 +  if ((nfmt = narrow_format (format)) == NULL)
 +    return 0;
-+  if ((out = malloc (maxsize)) == NULL)
++  if (nfmt[0] == '\0')
 +    {
 +      free (nfmt);
 +      return 0;
 +    }
-+  r = strftime (out, maxsize, nfmt, timeptr);
-+  for (i = 0; i < r; i++)
-+    wcs[i] = (unsigned char) out[i];
-+  if (r < maxsize)
-+    wcs[r] = 0;
++  /* A wide character is at most 4 UTF-8 bytes.  strftime returns 0 both
++     for "too small" and for an empty result, so stop at a sane size.  */
++  limit = maxsize < ((size_t) 1 << 18) ? maxsize * 4 : (size_t) 1 << 20;
++  for (size = 256; ; size *= 2)
++    {
++      char *bigger;
++      if (size > limit)
++	size = limit;
++      if ((bigger = realloc (out, size)) == NULL)
++	break;
++      out = bigger;
++      if ((r = strftime (out, size, nfmt, timeptr)) != 0 || size >= limit)
++	break;
++    }
++  w = r ? widen_utf8 (out, r, NULL, 0) : 0;
++  if (r == 0 || w >= maxsize)
++    w = 0;
++  else
++    {
++      widen_utf8 (out, r, wcs, w);
++      wcs[w] = 0;
++    }
 +  free (nfmt);
 +  free (out);
-+  return r;
++  return w;
  }
  
 -wctype_t wctype_l (__const char *__property, locale_t __locale)
