@@ -510,6 +510,27 @@ def main():
     check(not m8.unexpected, "no fixed bases: no other SWIs")
     exit_check(m8, "no fixed bases")
 
+    # ---- A small gap after the heap (2026-10-04 audit) ----
+    # The first chained area halves its maximum until it fits a 1 MB gap.
+    # That size used to become the cap for every later area, so the heap
+    # stopped at about 8 + 63 x 1 MB.  Only maxima accepted at a base
+    # RISC OS chooses are a limit now.
+    saved_cap = globals()['CAP']
+    globals()['CAP'] = 8 * MB
+    m11 = fresh()
+    m11.add_area(50, 0x10000000 + 8 * MB + 1 * MB, 8 * MB, b"Someone else")
+    got = fill(m11, 200, 512 * 1024)
+    heap = [a for a in m11.live() if a.name.startswith(b"Test Heap")]
+    maxima = sorted(set(a.max for a in heap))
+    check(all(got), "gap after the heap: 100 MB allocated in 512 KB blocks "
+          "(%d failed; area maxima %s KB)"
+          % (got.count(0), [x // 1024 for x in maxima]))
+    small = [a for a in heap if a.max < 8 * MB]
+    check(len(small) <= 1, "gap after the heap: only the gap's own area is "
+          "small (%d areas under 8 MB)" % len(small))
+    exit_check(m11, "gap after the heap")
+    globals()['CAP'] = saved_cap
+
     print("heap_test: %d checks, %d failed" % (checks, fails))
     return 1 if fails else 0
 

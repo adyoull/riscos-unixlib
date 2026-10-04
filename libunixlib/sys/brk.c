@@ -96,7 +96,8 @@ static int heap_area_count;	/* 0 until the heap first needs a list */
 static int seg_start;		/* first area of the current segment */
 static int grow_idx;		/* the area holding __ul_memory.dalimit */
 static int chain_failed;	/* brk_da couldn't add an area after */
-static unsigned int heap_max_ok;	/* a maximum RISC OS accepted */
+static unsigned int heap_max_ok;	/* a maximum RISC OS accepted at a base
+					   it chose (2026 audit) */
 static unsigned int chain_blocked;	/* a base where an area couldn't be
 					   made (0: none): don't keep trying */
 static char heap_area_name[48];
@@ -170,7 +171,12 @@ heap_make_area (int base)
       if (want < (1u << 20))
 	return -1;
     }
-  if (heap_max_ok < want)
+  /* 2026 (audit): only a maximum accepted where RISC OS chose the base
+     says how big an area may be.  At a fixed base it can be small only
+     because a gap is small: learning that made every later area that
+     size, so one 1 MB gap after the heap stopped it at about first + 63
+     MB.  */
+  if (base == -1 && heap_max_ok < want)
     heap_max_ok = want;
   if ((base != -1 && got_base != (unsigned int) base) || max == 0)
     {

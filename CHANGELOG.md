@@ -26,6 +26,7 @@ How to release: docs/MAINTAINING.md.
   - `getservent_r` returns `ENOENT` at the end and the same entry again after `ERANGE`, as glibc does.
   - A blank or broken line in the services file no longer crashes the parser.
   - Found by the 2026-10-04 audit.
+- **Heap (A3):** one small gap after the heap no longer caps every later heap area at the gap's size. Before, a 1 MB gap stopped malloc at about the first area + 63 MB. Found by the 2026-10-04 audit; emulator scenario added.
 - **Doc correction (E1):** `write()` does hold thread switching off, so rc1's counter race wasn't real for `read()`/`write()`. Only `select()`'s unprotected read was.
 
 ## 5.0.3.2 (2026-10-04, tag v5.0.3.2)

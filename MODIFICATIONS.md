@@ -47,7 +47,7 @@ the commits are named below.
 | `time/clk_gettime.c` | T1 high-resolution `CLOCK_MONOTONIC`, T4 its last value read under a lock |
 | `signal/sleep.c` | T2 `nanosleep` accuracy, T3 long sleeps and held-off thread switching |
 | `stdlib/alloc.c` | A1 no `mmap` for large blocks on EABI, A2 a heap of several dynamic areas |
-| `sys/brk.c`, `incl-local/unistd.h` | A2 a heap of several dynamic areas |
+| `sys/brk.c`, `incl-local/unistd.h` | A2 a heap of several dynamic areas, A3 |
 | `sound/dsp.c` | S1 exit bug, S2 default format, S3 SharedSoundBuffer output, S4 empty block, S6-S9 (fork children, second opens, READ ioctls, takeover), S10 fragments and `GETOPTR`, Y1 waits |
 | `sound/DRender.h` | R1 (`"memory"` on the sample-buffer calls) |
 | `sound/midi.c` (**new**), `common/__stat.c`, `unix/unix.c` | S5 `/dev/midi`, S6 (fork children), S11 writes when MIDISynth is full, Y1 wait |
@@ -369,6 +369,20 @@ block** across the areas, intact. `HeapCheck`: no area left after exit.
 asked for. OpenTTD 14.1 relinked with rc4 runs with its heap across
 several areas and loads a 4096x4096 map (tile array 128 MB + 16 bytes).
 
+
+### A3. One small gap no longer caps every later heap area (`sys/brk.c`)
+
+**Problem.** Found by the 2026-10-04 audit, and reproduced in the emulator.
+
+`heap_max_ok`, the largest maximum RISC OS has accepted, caps every later area. It was learnt from any area that succeeded, including one at a fixed base. There, the first chained area halves its maximum until it fits whatever gap follows the heap, so a 1 MB gap made every later area 1 MB, including new segments. With 64 areas the heap then stopped at about the first area + 63 MB.
+
+**Change.** `heap_max_ok` is learnt only from areas whose base RISC OS chose. That is where a refusal means "too big for this machine" rather than "this space is taken". The gap is still used by one small area.
+
+**Verification.** A new `tests/emu/heap_test.py` scenario: 8 MB areas, a 1 MB gap after the heap, then 100 MB in 512 KB blocks.
+- **Before:** 60 blocks failed, with areas capped at 1 MB.
+- **After:** all succeed, and only the gap's area is small.
+
+All 40 checks pass.
 ### F1. `fsync` on read-only files; `fdatasync` (`unix/sync.c`, `include/unistd.h`) - commit `751de68`
 
 **Problem.** `fsync()` on a descriptor opened only for reading returned -1
