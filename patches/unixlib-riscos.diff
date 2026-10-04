@@ -6246,7 +6246,7 @@ index dee2f50..57bf85f 100644
    return lseek (fd, (__off_t) offset, whence);
  }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
-index 7f47f19..43df299 100644
+index 7f47f19..9dd7179 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
 @@ -47,6 +47,7 @@ static void __badr (void) __attribute__ ((__noreturn__));
@@ -6257,7 +6257,7 @@ index 7f47f19..43df299 100644
  
  static struct proc ___u;
  struct proc *__u = &___u;	/* current process */
-@@ -359,14 +360,25 @@ _Exit (int status)
+@@ -359,14 +360,28 @@ _Exit (int status)
       reserved for the run-time library internals.  */
    status = status & 0x7f;
  
@@ -6268,11 +6268,14 @@ index 7f47f19..43df299 100644
 +/* POSIX _exit: 'status' is a plain exit code, as for exit().
 +   2026: in GCCSDK UnixLib _exit itself took a wait status
 +   (<sys/wait.h> encoding), so a program's _exit(1) was reported to its
-+   parent as death by signal 1, and _exit(3) as signal 3.  */
++   parent as death by signal 1, and _exit(3) as signal 3.  It keeps the
++   same 0-127 as exit () (2026-10-04 audit: it kept 0-255, so _exit (200)
++   and exit (200) reached the parent differently, and 128-255 are what
++   __exit_status gives RISC OS for a death by signal).  */
 +void
 +_exit (int status)
 +{
-+  __exit_status (__W_EXITCODE (status & 0xff, 0));
++  __exit_status (__W_EXITCODE (status & 0x7f, 0));
  }
  
  /* Final process termination. 'return_code' is a 16-bit
@@ -6286,7 +6289,7 @@ index 7f47f19..43df299 100644
  {
    struct ul_global *gbl = &__ul_global;
    struct __sul_process *sulproc = gbl->sulproc;
-@@ -386,6 +398,7 @@ _exit (int return_code)
+@@ -386,6 +401,7 @@ _exit (int return_code)
  
    /* De-register with DigitalRenderer in case of an exception */
    __dsp_exit();
