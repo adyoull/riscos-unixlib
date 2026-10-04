@@ -207,7 +207,10 @@ __fork_post (pid_t pid, int isfork)
 	      if ((th->state == STATE_COND_WAIT
 		   || th->state == STATE_COND_TIMED_WAIT) && th->cond)
 		link = &th->cond->waiting;
-	      else if (th->state == STATE_MUTEX_WAIT && th->mutex)
+	      else if (th->mutex)
+		/* Set exactly while it is on the mutex's list, including
+		   when it has been woken but hasn't run yet to take itself
+		   off (lock.c).  */
 		link = &th->mutex->waiting;
 	      for (; link && *link; link = &(*link)->nextwait)
 		if (*link == th)

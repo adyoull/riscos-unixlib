@@ -409,13 +409,15 @@ several areas and loads a 4096x4096 map (tile array 128 MB + 16 bytes).
 - **`heap_max_free`**, learnt only where RISC OS chose the base, caps those requests. An older RISC OS that refuses large maxima is therefore not asked for 128 MB again for every new segment.
 - Both are learnt only from areas that are kept.
 
-**Peer review.** The first version simply learnt nothing at fixed bases. On an older RISC OS (fixed bases and big maxima both refused) that took 111 `OS_DynamicArea 0` calls for 40 × 512 KB, against 39 before; the second limit restores 39.
+**Peer review.** The first version simply learnt nothing at fixed bases. On an older RISC OS that refuses big maxima, every chained area then halved from 128 MB again. That took 49 `OS_DynamicArea 0` calls for 40 × 512 KB, against 16 before; the two limits restore 16.
 
-**Verification.** Two new scenarios in `tests/emu/heap_test.py` (41 checks, all pass):
+**Verification.** New scenarios in `tests/emu/heap_test.py`:
 - **The gap:** 8 MB areas, a 1 MB gap after the heap, then 100 MB in 512 KB blocks.
   - Before: 60 blocks failed, with areas capped at 1 MB.
   - Now: all succeed, and only the gap's own area is small.
-- **The older RISC OS:** 40 × 512 KB with at most 45 calls.
+- **The older RISC OS:** 40 × 512 KB with at most 20 calls (at most 45 with fixed bases refused too). The first version fails this check.
+
+All 42 checks pass.
 ### F1. `fsync` on read-only files; `fdatasync` (`unix/sync.c`, `include/unistd.h`) - commit `751de68`
 
 **Problem.** `fsync()` on a descriptor opened only for reading returned -1
@@ -605,7 +607,9 @@ What the callers do:
 - **`/dev/dsp` and `/dev/midi`:** with a nested hold they spin within their existing 2 s stall limits (the sound queue drains by interrupt). The DigitalRenderer write wait, which waited for ever, gets the same 2 s limit (`EIO`, or a short write).
 - **eventfd:** with a nested hold the read or write fails with `EAGAIN` rather than spin with no other thread able to run. With `cancel` set the wait is a cancellation point (eventfd read and write).
 
-**Known limit.** Nested `PTHREAD_UNSAFE` doesn't add to the hold, so `fread()` → `read()` is 1 deep, and the wait releases stdio's hold. Another thread could then use the same `FILE` while the first is part way through refilling it.
+**Known limits.**
+- **`fread`:** nested `PTHREAD_UNSAFE` doesn't add to the hold, so `fread()` → `read()` is 1 deep, and the wait releases stdio's hold. Another thread could then use the same `FILE` while the first is part way through refilling it.
+- **`pthread_exit` in a signal handler:** a thread that calls it (not async-signal-safe) leaves `executing_signalhandler` set, and from then on these waits refuse to yield.
 
 **Verification.**
 - `tests/host/heldwait` (16 checks): every hold depth, the return address (empty while released, put back after), a signal handler, and cancellation only with the hold released.
@@ -633,7 +637,7 @@ What the callers do:
 - `getservent_r` returns `ENOENT` at the end, and sets `errno` to it, as glibc does.
 - After `ERANGE`, `getservent_r` returns the same entry on the next call, unless the file has been read, rewound or closed since. A generation counter, `__servent_generation`, tracks that and is hidden by `vscript`.
 - **Peer review:** `getservbyname()` and `getservbyport()` read their own stream (opened and closed each time), as glibc's do. They rewound and closed the one `getservent()` reads, so a walk that looked entries up as it went restarted for ever. `setservent(1)` therefore no longer affects them.
-- **Out of memory:** the parser returns no entry, instead of going on with NULLs.
+- **Out of memory:** the parser returns no entry with `errno` `ENOMEM`, instead of going on with NULLs or dropping aliases. `getservent_r` then returns `ENOMEM` rather than reporting the end of the file.
 
 **Verification.** `tests/host/services` (31 checks) builds the real parser, readline and `_r` files against a test services file. It covers:
 - a `strtok` loop calling `getservbyname_r`;
@@ -1052,7 +1056,7 @@ versions aren't checked.
 - The exponent is limited to 7–16 before the shift.
 - At least 2 buffers, at most about 2 s (`rate × 2 / 512`).
 - "No limit" (0x7fff) and 0 mean the most allowed.
-- A fragment is at most half the limit. Found in peer review: a 64 KB fragment at 8 kHz mono mu-law was bigger than the whole limit, so `GETOSPACE` reported 0 fragments.
+- A fragment is at most half the limit, and still a power of two. Found in peer review: a 64 KB fragment at 8 kHz mono mu-law was bigger than the whole limit, so `GETOSPACE` reported 0 fragments.
 - `GETBLKSIZE` doubles for 16-bit samples and is the fragment size, the same as `GETOSPACE`'s `fragsize`.
 - An error from DigitalRenderer part way through a write returns what was written.
 - (Y1 gave this path's write wait a 2 s limit.)
@@ -1411,7 +1415,7 @@ line. Cosmetic.)
 1. **In a fork child the thread list is cut down to the forking thread,** as POSIX has it (only the calling thread exists in the child).
    - The other threads are never scheduled and never cleaned up as idle threads; the parent frees their stacks.
    - `pthread_num_running_threads` becomes 1.
-   - Each other thread is marked `fork_gone` and taken off any mutex or condition variable it was waiting on, so an unlock or signal in the child reaches the child's own threads.
+   - Each other thread is marked `fork_gone` and taken off any mutex or condition variable it was waiting on, so an unlock or signal in the child reaches the child's own threads. For a mutex this goes by `th->mutex`, which is set while the thread is on the list, including when it has been woken but hasn't run yet (second review).
    - `pthread_join` on a gone thread gives `ESRCH`, unless the thread had already finished, which can still be joined as before.
    - `fork_gone` is a new 1-bit field in the same word as `suspended`, so the layout is unchanged (peer review compiled both versions: same size and offsets).
    - Not for vfork: its child shares the parent's memory.

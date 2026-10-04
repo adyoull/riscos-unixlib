@@ -3,6 +3,7 @@
  * Copyright (c) 2000-2008 UnixLib Developers
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -143,6 +144,7 @@ __getservent (FILE *file)
 	  free (n);
 	  free (pr);
 	  free (al);
+	  errno = ENOMEM;
 	  return NULL;
 	}
       al[0] = NULL;
@@ -155,10 +157,18 @@ __getservent (FILE *file)
 	  char *a = strdup (element);
 	  if (more == NULL || a == NULL)
 	    {
+	      /* Out of memory: no entry (errno ENOMEM), not one with
+		 aliases missing.  */
 	      free (a);
 	      if (more)
 		al = more;
-	      break;		/* keep the aliases we have */
+	      for (char **item = al; *item; item++)
+		free (*item);
+	      free (al);
+	      free (n);
+	      free (pr);
+	      errno = ENOMEM;
+	      return NULL;
 	    }
 	  al = more;
 	  al[aliases - 1] = a;

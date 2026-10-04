@@ -515,7 +515,13 @@ dr_ioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
           /* At least two fragments within the limit (a fragment bigger
              than half of it made GETOSPACE report 0 fragments).  */
           if (dr_fragscale > max_buffers / 2)
-            dr_fragscale = max_buffers / 2 > 0 ? max_buffers / 2 : 1;
+            {
+              /* A power of two, as OSS programs expect of a fragment.  */
+              int scale = 1;
+              while (scale * 2 <= max_buffers / 2)
+                scale *= 2;
+              dr_fragscale = scale;
+            }
           fragments *= dr_fragscale;
           if (unlimited || fragments > max_buffers)
             fragments = max_buffers;

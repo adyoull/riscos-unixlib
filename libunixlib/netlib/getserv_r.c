@@ -110,11 +110,20 @@ getservent_r (struct servent *result_buf, char *buf, size_t buflen,
 
   PTHREAD_UNSAFE
 
+  int saved_errno = errno;
+  errno = 0;
   if (pending && pending_generation == __servent_generation)
     serv = pending;
   else
     serv = getservent ();
   pending = NULL;
+  /* Out of memory isn't the end of the file.  */
+  if (serv == NULL && errno == ENOMEM)
+    {
+      *result = NULL;
+      return ENOMEM;
+    }
+  errno = saved_errno;
 
   err = copy_servent (serv, result_buf, buf, buflen, result);
   if (err == ERANGE)

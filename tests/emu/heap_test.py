@@ -530,17 +530,23 @@ def main():
           "small (%d areas under 8 MB)" % len(small))
     exit_check(m11, "gap after the heap")
 
-    # Peer review of the first fix: with fixed bases refused and big
-    # maxima refused (an older RISC OS), every new segment halved from
-    # 128 MB again; a maximum accepted where RISC OS chose the base still
-    # caps those requests.
-    m12 = fresh(fixed=False)
+    # Peer review of the first fix: with big maxima refused (an older
+    # RISC OS) every chained area halved from 128 MB again (70 calls for
+    # this, 16 before); what was accepted still caps later requests.
+    m12 = fresh()
     m12.refuse_big = True
     m12.counts = {}
     got = fill(m12, 40, 512 * 1024)
     made = m12.counts.get((OS_DynamicArea, 0), 0)
-    check(all(got) and made <= 45, "older RISC OS: 40 x 512 KB with %d "
-          "OS_DynamicArea 0 calls (at most 45)" % made)
+    check(all(got) and made <= 20, "older RISC OS: 40 x 512 KB with %d "
+          "OS_DynamicArea 0 calls (at most 20)" % made)
+    m13 = fresh(fixed=False)
+    m13.refuse_big = True
+    m13.counts = {}
+    got = fill(m13, 40, 512 * 1024)
+    made = m13.counts.get((OS_DynamicArea, 0), 0)
+    check(all(got) and made <= 45, "older RISC OS, no fixed bases: 40 x "
+          "512 KB with %d OS_DynamicArea 0 calls (at most 45)" % made)
     globals()['CAP'] = saved_cap
 
     print("heap_test: %d checks, %d failed" % (checks, fails))
