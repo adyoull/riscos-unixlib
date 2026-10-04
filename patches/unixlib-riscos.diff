@@ -793,22 +793,24 @@ index 9f57871..fd30273 100644
  extern unsigned int __get_cpu_arch (void);
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
-index eed3e61..6ce4e0b 100644
+index eed3e61..e3acf0a 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
-@@ -102,6 +102,11 @@ struct __pthread_thread
+@@ -102,6 +102,13 @@ struct __pthread_thread
    /* Is the thread suspended.  */
    unsigned int suspended : 1;
  
 +  /* 2026: in a fork () child, a thread other than the one that forked:
-+     it doesn't exist there (POSIX), so it never runs and can't be
-+     joined.  Same word as the flags above, so the layout is unchanged.  */
++     it doesn't exist there (POSIX).  It is off the child's thread list,
++     so it never runs, and joining it gives ESRCH unless it had already
++     finished (sys/vfork.c, pthread/join.c).  Same word as the flags
++     above, so the layout is unchanged.  */
 +  unsigned int fork_gone : 1;
 +
    __sigset_t blocked; /* Signal mask for this thread. */
    __sigset_t pending; /* Pending signals for this thread */
    pthread_cond_t sigwait_cond;
-@@ -180,8 +185,41 @@ struct __pthread_callevery_block
+@@ -180,8 +187,41 @@ struct __pthread_callevery_block
    volatile int pthread_callback_semaphore; /* Prevent a callback being set
      whilst servicing another callback.  */
    char filter_name[20];
@@ -850,7 +852,7 @@ index eed3e61..6ce4e0b 100644
  extern pthread_t __pthread_thread_list; /* Linked list of all threads */
  
  /* Called once early in program initialisation */
-@@ -216,6 +254,11 @@ extern stack_t __pthread_new_stack (pthread_t node);
+@@ -216,6 +256,11 @@ extern stack_t __pthread_new_stack (pthread_t node);
  /* Main scheduling code */
  extern void __pthread_context_switch (void);
  
@@ -2236,7 +2238,7 @@ index fada843..856bb59 100644
 -
  	.end
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
-index 4343190..b66d67b 100644
+index 4343190..cd8b1ce 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 @@ -89,6 +89,15 @@ __pthread_context_switch (void)
@@ -2255,46 +2257,12 @@ index 4343190..b66d67b 100644
    pthread_t next = __pthread_running_thread->next;
  
    /* Loop around the list looking for a thread that is running.  */
-@@ -112,10 +121,13 @@ __pthread_context_switch (void)
- 
-       next = __pthread_running_thread->next;
- 
--      /* Free up any idle threads that are found */
-+      /* Free up any idle threads that are found.  2026: not in a fork
-+	 child the parent's threads (fork_gone): their stacks are the
-+	 parent's, which frees them itself.  */
-       if (next == NULL)
-         {
--          if (__pthread_thread_list->state == STATE_IDLE)
-+          if (__pthread_thread_list->state == STATE_IDLE
-+	      && !__pthread_thread_list->fork_gone)
-             {
-               next = __pthread_thread_list;
-               __pthread_thread_list = __pthread_thread_list->next;
-@@ -123,14 +135,15 @@ __pthread_context_switch (void)
-               next = __pthread_running_thread->next;
-             }
-         }
--      else if (next->state == STATE_IDLE)
-+      else if (next->state == STATE_IDLE && !next->fork_gone)
-         {
-           __pthread_running_thread->next = next->next;
-           __pthread_cleanup_idle (next);
-           next = __pthread_running_thread->next;
-         }
- 
--      if (__pthread_running_thread->suspended)
-+      if (__pthread_running_thread->suspended
-+	  || __pthread_running_thread->fork_gone)
- 	continue;
- 
-       if (__pthread_running_thread->state == STATE_COND_TIMED_WAIT)
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/heldwait.c b/gcc4/recipe/files/gcc/libunixlib/pthread/heldwait.c
 new file mode 100644
-index 0000000..b90566a
+index 0000000..4758149
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/heldwait.c
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,79 @@
 +/* __pthread_held_wait ()
 +   Copyright (c) 2026 UnixLib Developers.
 +
@@ -2315,6 +2283,7 @@ index 0000000..b90566a
 +     - hold 2 or more: the caller is inside something else that holds
 +       switching off (stdio, a library lock); don't yield, return 0.  The
 +       caller must not then wait for another thread for ever.
++     - in a signal handler: as for a nested hold, return 0.
 +
 +   With CANCEL set, the wait is a cancellation point (blocking read and
 +   write are, in POSIX).
@@ -2330,6 +2299,7 @@ index 0000000..b90566a
 +   while that caller is part way through; a blocking read through a FILE
 +   from two threads at once is the case that could notice.  */
 +
++#include <stddef.h>
 +#include <pthread.h>
 +
 +#include <internal/unix.h>
@@ -2342,6 +2312,12 @@ index 0000000..b90566a
 +  if (!gbl->pthread_system_running)
 +    return 1;
 +
++  /* In a signal handler the hold includes the handler's own, and other
++     threads mustn't run while executing_signalhandler (a global) is set:
++     treat it as nested.  */
++  if (gbl->executing_signalhandler)
++    return 0;
++
 +  int held = gbl->pthread_callevery_rma->pthread_worksemaphore;
 +  if (held == 0)
 +    {
@@ -2353,7 +2329,11 @@ index 0000000..b90566a
 +  if (held != 1)
 +    return 0;
 +
++  /* Empty while released: in __UNIXLIB_PARANOID builds another thread's
++     PTHREAD_UNSAFE call checks that it is (and if this thread is
++     cancelled below, nothing stale is left).  */
 +  void *ret = gbl->pthread_return_address;
++  gbl->pthread_return_address = NULL;
 +  __pthread_enable_ints ();
 +  if (cancel)
 +    pthread_testcancel ();
@@ -2363,16 +2343,20 @@ index 0000000..b90566a
 +  return 1;
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/join.c b/gcc4/recipe/files/gcc/libunixlib/pthread/join.c
-index 0efb1a8..f241d9a 100644
+index 0efb1a8..886a6cf 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/join.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/join.c
-@@ -26,7 +26,8 @@ pthread_join (pthread_t tojoin, void **status)
+@@ -26,7 +26,12 @@ pthread_join (pthread_t tojoin, void **status)
  
    __pthread_disable_ints ();
  
 -  if (__pthread_invalid (tojoin))
-+  /* 2026: in a fork child the parent's other threads don't exist.  */
-+  if (__pthread_invalid (tojoin) || tojoin->fork_gone)
++  /* 2026: in a fork child the parent's other threads don't exist
++     (sys/vfork.c); one that had already finished can still be joined, as
++     before (that only reads its result).  */
++  if (__pthread_invalid (tojoin)
++      || (tojoin->fork_gone && tojoin->state != STATE_IDLE
++	  && tojoin->state != STATE_UNALLOCED))
      {
  #ifdef PTHREAD_DEBUG
        __os_print ("-- pthread_join: Target thread does not exist\r\n");
@@ -3168,7 +3152,7 @@ index 00d5939..df9d870 100644
  }
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
-index 8a2eb72..c508ea9 100644
+index 8a2eb72..e82fb50 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 @@ -16,6 +16,10 @@
@@ -3479,7 +3463,17 @@ index 8a2eb72..c508ea9 100644
          }
  
        void *next = (void*)((size_t)data + nbyte - left);
-@@ -280,8 +412,8 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
+@@ -271,7 +403,8 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
+       if ((err = (dr_format == AFMT_S16_LE)
+                  ? DRender_Stream16BitSamples (next, towrite >> 1)
+                  : DRender_StreamSamples (next, towrite)) != NULL)
+-        return __ul_seterr (err, EOPSYS);
++        /* 2026: what was already written counts (a short write).  */
++        return nbyte - left > 0 ? nbyte - left : __ul_seterr (err, EOPSYS);
+ 
+       left -= buffer_byte_size;
+     }
+@@ -280,8 +413,8 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
  }
  
  
@@ -3490,18 +3484,22 @@ index 8a2eb72..c508ea9 100644
  {
    request &= 0xffff;
  
-@@ -327,7 +459,9 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+@@ -327,8 +460,13 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
          {
            int blksize = DRENDERER_BUFFER_SIZE * dr_channels;
  
 -          if (dr_format == AFMT_MU_LAW)
 +          /* 2026 (audit): a buffer is twice as many bytes for 16-bit
-+             samples, as dr_write has it; this doubled for mu-law.  */
++             samples, as dr_write has it; this doubled for mu-law.  And
++             it's the fragment size, as GETOSPACE reports it (OSS
++             programs take it as that): dr_fragscale buffers.  */
 +          if (dr_format == AFMT_S16_LE)
              blksize <<= 1;
++          blksize *= dr_fragscale;
            *((int *)arg) = blksize;
  
-@@ -345,8 +479,23 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+           return 0;
+@@ -345,8 +483,23 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
        case SNDCTL_DSP_SETFRAGMENT & 0xffff:
          {
            int fragspec  = *((int *)arg);
@@ -3527,19 +3525,24 @@ index 8a2eb72..c508ea9 100644
  
            /* fragsize is in bytes, but the buffer size used
               by DigitalRenderer is in samples */
-@@ -357,6 +506,11 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+@@ -356,7 +509,16 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+ 
            if (dr_fragscale == 0)
              dr_fragscale = 1;
-           fragments *= dr_fragscale;
 +          max_buffers = dr_frequency * 2 / DRENDERER_BUFFER_SIZE;
 +          if (max_buffers < 2)
 +            max_buffers = 2;
++          /* At least two fragments within the limit (a fragment bigger
++             than half of it made GETOSPACE report 0 fragments).  */
++          if (dr_fragscale > max_buffers / 2)
++            dr_fragscale = max_buffers / 2 > 0 ? max_buffers / 2 : 1;
+           fragments *= dr_fragscale;
 +          if (unlimited || fragments > max_buffers)
 +            fragments = max_buffers;
  
            if (!set_defaults (fd, 0, 0, 0, fragments))
              return 0;
-@@ -405,3 +559,650 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+@@ -405,3 +567,650 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
  
    return __set_errno (EINVAL);
  }
@@ -5399,7 +5402,7 @@ index 0000000..c1d8f1f
 +#endif
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c b/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
-index 4290c5f..80024bc 100644
+index 4290c5f..c64db17 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
 @@ -12,6 +12,7 @@
@@ -5500,7 +5503,7 @@ index 4290c5f..80024bc 100644
    __env_unixlib ();
  
    gbl->pthread_system_running = __saved_pthread_system_running;
-@@ -98,6 +164,35 @@ __fork_post (pid_t pid, int isfork)
+@@ -98,6 +164,66 @@ __fork_post (pid_t pid, int isfork)
        /* There are now two processes sharing the dynamic area.  */
        __atomic_modify (&__dynamic_area_refcount, 1);
  
@@ -5524,19 +5527,50 @@ index 4290c5f..80024bc 100644
 +	 child that let them run (a yield in an atexit handler joining a
 +	 thread, a mutex, sleep) changed the parent's stacks under it, and
 +	 a thread that finished in the child freed its stack from under the
-+	 parent.  In a fork child they never run again, and joining one
-+	 gives ESRCH.  Not for vfork, whose child shares the parent's
-+	 memory (the parent's thread list must stay as it is).  */
++	 parent.  So the child's thread list is cut down to the forking
++	 thread: the others are never scheduled and never cleaned up (their
++	 stacks are freed by the parent).  They are marked fork_gone, so
++	 joining one that hadn't finished gives ESRCH, and taken off any
++	 mutex or condition variable they were waiting on, so a signal or an
++	 unlock in the child reaches the child's own threads.  Not for
++	 vfork, whose child shares the parent's memory.  (In a fork child
++	 all this is in the child's copy of application space:
++	 SharedUnixLibrary puts the parent's back when the child exits.)  */
 +      if (isfork && gbl->pthread_system_running)
-+	for (pthread_t th = __pthread_thread_list; th != NULL; th = th->next)
-+	  if (th != __pthread_running_thread)
-+	    th->fork_gone = 1;
++	{
++	  pthread_t self = __pthread_running_thread;
++
++	  for (pthread_t th = __pthread_thread_list; th != NULL; th = th->next)
++	    {
++	      pthread_t *link = NULL;
++
++	      if (th == self)
++		continue;
++	      th->fork_gone = 1;
++	      if ((th->state == STATE_COND_WAIT
++		   || th->state == STATE_COND_TIMED_WAIT) && th->cond)
++		link = &th->cond->waiting;
++	      else if (th->state == STATE_MUTEX_WAIT && th->mutex)
++		link = &th->mutex->waiting;
++	      for (; link && *link; link = &(*link)->nextwait)
++		if (*link == th)
++		  {
++		    *link = th->nextwait;
++		    break;
++		  }
++	    }
++	  if (self->joined && self->joined->fork_gone)
++	    self->joined = NULL;
++	  __pthread_thread_list = self;
++	  self->next = NULL;
++	  gbl->pthread_num_running_threads = 1;
++	}
 +#endif
 +
        if (gbl->pthread_system_running)
          __pthread_atfork_callparentchild (0);
  
-@@ -109,6 +204,17 @@ __fork_post (pid_t pid, int isfork)
+@@ -109,6 +235,17 @@ __fork_post (pid_t pid, int isfork)
      {
        /* We are the parent (including the case when sul_fork failed).  */
  
