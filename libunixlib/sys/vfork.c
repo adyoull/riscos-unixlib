@@ -83,18 +83,30 @@ __fork_pre (int isfork, void **sul_fork, pid_t *pid, void *sp)
   if (isfork && gbl->dynamic_num != -1)
     return __set_errno (EINVAL);
 
-#ifdef __ARM_EABI__
-  if (isfork && fork_save_stack (sp) < 0)
-    return __set_errno (ENOMEM);
-#else
-  (void) sp;
-#endif
-
   if (gbl->pthread_system_running)
     {
       __pthread_atfork_callprepare ();
       __pthread_stop_ticker ();
     }
+
+#ifdef __ARM_EABI__
+  /* 2026: the copy is taken after the prepare handlers have run and the
+     ticker has stopped (it was taken first): what the restore puts back
+     is then the stack as it is when the child starts, including what
+     the handlers changed in our callers' frames, and no thread switch
+     can happen in the middle of the copy.  */
+  if (isfork && fork_save_stack (sp) < 0)
+    {
+      if (gbl->pthread_system_running)
+	{
+	  __pthread_start_ticker ();
+	  __pthread_atfork_callparentchild (1);
+	}
+      return __set_errno (ENOMEM);
+    }
+#else
+  (void) sp;
+#endif
 
   /* Save __ul_global.pthread_system_running, as the child process
      will always set it to 0 on exit.  */
@@ -120,6 +132,15 @@ pid_t
 __fork_post (pid_t pid, int isfork)
 {
   struct ul_global *gbl = &__ul_global;
+
+#ifdef __ARM_EABI__
+  /* 2026: the child drops the flag that makes SharedUnixLibrary free the
+     parent's ARMEABISupport stack (see below) first, before anything
+     that could end the child: a signal taken as UnixLib's handlers go
+     back in (__env_unixlib) would otherwise exit with it still set.  */
+  if (pid == 0)
+    gbl->sulproc->status.is_armeabi = 0;
+#endif
 
   __env_unixlib ();
 
@@ -151,12 +172,25 @@ __fork_post (pid_t pid, int isfork)
 	 parent on a freed stack, and (5.0.3.1-rc5) a null handle made
 	 ARMEABISupport abort.  So the child drops the flag.  A UnixLib
 	 program the child execs sets it again with its own stack.  */
-      gbl->sulproc->status.is_armeabi = 0;
       if (fork_stack_copy)
 	{
 	  free (fork_stack_copy);
 	  fork_stack_copy = NULL;
 	}
+
+      /* 2026: as in POSIX, only the thread that called fork () exists in
+	 the child.  The others' stacks are ARMEABISupport stacks, outside
+	 what SharedUnixLibrary copies, so they are the parent's own: a
+	 child that let them run (a yield in an atexit handler joining a
+	 thread, a mutex, sleep) changed the parent's stacks under it, and
+	 a thread that finished in the child freed its stack from under the
+	 parent.  In a fork child they never run again, and joining one
+	 gives ESRCH.  Not for vfork, whose child shares the parent's
+	 memory (the parent's thread list must stay as it is).  */
+      if (isfork && gbl->pthread_system_running)
+	for (pthread_t th = __pthread_thread_list; th != NULL; th = th->next)
+	  if (th != __pthread_running_thread)
+	    th->fork_gone = 1;
 #endif
 
       if (gbl->pthread_system_running)

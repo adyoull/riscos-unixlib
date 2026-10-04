@@ -80,6 +80,7 @@ __pthread_new_node (pthread_t node)
   node->cancelpending = 0;
   node->detachstate = PTHREAD_CREATE_JOINABLE;
   node->suspended = 0;
+  node->fork_gone = 0;
   node->joined = NULL;
   node->ret = NULL;
   node->mutex = NULL;

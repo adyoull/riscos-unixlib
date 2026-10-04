@@ -121,10 +121,13 @@ __pthread_context_switch (void)
 
       next = __pthread_running_thread->next;
 
-      /* Free up any idle threads that are found */
+      /* Free up any idle threads that are found.  2026: not in a fork
+	 child the parent's threads (fork_gone): their stacks are the
+	 parent's, which frees them itself.  */
       if (next == NULL)
         {
-          if (__pthread_thread_list->state == STATE_IDLE)
+          if (__pthread_thread_list->state == STATE_IDLE
+	      && !__pthread_thread_list->fork_gone)
             {
               next = __pthread_thread_list;
               __pthread_thread_list = __pthread_thread_list->next;
@@ -132,14 +135,15 @@ __pthread_context_switch (void)
               next = __pthread_running_thread->next;
             }
         }
-      else if (next->state == STATE_IDLE)
+      else if (next->state == STATE_IDLE && !next->fork_gone)
         {
           __pthread_running_thread->next = next->next;
           __pthread_cleanup_idle (next);
           next = __pthread_running_thread->next;
         }
 
-      if (__pthread_running_thread->suspended)
+      if (__pthread_running_thread->suspended
+	  || __pthread_running_thread->fork_gone)
 	continue;
 
       if (__pthread_running_thread->state == STATE_COND_TIMED_WAIT)

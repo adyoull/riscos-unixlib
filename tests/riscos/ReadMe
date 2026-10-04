@@ -114,6 +114,11 @@ ForkOnly    fork() three times, no threads: must print PASS.
 ForkThreads fork() from a program with two busy threads (as ForkExec, with
             fork added): must print PASS. With 5.0.3.1-rc4 this aborted
             ("abort on data transfer") as fork returned in the parent.
+ForkWorker  fork() with a worker thread running: the child must not run
+            the parent's thread (its join gives ESRCH), the parent's
+            worker must carry on unharmed, and a change an atfork prepare
+            handler makes to main's frame must be kept. Must print PASS
+            (needs 5.0.3.3-rc1 or later)
 HeapProbe   a probe, not a pass/fail test: can one heap block be bigger
             than 128 MB? Tries (A) a second dynamic area placed right
             after the first, and (B) "physical memory pool" areas of

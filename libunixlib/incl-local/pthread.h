@@ -102,6 +102,11 @@ struct __pthread_thread
   /* Is the thread suspended.  */
   unsigned int suspended : 1;
 
+  /* 2026: in a fork () child, a thread other than the one that forked:
+     it doesn't exist there (POSIX), so it never runs and can't be
+     joined.  Same word as the flags above, so the layout is unchanged.  */
+  unsigned int fork_gone : 1;
+
   __sigset_t blocked; /* Signal mask for this thread. */
   __sigset_t pending; /* Pending signals for this thread */
   pthread_cond_t sigwait_cond;

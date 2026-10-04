@@ -26,7 +26,8 @@ pthread_join (pthread_t tojoin, void **status)
 
   __pthread_disable_ints ();
 
-  if (__pthread_invalid (tojoin))
+  /* 2026: in a fork child the parent's other threads don't exist.  */
+  if (__pthread_invalid (tojoin) || tojoin->fork_gone)
     {
 #ifdef PTHREAD_DEBUG
       __os_print ("-- pthread_join: Target thread does not exist\r\n");

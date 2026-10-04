@@ -14,6 +14,12 @@ How to release: docs/MAINTAINING.md.
   - One helper, `__pthread_held_wait`, now does these waits: it releases only the call's own hold, and doesn't yield when the hold is nested.
   - The DigitalRenderer write wait now gives up after 2 s, like the SharedSoundBuffer one.
   - Found by the 2026-10-04 audit. MODIFICATIONS.md Y1.
+- **fork() in a threaded EABI program (K10):**
+  - Only the forking thread exists in the child, as in POSIX. The parent's other threads ran there on the parent's own stacks, and one that finished in the child had its stack freed from under the parent.
+  - The stack copy fork keeps for the parent is now taken after the atfork prepare handlers and after the ticker stops.
+  - The child drops its "free my stack" flag first.
+  - New Pi test `ForkWorker`.
+  - Found by the 2026-10-04 audit.
 - **Doc correction (E1):** `write()` does hold thread switching off, so rc1's counter race wasn't real for `read()`/`write()`. Only `select()`'s unprotected read was.
 
 ## 5.0.3.2 (2026-10-04, tag v5.0.3.2)

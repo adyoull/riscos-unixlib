@@ -1,0 +1,5 @@
+| fork with a worker thread running: only the forking thread exists in
+| the child; atfork prepare changes kept (5.0.3.3-rc1)
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.fwtest
