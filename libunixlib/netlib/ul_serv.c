@@ -18,7 +18,8 @@
 static FILE *servfile = NULL;
 
 /* Set to 1 if the database file should be kept open between
-   calls to these routines.  */
+   calls to these routines.  2026: no longer used: getservent () keeps
+   its stream open until endservent (), and the lookups use their own.  */
 static int keepopen = 0;
 
 static int __setservent (int allowrewind);
@@ -27,7 +28,7 @@ static int __setservent (int allowrewind);
    getservent_r (getserv_r.c) can tell whether the entry it couldn't copy
    (ERANGE) is still there to hand back.  */
 unsigned int __servent_generation;
-static struct servent *__getservent (void);
+static struct servent *__getservent (FILE *file);
 
 /* Open and rewind the services file.  */
 void
@@ -76,7 +77,7 @@ getservent ()
       return NULL;
 
   /* Do the actual read */
-  serv = __getservent ();
+  serv = __getservent (servfile);
 
   /* 2026: the file stays open until endservent (), as in glibc: closing
      it here unless setservent (1) had been called meant every call
@@ -87,8 +88,8 @@ getservent ()
 }
 
 /* Do the real work of getting an entry from the file.  */
-struct servent *
-__getservent ()
+static struct servent *
+__getservent (FILE *file)
 {
   static struct servent serv =
   {
@@ -124,7 +125,7 @@ __getservent ()
       char *save, *name, *port, *protocol;
 
       /* Read a line from the file */
-      if (__net_readline (servfile, line, sizeof (line) - 1) == NULL)
+      if (__net_readline (file, line, sizeof (line) - 1) == NULL)
 	return NULL;
 
       if ((name = strtok_r (line, " \t", &save)) == NULL
@@ -132,23 +133,42 @@ __getservent ()
 	  || (protocol = strtok_r (NULL, " \t", &save)) == NULL)
 	continue;
 
-      serv.s_name = strdup (name);
-      serv.s_port = htons (atoi (port));
-      serv.s_proto = strdup (protocol);
-
-      /* Initialise the alias list */
-      serv.s_aliases = malloc (sizeof (char *));
-      serv.s_aliases[0] = NULL;
+      /* Out of memory: no entry (it used to go on with NULLs).  The
+	 entry is only valid once s_name is set, which is what the next
+	 call's freeing goes by.  */
+      char *n = strdup (name), *pr = strdup (protocol);
+      char **al = malloc (sizeof (char *));
+      if (n == NULL || pr == NULL || al == NULL)
+	{
+	  free (n);
+	  free (pr);
+	  free (al);
+	  return NULL;
+	}
+      al[0] = NULL;
       aliases = 1;
 
       /* Extract the aliases */
       while ((element = strtok_r (NULL, " \t", &save)) != NULL)
 	{
-	  aliases += 1;
-	  serv.s_aliases = realloc (serv.s_aliases, aliases * sizeof (char *));
-	  serv.s_aliases[aliases - 2] = strdup (element);
-	  serv.s_aliases[aliases - 1] = NULL;
+	  char **more = realloc (al, (aliases + 1) * sizeof (char *));
+	  char *a = strdup (element);
+	  if (more == NULL || a == NULL)
+	    {
+	      free (a);
+	      if (more)
+		al = more;
+	      break;		/* keep the aliases we have */
+	    }
+	  al = more;
+	  al[aliases - 1] = a;
+	  al[aliases] = NULL;
+	  aliases++;
 	}
+      serv.s_aliases = al;
+      serv.s_proto = pr;
+      serv.s_port = htons (atoi (port));
+      serv.s_name = n;
       break;
     }
 
@@ -160,6 +180,10 @@ void
 endservent (void)
 {
   PTHREAD_UNSAFE
+
+  /* 2026: an entry getservent_r couldn't copy (ERANGE) mustn't be
+     handed back after this.  */
+  __servent_generation++;
 
   /* If it's open, close it */
   if (servfile)
@@ -178,12 +202,15 @@ getservbyname (const char *name, const char *proto)
 
   PTHREAD_UNSAFE
 
-  /* Open/rewind the file */
-  if (__setservent (1) == -1)
+  /* 2026 (peer review): the lookups read their own stream, as in glibc:
+     rewinding the one getservent () reads (and closing it) restarted or
+     ended a getservent () walk that looked entries up as it went.  */
+  FILE *file = fopen ("InetDBase:Services", "r");
+  if (file == NULL)
     return NULL;
 
   /* Look through the file for a match */
-  while ((serv = __getservent ()) != NULL)
+  while ((serv = __getservent (file)) != NULL)
     {
       /* Give up now if the protocol doesn't match */
       if (proto && (strcmp (serv->s_proto, proto) != 0))
@@ -205,10 +232,7 @@ getservbyname (const char *name, const char *proto)
 	break;
     }
 
-  /* Close the file unless the user has prohibited it */
-  if (!keepopen)
-    endservent ();
-
+  fclose (file);
   return serv;
 }
 
@@ -220,12 +244,15 @@ getservbyport (int port, const char *proto)
 
   PTHREAD_UNSAFE
 
-  /* Open/rewind the file */
-  if (__setservent (1) == -1)
+  /* 2026 (peer review): the lookups read their own stream, as in glibc:
+     rewinding the one getservent () reads (and closing it) restarted or
+     ended a getservent () walk that looked entries up as it went.  */
+  FILE *file = fopen ("InetDBase:Services", "r");
+  if (file == NULL)
     return NULL;
 
   /* Look through the file for a match */
-  while ((serv = __getservent ()) != NULL)
+  while ((serv = __getservent (file)) != NULL)
     {
       /* Give up now if the protocol doesn't match */
       if (proto && (strcmp (serv->s_proto, proto) != 0))
@@ -237,9 +264,6 @@ getservbyport (int port, const char *proto)
 
     }
 
-  /* Close the file unless the user has prohibited it */
-  if (!keepopen)
-    endservent ();
-
+  fclose (file);
   return serv;
 }

@@ -22,7 +22,7 @@ How to release: docs/MAINTAINING.md.
   - Found by the 2026-10-04 audit.
 - **The services database (N2):**
   - `getservbyname_r` and friends no longer reset the program's `strtok` state.
-  - `getservent()` no longer returns the first entry for ever (it closed the file after every call).
+  - `getservent()` no longer returns the first entry for ever (it closed the file after every call), and a lookup during a `getservent()` walk no longer restarts it.
   - `getservent_r` returns `ENOENT` at the end and the same entry again after `ERANGE`, as glibc does.
   - A blank or broken line in the services file no longer crashes the parser.
   - Found by the 2026-10-04 audit.
@@ -35,9 +35,14 @@ How to release: docs/MAINTAINING.md.
   - Format characters above U+00FF are accepted.
   - `swprintf` terminates the buffer on errors.
   - `wcsftime` no longer fails with a huge `maxsize`.
+  - Width and precision for `%ls` still count bytes.
   - Found by the 2026-10-04 audit.
-- **`_exit` keeps codes 0–127, as `exit` does (X2).** `_exit (200)` reached the parent as 200 and `exit (200)` as 72; codes 128–255 are how UnixLib tells RISC OS a program died by a signal. Found by the 2026-10-04 audit.
-- **Heap (A3):** one small gap after the heap no longer caps every later heap area at the gap's size. Before, a 1 MB gap stopped malloc at about the first area + 63 MB. Found by the 2026-10-04 audit; emulator scenario added.
+- **Exit codes 128–255 (X2):**
+  - `exit` kept only 0–127, so `exit (128)` reported success and `exit (200)` 72, while `_exit` kept all 8 bits.
+  - Both now give a UnixLib parent's `waitpid` the low 8 bits, as POSIX has it.
+  - RISC OS (Sys$ReturnCode) gets at most 127, because there bit 7 means the program died by a signal.
+  - Found by the 2026-10-04 audit and its peer review.
+- **Heap (A3):** one small gap after the heap no longer caps every later heap area at the gap's size. Before, a 1 MB gap stopped malloc at about the first area + 63 MB. An older RISC OS isn't asked for more SWIs than before. Found by the 2026-10-04 audit; emulator scenarios added.
 - **New and extended RISC OS tests:**
   - `ToneStdio` and `ToneStdioDR`: `/dev/dsp` through `fwrite` with a thread running.
   - `EventFD` now also cancels a blocked read.

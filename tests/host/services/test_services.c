@@ -67,6 +67,37 @@ int main (void)
 	 && strcmp (se.s_name, "http") == 0);
   endservent ();
 
+  /* Peer review: a lookup inside a getservent () walk used to rewind
+     (and close) the walk's stream, so the walk restarted for ever.  */
+  setservent (0);
+  n = 0;
+  struct servent *w;
+  while ((w = getservent ()) != NULL && n < 10)
+    {
+      CHECK (strcmp (w->s_name, all[n]) == 0);
+      n++;
+      CHECK (getservbyport_r (htons (80), "tcp", &se, buf, sizeof buf, &r) == 0 && r);
+    }
+  CHECK (n == 3);
+  endservent ();
+
+  /* endservent () drops an entry ERANGE kept for the next call.  */
+  setservent (0);
+  CHECK (getservent_r (&se, buf, sizeof buf, &r) == 0
+	 && strcmp (se.s_name, "http") == 0);
+  CHECK (getservent_r (&se, small, sizeof small, &r) == ERANGE);
+  endservent ();
+  CHECK (getservent_r (&se, buf, sizeof buf, &r) == 0 && r
+	 && strcmp (se.s_name, "http") == 0);
+  endservent ();
+
+  /* ENOENT is also left in errno.  */
+  setservent (0);
+  while (getservent_r (&se, buf, sizeof buf, &r) == 0)
+    ;
+  CHECK (errno == ENOENT);
+  endservent ();
+
   /* getservent () itself: the walk ends.  */
   n = 0;
   while (getservent () != NULL && n < 10)

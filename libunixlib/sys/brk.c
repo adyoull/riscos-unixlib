@@ -96,8 +96,10 @@ static int heap_area_count;	/* 0 until the heap first needs a list */
 static int seg_start;		/* first area of the current segment */
 static int grow_idx;		/* the area holding __ul_memory.dalimit */
 static int chain_failed;	/* brk_da couldn't add an area after */
-static unsigned int heap_max_ok;	/* a maximum RISC OS accepted at a base
-					   it chose (2026 audit) */
+static unsigned int heap_max_ok;	/* a maximum RISC OS accepted (caps
+					   fixed-base requests) */
+static unsigned int heap_max_free;	/* one accepted where RISC OS chose
+					   the base (caps those requests) */
 static unsigned int chain_blocked;	/* a base where an area couldn't be
 					   made (0: none): don't keep trying */
 static char heap_area_name[48];
@@ -156,8 +158,16 @@ heap_make_area (int base)
      to 1 MB.  At a given base, once a maximum has worked before, a
      refusal means the space is taken: don't go on halving.  */
   want = first_max > HEAP_AREA_MIN_MAX ? first_max : HEAP_AREA_MIN_MAX;
-  if (heap_max_ok && want > heap_max_ok)
+  /* 2026 (audit, peer review): a maximum accepted at a fixed base may be
+     small only because the gap there is: it used to cap every later area,
+     new segments included, so one 1 MB gap after the heap stopped it at
+     about first + 63 MB.  Where RISC OS chooses the base, only what it
+     accepted where it chose the base is a limit (heap_max_free; an older
+     RISC OS that refuses large maxima then isn't asked again each time).  */
+  if (base != -1 && heap_max_ok && want > heap_max_ok)
     want = heap_max_ok;
+  if (base == -1 && heap_max_free && want > heap_max_free)
+    want = heap_max_free;
   for (;;)
     {
       max = 0;
@@ -171,18 +181,15 @@ heap_make_area (int base)
       if (want < (1u << 20))
 	return -1;
     }
-  /* 2026 (audit): only a maximum accepted where RISC OS chose the base
-     says how big an area may be.  At a fixed base it can be small only
-     because a gap is small: learning that made every later area that
-     size, so one 1 MB gap after the heap stopped it at about first + 63
-     MB.  */
-  if (base == -1 && heap_max_ok < want)
-    heap_max_ok = want;
   if ((base != -1 && got_base != (unsigned int) base) || max == 0)
     {
       _swix (OS_DynamicArea, _INR(0,1), 1, num);
       return -1;
     }
+  if (heap_max_ok < want)
+    heap_max_ok = want;
+  if (base == -1 && heap_max_free < want)
+    heap_max_free = want;
   heap_areas[heap_area_count].num = num;
   heap_areas[heap_area_count].base = got_base;
   heap_areas[heap_area_count].max = max;

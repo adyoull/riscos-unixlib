@@ -356,9 +356,11 @@ _Exit (int status)
      delete tmpfile() temporary files.  */
   __stdioexit ();
 
-  /* Only return codes between 0 and 127 are valid.  128 to 255 are
-     reserved for the run-time library internals.  */
-  status = status & 0x7f;
+  /* 2026 (peer review): the low 8 bits, as POSIX has it; a UnixLib
+     parent's waitpid sees all of them.  It used to keep only 0-127, so
+     exit (128) reported success.  What RISC OS itself is given (where
+     128-255 mean a death by signal) is limited in __exit_status.  */
+  status = status & 0xff;
 
   __exit_status (__W_EXITCODE (status, 0));
 }
@@ -366,14 +368,12 @@ _Exit (int status)
 /* POSIX _exit: 'status' is a plain exit code, as for exit().
    2026: in GCCSDK UnixLib _exit itself took a wait status
    (<sys/wait.h> encoding), so a program's _exit(1) was reported to its
-   parent as death by signal 1, and _exit(3) as signal 3.  It keeps the
-   same 0-127 as exit () (2026-10-04 audit: it kept 0-255, so _exit (200)
-   and exit (200) reached the parent differently, and 128-255 are what
-   __exit_status gives RISC OS for a death by signal).  */
+   parent as death by signal 1, and _exit(3) as signal 3.  The low 8
+   bits, as exit () keeps.  */
 void
 _exit (int status)
 {
-  __exit_status (__W_EXITCODE (status & 0x7f, 0));
+  __exit_status (__W_EXITCODE (status & 0xff, 0));
 }
 
 /* Final process termination. 'return_code' is a 16-bit
@@ -439,6 +439,10 @@ __exit_status (int return_code)
       sulproc->status.return_code = status;
       sulproc->status.core_dump = 0;
       sulproc->status.signal_exit = 0;
+      /* 2026: a UnixLib parent gets all 8 bits from return_code above;
+	 RISC OS gets at most 127, as bit 7 means a death by signal.  */
+      if (status > 127)
+	status = 127;
     }
 
   /* Reset the DDEUtils' Prefix variable to the value at startup.  */

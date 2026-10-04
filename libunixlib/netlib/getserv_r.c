@@ -124,7 +124,10 @@ getservent_r (struct servent *result_buf, char *buf, size_t buflen,
       return ERANGE;
     }
   if (err == 0 && *result == NULL)
-    return ENOENT;
+    {
+      errno = ENOENT;		/* as glibc sets it too */
+      return ENOENT;
+    }
   return err;
 }
 #endif

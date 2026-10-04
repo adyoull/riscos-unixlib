@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 60 modified files and 8 added files).
+diff against unchanged GCCSDK UnixLib: 63 modified files and 9 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -76,7 +76,7 @@ the commits are named below.
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
 
 The modified files keep their original copyright lines. Code added to them
-is marked with a `2026:` comment. The 8 new files carry
+is marked with a `2026:` comment. The 9 new files carry
 "Copyright (c) 2026 UnixLib Developers" and are under UnixLib's licence,
 like the rest of the library.
 
@@ -196,6 +196,11 @@ above", and `towlower_l`/`towupper_l` return them unchanged.
 - The result is widened from UTF-8, taking a byte that isn't part of a valid sequence (a Latin-1 narrow `%s`, say) as Latin-1, as before.
 - `swprintf` counts and truncates in wide characters, and terminates the buffer on every path when `n` isn't 0.
 - `wcsftime` grows its buffer as needed, up to 4 bytes per character, or 1 MB.
+
+**Known limits** (found in peer review):
+- **Width, precision and `%n` count bytes** for `%ls` and `%s`, because the narrow `vsnprintf` does the padding. For example, `L"[%5ls]"` with `L"é"` pads with 3 spaces, not 4.
+- **Latin-1 `%s` text that happens to form valid UTF-8 is read as UTF-8**, even across two adjacent arguments.
+- **`wcsftime` gives up on results over 1 MB.**
 
 **Verification.** `tests/host/wchar` (19 checks) covers:
 - `%lc` and `%ls` with 2-, 3- and 4-byte characters;
@@ -397,15 +402,20 @@ several areas and loads a 4096x4096 map (tile array 128 MB + 16 bytes).
 
 **Problem.** Found by the 2026-10-04 audit, and reproduced in the emulator.
 
-`heap_max_ok`, the largest maximum RISC OS has accepted, caps every later area. It was learnt from any area that succeeded, including one at a fixed base. There, the first chained area halves its maximum until it fits whatever gap follows the heap, so a 1 MB gap made every later area 1 MB, including new segments. With 64 areas the heap then stopped at about the first area + 63 MB.
+`heap_max_ok`, the largest maximum RISC OS has accepted, capped every later area. It was learnt from any area that succeeded, including one at a fixed base. There, the first chained area halves its maximum until it fits whatever gap follows the heap, so a 1 MB gap made every later area 1 MB, including new segments. With 64 areas the heap then stopped at about the first area + 63 MB.
 
-**Change.** `heap_max_ok` is learnt only from areas whose base RISC OS chose. That is where a refusal means "too big for this machine" rather than "this space is taken". The gap is still used by one small area.
+**Change.** Two limits instead of one:
+- **`heap_max_ok`**, learnt from every area as before, caps only fixed-base requests. There it also keeps its "a refusal at or below this means the space is taken" shortcut.
+- **`heap_max_free`**, learnt only where RISC OS chose the base, caps those requests. An older RISC OS that refuses large maxima is therefore not asked for 128 MB again for every new segment.
+- Both are learnt only from areas that are kept.
 
-**Verification.** A new `tests/emu/heap_test.py` scenario: 8 MB areas, a 1 MB gap after the heap, then 100 MB in 512 KB blocks.
-- **Before:** 60 blocks failed, with areas capped at 1 MB.
-- **After:** all succeed, and only the gap's area is small.
+**Peer review.** The first version simply learnt nothing at fixed bases. On an older RISC OS (fixed bases and big maxima both refused) that took 111 `OS_DynamicArea 0` calls for 40 × 512 KB, against 39 before; the second limit restores 39.
 
-All 40 checks pass.
+**Verification.** Two new scenarios in `tests/emu/heap_test.py` (41 checks, all pass):
+- **The gap:** 8 MB areas, a 1 MB gap after the heap, then 100 MB in 512 KB blocks.
+  - Before: 60 blocks failed, with areas capped at 1 MB.
+  - Now: all succeed, and only the gap's own area is small.
+- **The older RISC OS:** 40 × 512 KB with at most 45 calls.
 ### F1. `fsync` on read-only files; `fdatasync` (`unix/sync.c`, `include/unistd.h`) - commit `751de68`
 
 **Problem.** `fsync()` on a descriptor opened only for reading returned -1
@@ -464,17 +474,22 @@ and `popen()` (`_exit (EXIT_FAILURE)`).
 UnixLib's own callers that pass an encoded status (`_Exit`, the signal
 code's default actions, the stack-overflow and fatal-error paths in
 `_syslib.s`) call it. The public `_exit (status)` calls
-`__exit_status (W_EXITCODE (status & 0x7f, 0))`: 0-127, as `exit`
-keeps (it was `& 0xff` until the 2026-10-04 audit, so `_exit (200)` and
-`exit (200)` reached the parent differently; 128-255 are what
-`__exit_status` gives RISC OS for a death by signal). `abort`'s fallback,
+`__exit_status (W_EXITCODE (status & 0xff, 0))`.
+
+**Exit codes 128-255 (2026-10-04 audit and peer review).** `exit`/`_Exit`
+kept only `& 0x7f` (upstream), so `exit (128)` reported success and
+`exit (200)` 72, while `_exit` kept 8 bits. Now both keep the low 8 bits,
+as POSIX has it, and a UnixLib parent's `waitpid` sees them (they go in
+the process structure's 8-bit `return_code`). Only the code given to RISC
+OS (`sul_exit`, Sys$ReturnCode) is limited to 127, because there bit 7
+means a death by signal. `abort`'s fallback,
 `system()` and `popen()` keep calling `_exit` and now get the exit code
 they meant.
 
 **What it means for programs.** `_exit (0)` is unchanged. A program
 whose fork/vfork child calls `_exit (n)` now sees `WIFEXITED` and
-`WEXITSTATUS == n` (n from 0 to 127, as for `exit`), as on other
-systems; Sys$ReturnCode is n.
+`WEXITSTATUS == n` (0-255), as on other systems; Sys$ReturnCode is n, or
+127 for n above 127.
 
 **Verification.** Disassembly of `_exit` (shift left 8, mask, call
 `__exit_status`). On RISC OS: `ForkOnly` and `ForkThreads` check the
@@ -615,14 +630,20 @@ What the callers do:
 **Change.**
 - The parser uses `strtok_r`, and skips lines without a name, port and protocol.
 - `getservent()` leaves the file open until `endservent()`, as glibc does. `getservbyname()` and `getservbyport()` still rewind, and close it unless `setservent(1)` was called.
-- `getservent_r` returns `ENOENT` at the end. After `ERANGE` it returns the same entry on the next call, unless the file has been read or rewound since: a generation counter, `__servent_generation`, is hidden by `vscript`.
+- `getservent_r` returns `ENOENT` at the end, and sets `errno` to it, as glibc does.
+- After `ERANGE`, `getservent_r` returns the same entry on the next call, unless the file has been read, rewound or closed since. A generation counter, `__servent_generation`, tracks that and is hidden by `vscript`.
+- **Peer review:** `getservbyname()` and `getservbyport()` read their own stream (opened and closed each time), as glibc's do. They rewound and closed the one `getservent()` reads, so a walk that looked entries up as it went restarted for ever. `setservent(1)` therefore no longer affects them.
+- **Out of memory:** the parser returns no entry, instead of going on with NULLs.
 
-**Verification.** `tests/host/services` (20 checks) builds the real parser, readline and `_r` files against a test services file. It covers:
+**Verification.** `tests/host/services` (31 checks) builds the real parser, readline and `_r` files against a test services file. It covers:
 - a `strtok` loop calling `getservbyname_r`;
 - aliases and lookup by port;
 - a `getservent_r` walk that skips a blank and a broken line and ends with `ENOENT`;
 - `ERANGE` followed by the same entry, but not after an intervening lookup;
-- a `getservent()` walk that ends.
+- a `getservent()` walk that ends;
+- a walk with a lookup on every step;
+- `endservent()` dropping an entry kept after `ERANGE`;
+- `errno`.
 
 The old code crashes on the blank line.
 
