@@ -1,5 +1,5 @@
 diff --git a/gcc4/recipe/files/gcc/libunixlib/Makefile.am b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-index e887b17..70f785b 100644
+index e887b17..f3010d0 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 +++ b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 @@ -622,6 +622,7 @@ netlib_src = \
@@ -85,7 +85,7 @@ index e887b17..70f785b 100644
 +unixlib_asm_objs = $(patsubst %.s,%.lo,$(notdir $(filter %.s,$(libunixlib_la_SOURCES))))
 +$(unixlib_asm_objs) crt0.o gcrt0.o sul.o pthticker.o: $(unixlib_asm_deps)
 +
-+libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 7:0:2 -Wl,--version-script -Wl,$(top_srcdir)/vscript
++libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 7:1:2 -Wl,--version-script -Wl,$(top_srcdir)/vscript
  
  libm_la_SOURCES = libm-support/libm.c
  
@@ -177,7 +177,7 @@ index c9673b7..9af4dd4 100644
    return 0;
  }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/configure.ac b/gcc4/recipe/files/gcc/libunixlib/configure.ac
-index 53fe31c..34b44d3 100644
+index 53fe31c..7467329 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/configure.ac
 +++ b/gcc4/recipe/files/gcc/libunixlib/configure.ac
 @@ -5,7 +5,7 @@ dnl Process this file with autoconf to produce a configure script
@@ -185,17 +185,17 @@ index 53fe31c..34b44d3 100644
  
  AC_PREREQ(2.64)
 -AC_INIT([RISC OS UnixLib C Runtime Library], 5.0, [http://gccsdk.riscos.info/], [libunixlib])
-+AC_INIT([RISC OS UnixLib C Runtime Library], 5.0.3.2, [https://github.com/adyoull/riscos-unixlib/issues], [libunixlib])
++AC_INIT([RISC OS UnixLib C Runtime Library], 5.0.3.3, [https://github.com/adyoull/riscos-unixlib/issues], [libunixlib])
  AC_CONFIG_SRCDIR([assert/assert.c])
  AC_CONFIG_HEADER(config.h)
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help b/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
-index 7775d56..397fb3a 100644
+index 7775d56..646a581 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
 +++ b/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
 @@ -1,4 +1,4 @@
 -                                UnixLib 5.0
-+                               UnixLib 5.0.3.2
++                               UnixLib 5.0.3.3
                                  ~~~~~~~~~~~
  
  This document provides a VERY short introduction to UnixLib, and only covers
