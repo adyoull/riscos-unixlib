@@ -162,7 +162,7 @@ index 00d5939..df9d870 100644
  }
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
-index 8a2eb72..e82fb50 100644
+index 8a2eb72..aad4ccc 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 @@ -16,6 +16,10 @@
@@ -535,7 +535,7 @@ index 8a2eb72..e82fb50 100644
  
            /* fragsize is in bytes, but the buffer size used
               by DigitalRenderer is in samples */
-@@ -356,7 +509,16 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+@@ -356,7 +509,22 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
  
            if (dr_fragscale == 0)
              dr_fragscale = 1;
@@ -545,14 +545,20 @@ index 8a2eb72..e82fb50 100644
 +          /* At least two fragments within the limit (a fragment bigger
 +             than half of it made GETOSPACE report 0 fragments).  */
 +          if (dr_fragscale > max_buffers / 2)
-+            dr_fragscale = max_buffers / 2 > 0 ? max_buffers / 2 : 1;
++            {
++              /* A power of two, as OSS programs expect of a fragment.  */
++              int scale = 1;
++              while (scale * 2 <= max_buffers / 2)
++                scale *= 2;
++              dr_fragscale = scale;
++            }
            fragments *= dr_fragscale;
 +          if (unlimited || fragments > max_buffers)
 +            fragments = max_buffers;
  
            if (!set_defaults (fd, 0, 0, 0, fragments))
              return 0;
-@@ -405,3 +567,650 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+@@ -405,3 +573,650 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
  
    return __set_errno (EINVAL);
  }

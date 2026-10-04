@@ -1639,10 +1639,10 @@ index 0000000..351ad91
 +	.end
 diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/getserv_r.c b/gcc4/recipe/files/gcc/libunixlib/netlib/getserv_r.c
 new file mode 100644
-index 0000000..dd26c07
+index 0000000..3b4a4d7
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/netlib/getserv_r.c
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,142 @@
 +/* getservbyname_r (), getservbyport_r (), getservent_r ()
 +   Copyright (c) 2026 UnixLib Developers.
 +
@@ -1755,11 +1755,20 @@ index 0000000..dd26c07
 +
 +  PTHREAD_UNSAFE
 +
++  int saved_errno = errno;
++  errno = 0;
 +  if (pending && pending_generation == __servent_generation)
 +    serv = pending;
 +  else
 +    serv = getservent ();
 +  pending = NULL;
++  /* Out of memory isn't the end of the file.  */
++  if (serv == NULL && errno == ENOMEM)
++    {
++      *result = NULL;
++      return ENOMEM;
++    }
++  errno = saved_errno;
 +
 +  err = copy_servent (serv, result_buf, buf, buflen, result);
 +  if (err == ERANGE)
@@ -1821,10 +1830,18 @@ index 4f0199f..e9551ca 100644
  }
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/ul_serv.c b/gcc4/recipe/files/gcc/libunixlib/netlib/ul_serv.c
-index 50bc9f2..e82b999 100644
+index 50bc9f2..62b80e4 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/netlib/ul_serv.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/netlib/ul_serv.c
-@@ -18,11 +18,17 @@
+@@ -3,6 +3,7 @@
+  * Copyright (c) 2000-2008 UnixLib Developers
+  */
+ 
++#include <errno.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -18,11 +19,17 @@
  static FILE *servfile = NULL;
  
  /* Set to 1 if the database file should be kept open between
@@ -1844,7 +1861,7 @@ index 50bc9f2..e82b999 100644
  
  /* Open and rewind the services file.  */
  void
-@@ -40,6 +46,9 @@ setservent (int stayopen)
+@@ -40,6 +47,9 @@ setservent (int stayopen)
  static int
  __setservent (int allowrewind)
  {
@@ -1854,7 +1871,7 @@ index 50bc9f2..e82b999 100644
    /* Open or rewind the file as necessary */
    if (servfile)
      {
-@@ -68,18 +77,19 @@ getservent ()
+@@ -68,18 +78,19 @@ getservent ()
        return NULL;
  
    /* Do the actual read */
@@ -1881,7 +1898,7 @@ index 50bc9f2..e82b999 100644
  {
    static struct servent serv =
    {
-@@ -103,34 +113,63 @@ __getservent ()
+@@ -103,34 +114,72 @@ __getservent ()
        serv.s_name = NULL;
      }
  
@@ -1932,6 +1949,7 @@ index 50bc9f2..e82b999 100644
 +	  free (n);
 +	  free (pr);
 +	  free (al);
++	  errno = ENOMEM;
 +	  return NULL;
 +	}
 +      al[0] = NULL;
@@ -1951,10 +1969,18 @@ index 50bc9f2..e82b999 100644
 +	  char *a = strdup (element);
 +	  if (more == NULL || a == NULL)
 +	    {
++	      /* Out of memory: no entry (errno ENOMEM), not one with
++		 aliases missing.  */
 +	      free (a);
 +	      if (more)
 +		al = more;
-+	      break;		/* keep the aliases we have */
++	      for (char **item = al; *item; item++)
++		free (*item);
++	      free (al);
++	      free (n);
++	      free (pr);
++	      errno = ENOMEM;
++	      return NULL;
 +	    }
 +	  al = more;
 +	  al[aliases - 1] = a;
@@ -1969,7 +1995,7 @@ index 50bc9f2..e82b999 100644
      }
  
    return &serv;
-@@ -142,6 +181,10 @@ endservent (void)
+@@ -142,6 +191,10 @@ endservent (void)
  {
    PTHREAD_UNSAFE
  
@@ -1980,7 +2006,7 @@ index 50bc9f2..e82b999 100644
    /* If it's open, close it */
    if (servfile)
      {
-@@ -159,12 +202,15 @@ getservbyname (const char *name, const char *proto)
+@@ -159,12 +212,15 @@ getservbyname (const char *name, const char *proto)
  
    PTHREAD_UNSAFE
  
@@ -1999,7 +2025,7 @@ index 50bc9f2..e82b999 100644
      {
        /* Give up now if the protocol doesn't match */
        if (proto && (strcmp (serv->s_proto, proto) != 0))
-@@ -186,10 +232,7 @@ getservbyname (const char *name, const char *proto)
+@@ -186,10 +242,7 @@ getservbyname (const char *name, const char *proto)
  	break;
      }
  
@@ -2011,7 +2037,7 @@ index 50bc9f2..e82b999 100644
    return serv;
  }
  
-@@ -201,12 +244,15 @@ getservbyport (int port, const char *proto)
+@@ -201,12 +254,15 @@ getservbyport (int port, const char *proto)
  
    PTHREAD_UNSAFE
  
@@ -2030,7 +2056,7 @@ index 50bc9f2..e82b999 100644
      {
        /* Give up now if the protocol doesn't match */
        if (proto && (strcmp (serv->s_proto, proto) != 0))
-@@ -218,9 +264,6 @@ getservbyport (int port, const char *proto)
+@@ -218,9 +274,6 @@ getservbyport (int port, const char *proto)
  
      }
  
@@ -3266,7 +3292,7 @@ index 00d5939..df9d870 100644
  }
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
-index 8a2eb72..e82fb50 100644
+index 8a2eb72..aad4ccc 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 @@ -16,6 +16,10 @@
@@ -3639,7 +3665,7 @@ index 8a2eb72..e82fb50 100644
  
            /* fragsize is in bytes, but the buffer size used
               by DigitalRenderer is in samples */
-@@ -356,7 +509,16 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+@@ -356,7 +509,22 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
  
            if (dr_fragscale == 0)
              dr_fragscale = 1;
@@ -3649,14 +3675,20 @@ index 8a2eb72..e82fb50 100644
 +          /* At least two fragments within the limit (a fragment bigger
 +             than half of it made GETOSPACE report 0 fragments).  */
 +          if (dr_fragscale > max_buffers / 2)
-+            dr_fragscale = max_buffers / 2 > 0 ? max_buffers / 2 : 1;
++            {
++              /* A power of two, as OSS programs expect of a fragment.  */
++              int scale = 1;
++              while (scale * 2 <= max_buffers / 2)
++                scale *= 2;
++              dr_fragscale = scale;
++            }
            fragments *= dr_fragscale;
 +          if (unlimited || fragments > max_buffers)
 +            fragments = max_buffers;
  
            if (!set_defaults (fd, 0, 0, 0, fragments))
              return 0;
-@@ -405,3 +567,650 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+@@ -405,3 +573,650 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
  
    return __set_errno (EINVAL);
  }
@@ -5523,7 +5555,7 @@ index 0000000..c1d8f1f
 +#endif
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c b/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
-index 4290c5f..c64db17 100644
+index 4290c5f..452f22a 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
 @@ -12,6 +12,7 @@
@@ -5624,7 +5656,7 @@ index 4290c5f..c64db17 100644
    __env_unixlib ();
  
    gbl->pthread_system_running = __saved_pthread_system_running;
-@@ -98,6 +164,66 @@ __fork_post (pid_t pid, int isfork)
+@@ -98,6 +164,69 @@ __fork_post (pid_t pid, int isfork)
        /* There are now two processes sharing the dynamic area.  */
        __atomic_modify (&__dynamic_area_refcount, 1);
  
@@ -5671,7 +5703,10 @@ index 4290c5f..c64db17 100644
 +	      if ((th->state == STATE_COND_WAIT
 +		   || th->state == STATE_COND_TIMED_WAIT) && th->cond)
 +		link = &th->cond->waiting;
-+	      else if (th->state == STATE_MUTEX_WAIT && th->mutex)
++	      else if (th->mutex)
++		/* Set exactly while it is on the mutex's list, including
++		   when it has been woken but hasn't run yet to take itself
++		   off (lock.c).  */
 +		link = &th->mutex->waiting;
 +	      for (; link && *link; link = &(*link)->nextwait)
 +		if (*link == th)
@@ -5691,7 +5726,7 @@ index 4290c5f..c64db17 100644
        if (gbl->pthread_system_running)
          __pthread_atfork_callparentchild (0);
  
-@@ -109,6 +235,17 @@ __fork_post (pid_t pid, int isfork)
+@@ -109,6 +238,17 @@ __fork_post (pid_t pid, int isfork)
      {
        /* We are the parent (including the case when sul_fork failed).  */
  
