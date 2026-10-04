@@ -5,7 +5,11 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
-## Unreleased
+## 5.0.3.3-rc1 (2026-10-04, pre-release, tag v5.0.3.3-rc1)
+
+Fixes from the 2026-10-04 code audit, each peer-reviewed (two rounds).
+Not yet run on RISC OS. libtool `-version-info` 7:1:2 (no interface
+changes).
 
 - **Waiting for another thread inside `write()`/`read()` and stdio.**
   - A blocking `/dev/dsp` write through stdio (`fwrite`, `fflush`) stopped a threaded program with "pthread_yield called with context switching disabled". The hold was nested 2 deep and only one level was released.

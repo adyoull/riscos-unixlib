@@ -1554,10 +1554,10 @@ file:
 
 ## 6. Version, build and symbols
 
-### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1 and 5.0.3.2 release commits
+### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2 and 5.0.3.3 release commits
 
-`AC_INIT` and the Help file say **5.0.3.2**. Releases continue UnixLib's own
-numbering from GCCSDK's 5.0. The libtool `-version-info` is `7:0:2`:
+`AC_INIT` and the Help file say **5.0.3.3**. Releases continue UnixLib's own
+numbering from GCCSDK's 5.0. The libtool `-version-info` is `7:1:2` (5.0.3.3: code changed, no interfaces):
 interfaces have been added (6:0:1 for 5.0.3.1; `getservbyname_r` and
 friends for 5.0.3.2) and none removed, so the shared library's major
 version stays 5.
@@ -1605,6 +1605,8 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 ## 8. Still to be done
 
 **Not yet run on RISC OS:**
+- the 5.0.3.3-rc1 fixes (Y1, K10, N2, A3, S12, W5, X2) and their Pi tests
+  `ForkWorker`, `ToneStdio`, `ToneStdioDR` and `EventFD`'s cancel part;
 - the sound tests (`Tone*`, `Mix`, `ExitBug`, `ExitBugSSB`);
 - a threaded program without PThreadTicker;
 - R1 and R2 (on the machine where Warzone 2100 crashed).
