@@ -1,5 +1,5 @@
 diff --git a/gcc4/recipe/files/gcc/libunixlib/Makefile.am b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-index e887b17..390e96f 100644
+index e887b17..70f785b 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 +++ b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 @@ -622,6 +622,7 @@ netlib_src = \
@@ -10,7 +10,15 @@ index e887b17..390e96f 100644
  	netlib/bind.c \
  	netlib/connect.c \
  	netlib/getpeernam.c \
-@@ -676,6 +677,7 @@ pthread_src = \
+@@ -659,6 +660,7 @@ pthread_src = \
+ 	pthread/equal.c \
+ 	pthread/error.c \
+ 	pthread/exit.c \
++	pthread/heldwait.c \
+ 	pthread/join.c \
+ 	pthread/key.c \
+ 	pthread/keydest.c \
+@@ -676,6 +678,7 @@ pthread_src = \
  	pthread/self.c \
  	pthread/sem.c \
  	pthread/testcancel.c \
@@ -18,7 +26,7 @@ index e887b17..390e96f 100644
  	pthread/_context.s \
  	pthread/_exit.s \
  	pthread/_ints.s \
-@@ -771,6 +773,7 @@ if UNIXLIB_BUILDING_SCL
+@@ -771,6 +774,7 @@ if UNIXLIB_BUILDING_SCL
  sched_src =
  else
  sched_src = \
@@ -26,7 +34,7 @@ index e887b17..390e96f 100644
  	sched/syield.c
  endif
  
-@@ -863,6 +866,7 @@ sound_src =
+@@ -863,6 +867,7 @@ sound_src =
  else
  sound_src = \
  	sound/dsp.c \
@@ -34,7 +42,7 @@ index e887b17..390e96f 100644
  	sound/DRender.s
  endif
  
-@@ -1070,6 +1074,8 @@ else
+@@ -1070,6 +1075,8 @@ else
  sys_src += \
  	sys/mman.c
  endif
@@ -43,7 +51,7 @@ index e887b17..390e96f 100644
  endif
  sys_src += \
  	sys/errlist.c
-@@ -1220,6 +1226,7 @@ unix_src = \
+@@ -1220,6 +1227,7 @@ unix_src = \
  	unix/ul_select.c \
  	unix/ul_setenv.c \
  	unix/stat.c \
@@ -51,7 +59,7 @@ index e887b17..390e96f 100644
  	unix/statfs.c \
  	unix/sync.c \
  	unix/sysconf.c \
-@@ -1469,6 +1476,7 @@ nobase_noinst_HEADERS = \
+@@ -1469,6 +1477,7 @@ nobase_noinst_HEADERS = \
  	incl-local/internal/sigstate.h \
  	incl-local/internal/swiparams.h \
  	incl-local/internal/symlinks.h \
@@ -59,7 +67,7 @@ index e887b17..390e96f 100644
  	incl-local/internal/tty.h \
  	incl-local/internal/unix.h \
  	incl-local/locale.h \
-@@ -1499,7 +1507,20 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
+@@ -1499,7 +1508,20 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
  	$(stdio_src) $(stdlib_src) $(string_src) $(sys_src) \
  	$(termios_src) $(time_src) $(unistd_src) $(unix_src) $(wchar_src)
  
@@ -81,7 +89,7 @@ index e887b17..390e96f 100644
  
  libm_la_SOURCES = libm-support/libm.c
  
-@@ -1553,7 +1574,7 @@ gcrt0.o: crt/gcrt0.s
+@@ -1553,7 +1575,7 @@ gcrt0.o: crt/gcrt0.s
  # SUL module ----------------
  
  # Build the SharedUnixLibrary module
@@ -90,7 +98,7 @@ index e887b17..390e96f 100644
  
  sul.o: module/sul.s
  	$(CCASCOMPILE) -o sul.o -c `test -f 'module/sul.s' || echo '$(srcdir)/'`module/sul.s
-@@ -1564,6 +1585,14 @@ sul.o: module/sul.s
+@@ -1564,6 +1586,14 @@ sul.o: module/sul.s
  sul$(EXEEXT): sul.o
  	$(STRIP) -O binary -o sul$(EXEEXT) sul.o
  
@@ -785,10 +793,22 @@ index 9f57871..fd30273 100644
  extern unsigned int __get_cpu_arch (void);
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
-index eed3e61..1ca9c72 100644
+index eed3e61..6ce4e0b 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
-@@ -180,8 +180,41 @@ struct __pthread_callevery_block
+@@ -102,6 +102,11 @@ struct __pthread_thread
+   /* Is the thread suspended.  */
+   unsigned int suspended : 1;
+ 
++  /* 2026: in a fork () child, a thread other than the one that forked:
++     it doesn't exist there (POSIX), so it never runs and can't be
++     joined.  Same word as the flags above, so the layout is unchanged.  */
++  unsigned int fork_gone : 1;
++
+   __sigset_t blocked; /* Signal mask for this thread. */
+   __sigset_t pending; /* Pending signals for this thread */
+   pthread_cond_t sigwait_cond;
+@@ -180,8 +185,41 @@ struct __pthread_callevery_block
    volatile int pthread_callback_semaphore; /* Prevent a callback being set
      whilst servicing another callback.  */
    char filter_name[20];
@@ -830,6 +850,18 @@ index eed3e61..1ca9c72 100644
  extern pthread_t __pthread_thread_list; /* Linked list of all threads */
  
  /* Called once early in program initialisation */
+@@ -216,6 +254,11 @@ extern stack_t __pthread_new_stack (pthread_t node);
+ /* Main scheduling code */
+ extern void __pthread_context_switch (void);
+ 
++/* 2026: wait for another thread from inside a call that holds thread
++   switching off: 1 if it yielded (or there was nothing to yield to), 0 if
++   the hold is nested and it mustn't yield (pthread/heldwait.c).  */
++extern int __pthread_held_wait (int __cancel);
++
+ /* Assembly functions */
+ 
+ /* Prevent the callevery interrupt from initialising a context switch.  */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/socket.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/socket.h
 index b7ed72c..b8ae177 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/sys/socket.h
@@ -2067,7 +2099,7 @@ index fada843..856bb59 100644
 -
  	.end
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
-index 4343190..cd8b1ce 100644
+index 4343190..b66d67b 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 @@ -89,6 +89,15 @@ __pthread_context_switch (void)
@@ -2086,11 +2118,132 @@ index 4343190..cd8b1ce 100644
    pthread_t next = __pthread_running_thread->next;
  
    /* Loop around the list looking for a thread that is running.  */
+@@ -112,10 +121,13 @@ __pthread_context_switch (void)
+ 
+       next = __pthread_running_thread->next;
+ 
+-      /* Free up any idle threads that are found */
++      /* Free up any idle threads that are found.  2026: not in a fork
++	 child the parent's threads (fork_gone): their stacks are the
++	 parent's, which frees them itself.  */
+       if (next == NULL)
+         {
+-          if (__pthread_thread_list->state == STATE_IDLE)
++          if (__pthread_thread_list->state == STATE_IDLE
++	      && !__pthread_thread_list->fork_gone)
+             {
+               next = __pthread_thread_list;
+               __pthread_thread_list = __pthread_thread_list->next;
+@@ -123,14 +135,15 @@ __pthread_context_switch (void)
+               next = __pthread_running_thread->next;
+             }
+         }
+-      else if (next->state == STATE_IDLE)
++      else if (next->state == STATE_IDLE && !next->fork_gone)
+         {
+           __pthread_running_thread->next = next->next;
+           __pthread_cleanup_idle (next);
+           next = __pthread_running_thread->next;
+         }
+ 
+-      if (__pthread_running_thread->suspended)
++      if (__pthread_running_thread->suspended
++	  || __pthread_running_thread->fork_gone)
+ 	continue;
+ 
+       if (__pthread_running_thread->state == STATE_COND_TIMED_WAIT)
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/heldwait.c b/gcc4/recipe/files/gcc/libunixlib/pthread/heldwait.c
+new file mode 100644
+index 0000000..b90566a
+--- /dev/null
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/heldwait.c
+@@ -0,0 +1,67 @@
++/* __pthread_held_wait ()
++   Copyright (c) 2026 UnixLib Developers.
++
++   2026: library code that has to wait for another thread from inside a
++   call that holds thread switching off (write () with
++   __pthread_disable_ints, read () / readv () / writev () and stdio with
++   PTHREAD_UNSAFE) can't just call pthread_yield (): that is a fatal error
++   ("pthread_yield called with context switching disabled").  Releasing
++   one level of the hold and yielding (as dsp.c used to) is only right
++   when that is the only level: through stdio the hold is 2 deep (fwrite
++   is PTHREAD_UNSAFE, then write () takes another), and the yield was
++   still fatal.
++
++   So:
++     - threads not running: nothing to yield to, return 1;
++     - hold 0: yield, return 1;
++     - hold 1 (the call's own hold): release it around the yield, return 1;
++     - hold 2 or more: the caller is inside something else that holds
++       switching off (stdio, a library lock); don't yield, return 0.  The
++       caller must not then wait for another thread for ever.
++
++   With CANCEL set, the wait is a cancellation point (blocking read and
++   write are, in POSIX).
++
++   The hold's return address (__pthread_protect_unsafe) is a single
++   global, not per thread: another thread's PTHREAD_UNSAFE call replaces
++   it while this one waits.  It is kept here and put back once switching
++   is held off again.
++
++   Known limit: a hold of 1 can be a PTHREAD_UNSAFE caller's rather than
++   the call's own (nested PTHREAD_UNSAFE doesn't add to the hold, so
++   fread () -> read () is 1 deep).  Releasing it lets other threads run
++   while that caller is part way through; a blocking read through a FILE
++   from two threads at once is the case that could notice.  */
++
++#include <pthread.h>
++
++#include <internal/unix.h>
++
++int
++__pthread_held_wait (int cancel)
++{
++  struct ul_global *gbl = &__ul_global;
++
++  if (!gbl->pthread_system_running)
++    return 1;
++
++  int held = gbl->pthread_callevery_rma->pthread_worksemaphore;
++  if (held == 0)
++    {
++      if (cancel)
++	pthread_testcancel ();
++      pthread_yield ();
++      return 1;
++    }
++  if (held != 1)
++    return 0;
++
++  void *ret = gbl->pthread_return_address;
++  __pthread_enable_ints ();
++  if (cancel)
++    pthread_testcancel ();
++  pthread_yield ();
++  __pthread_disable_ints ();
++  gbl->pthread_return_address = ret;
++  return 1;
++}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/join.c b/gcc4/recipe/files/gcc/libunixlib/pthread/join.c
+index 0efb1a8..f241d9a 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/join.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/join.c
+@@ -26,7 +26,8 @@ pthread_join (pthread_t tojoin, void **status)
+ 
+   __pthread_disable_ints ();
+ 
+-  if (__pthread_invalid (tojoin))
++  /* 2026: in a fork child the parent's other threads don't exist.  */
++  if (__pthread_invalid (tojoin) || tojoin->fork_gone)
+     {
+ #ifdef PTHREAD_DEBUG
+       __os_print ("-- pthread_join: Target thread does not exist\r\n");
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/newnode.c b/gcc4/recipe/files/gcc/libunixlib/pthread/newnode.c
-index 37f75aa..069a2f8 100644
+index 37f75aa..bd1410f 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/newnode.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/newnode.c
-@@ -71,6 +71,10 @@ __pthread_new_node (pthread_t node)
+@@ -71,11 +71,16 @@ __pthread_new_node (pthread_t node)
    node->keys = NULL;
    node->cleanupfns = NULL;
    node->state = STATE_RUNNING;
@@ -2101,6 +2254,12 @@ index 37f75aa..069a2f8 100644
    node->cancelstate = PTHREAD_CANCEL_ENABLE;
    node->canceltype = PTHREAD_CANCEL_DEFERRED;
    node->cancelpending = 0;
+   node->detachstate = PTHREAD_CREATE_JOINABLE;
+   node->suspended = 0;
++  node->fork_gone = 0;
+   node->joined = NULL;
+   node->ret = NULL;
+   node->mutex = NULL;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c b/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
 index 9457494..e37d337 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
@@ -2872,7 +3031,7 @@ index 00d5939..df9d870 100644
  }
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
-index 8a2eb72..6b098ff 100644
+index 8a2eb72..2f8e80e 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/dsp.c
 @@ -16,6 +16,10 @@
@@ -3153,7 +3312,37 @@ index 8a2eb72..6b098ff 100644
      if (err)
        return __ul_seterr (err, EOPSYS);
    }
-@@ -280,8 +398,8 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
+@@ -256,11 +374,25 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
+   int left = nbyte;
+   while (left > 0)
+     {
+-      while (DRender_StreamStatistics () >= dr_buffers)
++      /* 2026: wait for room with __pthread_held_wait (a yield with
++	 switching held off, as through fwrite, was a fatal error), and
++	 give up after 2 s with nothing played, as the SharedSoundBuffer
++	 path does (it waited for ever).  */
++      int waiting, last_waiting = -1;
++      clock_t since = clock ();
++      while ((waiting = DRender_StreamStatistics ()) >= dr_buffers)
+         {
+-          __pthread_enable_ints ();
+-          pthread_yield ();
+-          __pthread_disable_ints ();
++	  if (waiting != last_waiting)
++	    {
++	      last_waiting = waiting;
++	      since = clock ();
++	    }
++	  else if (clock () - since > 200)
++	    {
++	      int done = nbyte - left;
++	      return done ? done : __set_errno (EIO);
++	    }
++	  (void) __pthread_held_wait (0);
+         }
+ 
+       void *next = (void*)((size_t)data + nbyte - left);
+@@ -280,8 +412,8 @@ __dspwrite (struct __unixlib_fd *fd, const void *data, int nbyte)
  }
  
  
@@ -3164,7 +3353,7 @@ index 8a2eb72..6b098ff 100644
  {
    request &= 0xffff;
  
-@@ -405,3 +523,650 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
+@@ -405,3 +537,650 @@ __dspioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
  
    return __set_errno (EINVAL);
  }
@@ -3371,9 +3560,9 @@ index 8a2eb72..6b098ff 100644
 +    }
 +  else if (clock () - *since > 200)
 +    return 0;
-+  __pthread_enable_ints ();
-+  pthread_yield ();
-+  __pthread_disable_ints ();
++  /* 2026: through stdio the hold is nested and yielding was fatal; with
++     a nested hold this spins until the queue drains (or the 2 s limit).  */
++  (void) __pthread_held_wait (0);
 +  return 1;
 +}
 +
@@ -3817,10 +4006,10 @@ index 8a2eb72..6b098ff 100644
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sound/midi.c b/gcc4/recipe/files/gcc/libunixlib/sound/midi.c
 new file mode 100644
-index 0000000..074fdf6
+index 0000000..914af70
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/sound/midi.c
-@@ -0,0 +1,254 @@
+@@ -0,0 +1,255 @@
 +/*
 + * /dev/midi: OSS-style raw MIDI output for RISC OS.
 + *
@@ -3987,13 +4176,14 @@ index 0000000..074fdf6
 +}
 +
 +/* Let other threads run while waiting, when that's allowed (pthread_yield
-+   is a fatal error with thread switching held off).  */
++   is a fatal error with thread switching held off).  2026: write () and
++   writev () always hold switching off, so testing for no hold meant it
++   never yielded and the program's other threads stopped for up to 2 s;
++   __pthread_held_wait releases the call's own hold around the yield.  */
 +static void
 +midi_yield (void)
 +{
-+  if (__ul_global.pthread_system_running
-+      && __ul_global.pthread_callevery_rma->pthread_worksemaphore == 0)
-+    pthread_yield ();
++  (void) __pthread_held_wait (0);
 +}
 +
 +int
@@ -5017,7 +5207,7 @@ index 0000000..c1d8f1f
 +#endif
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c b/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
-index 4290c5f..767d6e0 100644
+index 4290c5f..80024bc 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
 @@ -12,6 +12,7 @@
@@ -5076,21 +5266,49 @@ index 4290c5f..767d6e0 100644
  {
    struct ul_global *gbl = &__ul_global;
    struct __sul_process *sulproc = gbl->sulproc;
-@@ -45,6 +83,13 @@ __fork_pre (int isfork, void **sul_fork, pid_t *pid)
-   if (isfork && gbl->dynamic_num != -1)
-     return __set_errno (EINVAL);
+@@ -51,6 +89,25 @@ __fork_pre (int isfork, void **sul_fork, pid_t *pid)
+       __pthread_stop_ticker ();
+     }
  
 +#ifdef __ARM_EABI__
++  /* 2026: the copy is taken after the prepare handlers have run and the
++     ticker has stopped (it was taken first): what the restore puts back
++     is then the stack as it is when the child starts, including what
++     the handlers changed in our callers' frames, and no thread switch
++     can happen in the middle of the copy.  */
 +  if (isfork && fork_save_stack (sp) < 0)
-+    return __set_errno (ENOMEM);
++    {
++      if (gbl->pthread_system_running)
++	{
++	  __pthread_start_ticker ();
++	  __pthread_atfork_callparentchild (1);
++	}
++      return __set_errno (ENOMEM);
++    }
 +#else
 +  (void) sp;
 +#endif
 +
-   if (gbl->pthread_system_running)
-     {
-       __pthread_atfork_callprepare ();
-@@ -98,6 +143,22 @@ __fork_post (pid_t pid, int isfork)
+   /* Save __ul_global.pthread_system_running, as the child process
+      will always set it to 0 on exit.  */
+   __saved_pthread_system_running = gbl->pthread_system_running;
+@@ -76,6 +133,15 @@ __fork_post (pid_t pid, int isfork)
+ {
+   struct ul_global *gbl = &__ul_global;
+ 
++#ifdef __ARM_EABI__
++  /* 2026: the child drops the flag that makes SharedUnixLibrary free the
++     parent's ARMEABISupport stack (see below) first, before anything
++     that could end the child: a signal taken as UnixLib's handlers go
++     back in (__env_unixlib) would otherwise exit with it still set.  */
++  if (pid == 0)
++    gbl->sulproc->status.is_armeabi = 0;
++#endif
++
+   __env_unixlib ();
+ 
+   gbl->pthread_system_running = __saved_pthread_system_running;
+@@ -98,6 +164,35 @@ __fork_post (pid_t pid, int isfork)
        /* There are now two processes sharing the dynamic area.  */
        __atomic_modify (&__dynamic_area_refcount, 1);
  
@@ -5102,18 +5320,31 @@ index 4290c5f..767d6e0 100644
 +	 parent on a freed stack, and (5.0.3.1-rc5) a null handle made
 +	 ARMEABISupport abort.  So the child drops the flag.  A UnixLib
 +	 program the child execs sets it again with its own stack.  */
-+      gbl->sulproc->status.is_armeabi = 0;
 +      if (fork_stack_copy)
 +	{
 +	  free (fork_stack_copy);
 +	  fork_stack_copy = NULL;
 +	}
++
++      /* 2026: as in POSIX, only the thread that called fork () exists in
++	 the child.  The others' stacks are ARMEABISupport stacks, outside
++	 what SharedUnixLibrary copies, so they are the parent's own: a
++	 child that let them run (a yield in an atexit handler joining a
++	 thread, a mutex, sleep) changed the parent's stacks under it, and
++	 a thread that finished in the child freed its stack from under the
++	 parent.  In a fork child they never run again, and joining one
++	 gives ESRCH.  Not for vfork, whose child shares the parent's
++	 memory (the parent's thread list must stay as it is).  */
++      if (isfork && gbl->pthread_system_running)
++	for (pthread_t th = __pthread_thread_list; th != NULL; th = th->next)
++	  if (th != __pthread_running_thread)
++	    th->fork_gone = 1;
 +#endif
 +
        if (gbl->pthread_system_running)
          __pthread_atfork_callparentchild (0);
  
-@@ -109,6 +170,17 @@ __fork_post (pid_t pid, int isfork)
+@@ -109,6 +204,17 @@ __fork_post (pid_t pid, int isfork)
      {
        /* We are the parent (including the case when sul_fork failed).  */
  
@@ -5400,17 +5631,18 @@ index de312db..1906827 100644
  __fsstat (const char *ux_filename, struct stat *buf)
  {
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/eventfd.c b/gcc4/recipe/files/gcc/libunixlib/unix/eventfd.c
-index 6eb6ecb..21a45a4 100644
+index 6eb6ecb..5b559b1 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/eventfd.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/unix/eventfd.c
-@@ -15,6 +15,50 @@
+@@ -15,6 +15,40 @@
  
  #define MAX_COUNTER (UINT64_MAX - 1)
  
-+/* 2026: the counter's read-modify-write is done with thread switching held
-+   off.  write () doesn't hold it off itself, so a thread switch between
-+   the load and the store could lose an increment.  It's released again
-+   before waiting for the other side.  */
++/* 2026: the counter's load, check and store are done with thread switching
++   held off.  read () and write () already hold it off for the whole call
++   (read () with PTHREAD_UNSAFE_CANCELLATION, write () with
++   __pthread_disable_ints), so for them this only nests; select () doesn't,
++   and on ARM it reads the 64-bit counter as two words.  */
 +static void
 +counter_lock (void)
 +{
@@ -5425,36 +5657,25 @@ index 6eb6ecb..21a45a4 100644
 +    __pthread_enable_ints ();
 +}
 +
-+/* 2026: a blocking read or write waits for the other side.  read (),
-+   readv () and writev () hold thread switching off for the whole call
-+   (PTHREAD_UNSAFE_CANCELLATION); write () doesn't.  pthread_yield () with
-+   switching held off is a fatal error ("pthread_yield called with context
-+   switching disabled"), so a blocking eventfd read never worked with
-+   threads running.  If our caller holds switching off, release that hold
-+   around the yield, as dsp.c does for its own.  The hold's return address
-+   is a single global that another thread's PTHREAD_UNSAFE call can replace
-+   while this one waits, so keep ours and put it back once switching is
-+   held off again.  */
-+static void
++/* 2026: a blocking read or write waits for the other side with
++   __pthread_held_wait: pthread_yield () inside read () or write (), which
++   hold switching off, is a fatal error ("pthread_yield called with
++   context switching disabled"), so a blocking eventfd read never worked
++   with threads running.  The wait is a cancellation point, as POSIX has
++   it for read and write.  Returns 0 if it can't wait because the caller
++   holds switching off as well (stdio): then the read or write fails with
++   EAGAIN rather than spinning for ever with no other thread able to
++   run.  */
++static int
 +wait_for_other_side (void)
 +{
-+  if (__ul_global.pthread_system_running
-+      && __ul_global.pthread_callevery_rma->pthread_worksemaphore != 0)
-+    {
-+      void *ret = __ul_global.pthread_return_address;
-+      __pthread_enable_ints ();
-+      pthread_yield ();
-+      __pthread_disable_ints ();
-+      __ul_global.pthread_return_address = ret;
-+    }
-+  else
-+    pthread_yield ();
++  return __pthread_held_wait (1);
 +}
 +
  int
  eventfd(unsigned int counter_start, int flags)
  {
-@@ -60,21 +104,26 @@ __eventfd_read (struct __unixlib_fd *file_desc, void *data, int nbyte)
+@@ -60,21 +94,26 @@ __eventfd_read (struct __unixlib_fd *file_desc, void *data, int nbyte)
    eventfd_t *count_ptr = (eventfd_t *)file_desc->devicehandle->handle;
    for (;;)
      {
@@ -5483,16 +5704,17 @@ index 6eb6ecb..21a45a4 100644
  
  	/* If we're not blocking, then we break out of the loop and return EAGAIN.  */
  	if (file_desc->dflag & EFD_NONBLOCK)
-@@ -82,7 +131,7 @@ __eventfd_read (struct __unixlib_fd *file_desc, void *data, int nbyte)
+@@ -82,7 +121,8 @@ __eventfd_read (struct __unixlib_fd *file_desc, void *data, int nbyte)
  
  	/* If we are blocking, then yield to other threads so the one doing the writing
  	 * can signal when it's ready (by incrementing the counter).  */
 -	pthread_yield();
-+	wait_for_other_side ();
++	if (!wait_for_other_side ())
++	  break;
      }
  
    return __set_errno (EAGAIN);
-@@ -104,6 +153,7 @@ __eventfd_write (struct __unixlib_fd *file_desc, const void *data, int nbyte)
+@@ -104,6 +144,7 @@ __eventfd_write (struct __unixlib_fd *file_desc, const void *data, int nbyte)
  
    for (;;)
      {
@@ -5500,7 +5722,7 @@ index 6eb6ecb..21a45a4 100644
        eventfd_t counter = *count_ptr;
  
        eventfd_t remaining = MAX_COUNTER - counter;
-@@ -114,8 +164,10 @@ __eventfd_write (struct __unixlib_fd *file_desc, const void *data, int nbyte)
+@@ -114,8 +155,10 @@ __eventfd_write (struct __unixlib_fd *file_desc, const void *data, int nbyte)
  	  /* The increment will not overflow, so do it and return number of bytes
  	   * written.  */
  	  *count_ptr = counter + inc;
@@ -5511,16 +5733,17 @@ index 6eb6ecb..21a45a4 100644
  
        /* The addition will overflow, if we're not blocking, then break out of
         * loop and return EAGAIN.  */
-@@ -124,7 +176,7 @@ __eventfd_write (struct __unixlib_fd *file_desc, const void *data, int nbyte)
+@@ -124,7 +167,8 @@ __eventfd_write (struct __unixlib_fd *file_desc, const void *data, int nbyte)
  
        /* If we are blocking, then yield to other threads so that the one doing the
         * reading can signal when it's ready (by reducing the counter).  */
 -      pthread_yield();
-+      wait_for_other_side ();
++      if (!wait_for_other_side ())
++	break;
      }
  
    return __set_errno (EAGAIN);
-@@ -135,7 +187,9 @@ __eventfd_select (struct __unixlib_fd *file_desc, int fd, fd_set *read,
+@@ -135,7 +179,9 @@ __eventfd_select (struct __unixlib_fd *file_desc, int fd, fd_set *read,
  		  fd_set *write, fd_set *except)
  {
    eventfd_t *count_ptr = (eventfd_t *)file_desc->devicehandle->handle;
@@ -5880,7 +6103,7 @@ index 7f47f19..43df299 100644
    /* Convert the 16-bit return code into an 8-bit equivalent
       for compatibility with RISC OS.
 diff --git a/gcc4/recipe/files/gcc/libunixlib/vscript b/gcc4/recipe/files/gcc/libunixlib/vscript
-index 606421f..27b2ff2 100644
+index 606421f..baf8902 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/vscript
 +++ b/gcc4/recipe/files/gcc/libunixlib/vscript
 @@ -16,12 +16,19 @@ VERSION {
@@ -5914,6 +6137,14 @@ index 606421f..27b2ff2 100644
       __pthread_init;
       __pthread_fatal_error;
       __pthread_new_node;
+@@ -137,6 +148,7 @@ VERSION {
+      __pthread_atfork_callparentchild;
+      __pthread_new_stack;
+      __pthread_context_switch;
++     __pthread_held_wait;
+      __pthread_init_save_area;
+      __pthread_exit;
+      __pthread_protect_unsafe;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/wchar/wctype.c b/gcc4/recipe/files/gcc/libunixlib/wchar/wctype.c
 index ae323ac..36804df 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/wchar/wctype.c
