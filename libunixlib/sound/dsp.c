@@ -459,7 +459,9 @@ dr_ioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
         {
           int blksize = DRENDERER_BUFFER_SIZE * dr_channels;
 
-          if (dr_format == AFMT_MU_LAW)
+          /* 2026 (audit): a buffer is twice as many bytes for 16-bit
+             samples, as dr_write has it; this doubled for mu-law.  */
+          if (dr_format == AFMT_S16_LE)
             blksize <<= 1;
           *((int *)arg) = blksize;
 
@@ -477,8 +479,23 @@ dr_ioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
       case SNDCTL_DSP_SETFRAGMENT & 0xffff:
         {
           int fragspec  = *((int *)arg);
-          int fragments = fragspec >> 16;
-          int fragsize  = 1 << (fragspec & 0xffff);
+          int fragments = (fragspec >> 16) & 0x7fff;
+          int shift = fragspec & 0xffff;
+          int fragsize, unlimited, max_buffers;
+
+          /* 2026 (audit): limits like those S10 gave the SharedSoundBuffer
+             path.  The exponent is checked before shifting (1 << 40 is
+             undefined), and the total is kept to about 2 s: "no limit"
+             (0x7fff, the usual 0x7fff000a) asked DigitalRenderer for
+             32767 buffers; now it (and 0) means the most allowed.  */
+          if (shift > 16)
+            shift = 16;
+          if (shift < 7)
+            shift = 7;
+          fragsize = 1 << shift;
+          unlimited = (fragments == 0 || fragments == 0x7fff);
+          if (fragments < 2)
+            fragments = 2;
 
           /* fragsize is in bytes, but the buffer size used
              by DigitalRenderer is in samples */
@@ -489,6 +506,11 @@ dr_ioctl (struct __unixlib_fd *fd, unsigned long request, void *arg)
           if (dr_fragscale == 0)
             dr_fragscale = 1;
           fragments *= dr_fragscale;
+          max_buffers = dr_frequency * 2 / DRENDERER_BUFFER_SIZE;
+          if (max_buffers < 2)
+            max_buffers = 2;
+          if (unlimited || fragments > max_buffers)
+            fragments = max_buffers;
 
           if (!set_defaults (fd, 0, 0, 0, fragments))
             return 0;

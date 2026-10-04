@@ -14,6 +14,7 @@ static inline const _kernel_oserror *DRender_Activate16 (int c, int s, int f, in
 static inline const _kernel_oserror *DRender_Activate (int c, int s, int p, void *x) { (void)c;(void)s;(void)p;(void)x; dr_activations++; dr_state = 1; return 0; }
 static inline int DRender_GetFrequency (void) { return 44100; }
 static inline void DRender_SampleFormat (int f) { (void)f; }
-static inline int DRender_StreamStatistics (void) { return 0; }
+extern int dr_waiting;
+static inline int DRender_StreamStatistics (void) { return dr_waiting; }
 static inline const _kernel_oserror *DRender_Stream16BitSamples (const void *d, int n) { (void)d; dr_streamed += n; return 0; }
 static inline const _kernel_oserror *DRender_StreamSamples (const void *d, int n) { (void)d; dr_streamed += n; return 0; }

@@ -9,6 +9,6 @@ struct fake {
 };
 extern struct fake F;
 extern int fake_pid;
-extern int dr_state, dr_nbuf, dr_activations, dr_deactivations, dr_numbuf_calls, dr_streamed;
+extern int dr_state, dr_nbuf, dr_activations, dr_deactivations, dr_numbuf_calls, dr_streamed, dr_waiting;
 void fake_reset (void);
 int fake_yield (void);

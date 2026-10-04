@@ -15,7 +15,7 @@ static struct fake_callevery_block fake_cb;
 struct ul_global __ul_global = { 1, &fake_cb, 0 };
 
 struct fake F;
-int dr_state, dr_nbuf, dr_activations, dr_deactivations, dr_numbuf_calls, dr_streamed;
+int dr_state, dr_nbuf, dr_activations, dr_deactivations, dr_numbuf_calls, dr_streamed, dr_waiting;
 char *program_invocation_short_name = "testprog";
 int fake_pid = 100;
 int fake_getpid (void) { return fake_pid; }
@@ -30,6 +30,7 @@ void fake_reset (void)
   memset (&F, 0, sizeof F);
   F.modules = 1;
   dr_streamed = 0;
+  dr_waiting = 0;
   F.out_cap = 1 << 22;
   F.out = malloc (F.out_cap);
   fake_cb.pthread_worksemaphore = 0;

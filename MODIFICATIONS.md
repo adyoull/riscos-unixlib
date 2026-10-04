@@ -48,7 +48,7 @@ the commits are named below.
 | `signal/sleep.c` | T2 `nanosleep` accuracy, T3 long sleeps and held-off thread switching |
 | `stdlib/alloc.c` | A1 no `mmap` for large blocks on EABI, A2 a heap of several dynamic areas |
 | `sys/brk.c`, `incl-local/unistd.h` | A2 a heap of several dynamic areas, A3 |
-| `sound/dsp.c` | S1 exit bug, S2 default format, S3 SharedSoundBuffer output, S4 empty block, S6-S9 (fork children, second opens, READ ioctls, takeover), S10 fragments and `GETOPTR`, Y1 waits |
+| `sound/dsp.c` | S1 exit bug, S2 default format, S3 SharedSoundBuffer output, S4 empty block, S6-S9 (fork children, second opens, READ ioctls, takeover), S10 fragments and `GETOPTR`, Y1 waits, S12 DigitalRenderer fragments |
 | `sound/DRender.h` | R1 (`"memory"` on the sample-buffer calls) |
 | `sound/midi.c` (**new**), `common/__stat.c`, `unix/unix.c` | S5 `/dev/midi`, S6 (fork children), S11 writes when MIDISynth is full, Y1 wait |
 | `unix/sync.c` | F1 `fsync` on read-only files, `fdatasync` |
@@ -989,6 +989,26 @@ exponent of 40, and `GETOPTR` after `RESET`; they fail on the old code.
 **Not changed (documented in SOUND.md):** less than a fragment written
 waits for more, `POST`, `SYNC` or `close()` before playing; the module
 versions aren't checked.
+
+### S12. DigitalRenderer path: fragment limits and `GETBLKSIZE` (`sound/dsp.c`)
+
+**Problem.** Found by the 2026-10-04 audit.
+- **S10 only covered the SharedSoundBuffer path.** On the DigitalRenderer path, `SNDCTL_DSP_SETFRAGMENT` still shifted by an unchecked exponent and took any fragment count. The common `0x7fff000a` ("no limit" × 1 KB) asked DigitalRenderer for 32,767 buffers, about 6 minutes of sound.
+- **`GETBLKSIZE` doubled the block size for mu-law instead of for 16-bit samples** (inherited from GCCSDK). It disagreed with the buffer `dr_write` actually fills.
+
+**Change.**
+- The exponent is limited to 7–16 before the shift.
+- At least 2 buffers, at most about 2 s (`rate × 2 / 512`).
+- "No limit" (0x7fff) and 0 mean the most allowed.
+- `GETBLKSIZE` doubles for 16-bit samples.
+- (Y1 gave this path's write wait a 2 s limit.)
+
+**Verification.** `tests/host/dsp` (173 checks) gains a DigitalRenderer case:
+- `GETBLKSIZE` = 2048 for 16-bit stereo;
+- `0x7fff000a` and exponent 40 give at most 172 buffers;
+- a write gives up with `EIO` after about 2 s when nothing plays.
+
+The old code gives 1024 and 32767. Not yet run on RISC OS.
 
 ### S11. `/dev/midi` when MIDISynth is full; closing MIDI hardware (`sound/midi.c`) - commit `53e4add`
 

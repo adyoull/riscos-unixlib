@@ -397,6 +397,32 @@ static void test_fork_child_exit (void)
 
 /* 2026: program B takes DigitalRenderer over from A: A's exit must not stop
    B's sound.  UnixLib$DSPOwner says who has it.  */
+/* 2026 audit: the DigitalRenderer path had none of S10's fragment
+   limits, GETBLKSIZE doubled for mu-law instead of 16-bit, and a write
+   waited for ever if the buffers never drained.  */
+static void test_dr_limits (void)
+{
+  fake_reset (); F.modules = 0; dr_state = 0; dr_nbuf = 0;
+  dsp_open (O_WRONLY);				/* 44.1 kHz, 16-bit stereo */
+  CHECK (ioc (SNDCTL_DSP_GETBLKSIZE, 0) == 2048, "DR GETBLKSIZE 16-bit stereo = 2048 (%d)", ioc (SNDCTL_DSP_GETBLKSIZE, 0));
+  int fr = 0x7fff000a;				/* "no limit" x 1024 */
+  CHECK (__dspioctl (&FD, SNDCTL_DSP_SETFRAGMENT, &fr) == 0, "DR SETFRAGMENT 0x7fff000a");
+  short s[1024] = {0};
+  __dspwrite (&FD, s, sizeof s);
+  CHECK (dr_nbuf >= 2 && dr_nbuf <= 44100 * 2 / 512, "DR buffers kept to about 2 s (%d)", dr_nbuf);
+  fr = (4 << 16) | 40;				/* exponent 40 */
+  CHECK (__dspioctl (&FD, SNDCTL_DSP_SETFRAGMENT, &fr) == 0, "DR SETFRAGMENT exponent 40 accepted");
+  __dspwrite (&FD, s, sizeof s);
+  CHECK (dr_nbuf >= 2 && dr_nbuf <= 44100 * 2 / 512, "DR exponent 40 within limits (%d)", dr_nbuf);
+  dr_waiting = 1 << 20;				/* never drains */
+  errno = 0;
+  long long t0 = F.now_us;
+  CHECK (__dspwrite (&FD, s, sizeof s) == -1 && errno == EIO, "DR write gives up with EIO when nothing plays");
+  CHECK (F.now_us - t0 >= 2000000 && F.now_us - t0 < 3000000, "after about 2 s (%lld us)", F.now_us - t0);
+  dr_waiting = 0;
+  __dsp_exit ();
+}
+
 static void test_dr_takeover (void)
 {
   static short buf[2048];
@@ -443,6 +469,7 @@ int main (void)
   test_two_opens ();
   test_read_ioctls ();
   test_fork_child_exit ();
+  test_dr_limits ();
   test_dr_takeover ();
   test_basic_s16_stereo ();
   test_formats ();
