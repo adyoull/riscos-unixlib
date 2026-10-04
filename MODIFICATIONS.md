@@ -42,7 +42,7 @@ the commits are named below.
 
 | File | Change |
 |---|---|
-| `wchar/wctype.c`, `wchar/wmissing.c` | W1 wide-character functions, W2 `swprintf`/`wcsftime` formats, W3 long numbers in `wcsto*` |
+| `wchar/wctype.c`, `wchar/wmissing.c` | W1 wide-character functions, W2 `swprintf`/`wcsftime` formats, W3 long numbers in `wcsto*`, W5 `swprintf`/`wcsftime` in UTF-8 |
 | `wchar/wctype_l.c` | W4 range check in `isw*_l` |
 | `time/clk_gettime.c` | T1 high-resolution `CLOCK_MONOTONIC`, T4 its last value read under a lock |
 | `signal/sleep.c` | T2 `nanosleep` accuracy, T3 long sleeps and held-off thread switching |
@@ -134,7 +134,7 @@ above 255 are classified as "none of the above".
 
 **Verification.** In use in the OpenTTD 14.1 port on RISC OS.
 
-### W2. `swprintf` / `wcsftime`: Latin-1 formats only (`wchar/wmissing.c`) - commit `817b839`
+### W2. `swprintf` / `wcsftime`: Latin-1 formats only (`wchar/wmissing.c`) - commit `817b839` (replaced by W5)
 
 **Problem.** W1 narrowed the wide format with `(char) format[i]`, which
 keeps only the low byte. Any character whose low byte is 0x25 (U+0125,
@@ -182,6 +182,29 @@ above", and `towlower_l`/`towupper_l` return them unchanged.
 
 **Verification.** By reading; the code is the same as `wctype.c`'s.
 
+
+### W5. `swprintf` / `wcsftime` work in UTF-8 (`wchar/wmissing.c`)
+
+**Problem.** Found by the 2026-10-04 audit.
+- **`%ls`/`%lc` arguments:** W2 narrowed the format to Latin-1 and widened the narrow result a byte at a time. But `vsnprintf` turns `%ls`/`%lc` arguments into UTF-8 (UnixLib's `wcrtomb` is always UTF-8). So `swprintf(b, 64, L"%lc|", L'é')` gave `L"\xC3\xA9|"` and returned 3, and truncation and the return value counted bytes.
+- **Formats:** W2 refused any format character above U+00FF.
+- **Unterminated buffer:** on its error paths `swprintf` left the buffer unterminated.
+- **`wcsftime`:** it allocated a scratch buffer of `maxsize` bytes, so a huge `maxsize` ("no limit") failed.
+
+**Change.**
+- The format is narrowed to UTF-8. Any Unicode character is a literal; UTF-8 bytes can't be `%`. A surrogate or a value above 0x10FFFF gives `EILSEQ`.
+- The result is widened from UTF-8, taking a byte that isn't part of a valid sequence (a Latin-1 narrow `%s`, say) as Latin-1, as before.
+- `swprintf` counts and truncates in wide characters, and terminates the buffer on every path when `n` isn't 0.
+- `wcsftime` grows its buffer as needed, up to 4 bytes per character, or 1 MB.
+
+**Verification.** `tests/host/wchar` (19 checks) covers:
+- `%lc` and `%ls` with 2-, 3- and 4-byte characters;
+- truncation in characters;
+- U+FF25 and U+2025 as literals, and a surrogate giving `EILSEQ` with the buffer terminated;
+- a Latin-1 `%s`;
+- `wcsftime` with a non-Latin-1 literal, exactly too small, and with a huge `maxsize`.
+
+Not yet run on RISC OS.
 ### T1. High-resolution `CLOCK_MONOTONIC` (`time/clk_gettime.c`) - commit `fa59226`
 
 **Problem.** `clock_gettime(CLOCK_MONOTONIC)` came from `clock()`, which

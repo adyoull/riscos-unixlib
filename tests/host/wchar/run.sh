@@ -4,11 +4,11 @@
 # renamed, from the real file.
 cd "$(dirname "$0")"
 mkdir -p out
-sed -n '/^\/\* 2026: narrow a wide format string/,/^\/\* Byte-oriented wide stream I\/O/p' \
+sed -n '/^\/\* 2026: swprintf and wcsftime work through/,/^\/\* Byte-oriented wide stream I\/O/p' \
   ../../../libunixlib/wchar/wmissing.c > out/fmt.c
 sed -n '/^\/\* Numeric conversions: narrow/,/^WCSTOF (wcstold/p' \
   ../../../libunixlib/wchar/wmissing.c > out/num.c
-{ printf '#include <errno.h>\n#include <stdarg.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <time.h>\n#include <wchar.h>\n'
+{ printf '#include <errno.h>\n#include <limits.h>\n#include <stdarg.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <time.h>\n#include <wchar.h>\n'
   printf '#define restrict\n#define swprintf ul_swprintf\n#define wcsftime ul_wcsftime\n'
   printf '#define wcstol ul_wcstol\n#define wcstoul ul_wcstoul\n#define wcstoll ul_wcstoll\n#define wcstoull ul_wcstoull\n'
   printf '#define wcstod ul_wcstod\n#define wcstof ul_wcstof\n#define wcstold ul_wcstold\n'

@@ -5,6 +5,7 @@
    iswctype() while initialising std::locale).
    2026 Andrew Youll.  */
 
+#include <limits.h>
 #include <locale.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -164,100 +165,200 @@ WCSTOF (wcstod, double, strtod)
 WCSTOF (wcstof, float, strtof)
 WCSTOF (wcstold, long double, strtold)
 
-/* 2026: narrow a wide format string for the narrow functions.  Only
-   Latin-1 can be narrowed: a character above 0xFF used to be cut to its
-   low byte, so U+FF25 (fullwidth E) and others became '%' and started a
-   conversion with no argument behind it.  Returns NULL (errno EILSEQ or
-   ENOMEM) for such a format.  */
+/* 2026: swprintf and wcsftime work through the narrow functions in
+   UTF-8, UnixLib's multibyte encoding (wcrtomb and mbrtowc are always
+   UTF-8): the format is narrowed to UTF-8, vsnprintf turns %ls and %lc
+   arguments into UTF-8 itself, and the result is widened back from
+   UTF-8.  (Narrowing to Latin-1 and widening byte by byte, as 5.0.3.1
+   did, made %ls and %lc arguments come out as their UTF-8 bytes, one
+   character each: the 2026-10-04 audit.)  A byte that isn't part of a
+   valid UTF-8 sequence (a narrow %s argument in Latin-1, say) is taken as
+   Latin-1, as before.  */
+
+/* Narrow FORMAT to UTF-8.  NULL with errno EILSEQ for a character that
+   isn't Unicode (a surrogate, or above 0x10FFFF), or ENOMEM.  UTF-8 bytes
+   are all 0x80 or above, so none can be taken for a '%'.  */
 static char *
 narrow_format (const wchar_t *format)
 {
-  size_t flen = wcslen (format), i;
+  size_t flen = wcslen (format), i, o = 0;
   char *nfmt;
 
   for (i = 0; i < flen; i++)
-    if ((unsigned long) format[i] > 0xFF)
-      {
-	errno = EILSEQ;
-	return NULL;
-      }
-  if ((nfmt = malloc (flen + 1)) == NULL)
+    {
+      unsigned long c = (unsigned long) format[i];
+      if (c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF))
+	{
+	  errno = EILSEQ;
+	  return NULL;
+	}
+    }
+  if ((nfmt = malloc (flen * 4 + 1)) == NULL)
     return NULL;
-  for (i = 0; i <= flen; i++)
-    nfmt[i] = (char) format[i];
+  for (i = 0; i < flen; i++)
+    {
+      unsigned long c = (unsigned long) format[i];
+      if (c < 0x80)
+	nfmt[o++] = (char) c;
+      else if (c < 0x800)
+	{
+	  nfmt[o++] = (char) (0xC0 | (c >> 6));
+	  nfmt[o++] = (char) (0x80 | (c & 0x3F));
+	}
+      else if (c < 0x10000)
+	{
+	  nfmt[o++] = (char) (0xE0 | (c >> 12));
+	  nfmt[o++] = (char) (0x80 | ((c >> 6) & 0x3F));
+	  nfmt[o++] = (char) (0x80 | (c & 0x3F));
+	}
+      else
+	{
+	  nfmt[o++] = (char) (0xF0 | (c >> 18));
+	  nfmt[o++] = (char) (0x80 | ((c >> 12) & 0x3F));
+	  nfmt[o++] = (char) (0x80 | ((c >> 6) & 0x3F));
+	  nfmt[o++] = (char) (0x80 | (c & 0x3F));
+	}
+    }
+  nfmt[o] = '\0';
   return nfmt;
 }
 
-/* swprintf: narrow the format (Latin-1 only, see narrow_format), format
-   with vsnprintf, then widen the result.  */
+/* Widen LEN bytes of IN from UTF-8, storing at most MAX characters in OUT
+   (OUT may be NULL); returns the number of characters in all of IN.
+   Invalid, overlong or truncated sequences and surrogates are taken a
+   byte at a time as Latin-1.  */
+static size_t
+widen_utf8 (const char *in, size_t len, wchar_t *out, size_t max)
+{
+  const unsigned char *p = (const unsigned char *) in;
+  size_t i = 0, n = 0;
+
+  while (i < len)
+    {
+      unsigned long c = p[i];
+      size_t k = 0;
+
+      if (c >= 0xC2 && c <= 0xDF)
+	k = 1, c &= 0x1F;
+      else if (c >= 0xE0 && c <= 0xEF)
+	k = 2, c &= 0x0F;
+      else if (c >= 0xF0 && c <= 0xF4)
+	k = 3, c &= 0x07;
+      if (k)
+	{
+	  size_t j;
+	  for (j = 1; j <= k; j++)
+	    {
+	      if (i + j >= len || (p[i + j] & 0xC0) != 0x80)
+		break;
+	      c = (c << 6) | (p[i + j] & 0x3F);
+	    }
+	  if (j > k
+	      && !(k == 2 && c < 0x800)
+	      && !(k == 3 && (c < 0x10000 || c > 0x10FFFF))
+	      && !(c >= 0xD800 && c <= 0xDFFF))
+	    {
+	      if (out && n < max)
+		out[n] = (wchar_t) c;
+	      n++;
+	      i += k + 1;
+	      continue;
+	    }
+	}
+      if (out && n < max)
+	out[n] = (wchar_t) p[i];
+      n++;
+      i++;
+    }
+  return n;
+}
+
+/* swprintf: narrow the format, format with vsnprintf, widen the result
+   (see above).  As glibc: -1 if the result doesn't fit in N characters
+   (the first N - 1 are stored, then a terminator).  2026 (audit): S is
+   terminated on every error too, when N isn't 0.  */
 int
 swprintf (wchar_t *restrict s, size_t n, const wchar_t *restrict format, ...)
 {
   char *nfmt, *out;
-  size_t i, outsize;
+  size_t wlen;
   int len;
   va_list ap, ap2;
 
   if (n == 0)
     return -1;
+  s[0] = 0;
   if ((nfmt = narrow_format (format)) == NULL)
     return -1;
-  /* Measure first, so a large n (e.g. INT_MAX as "no limit") doesn't make
-     the scratch buffer that large.  */
+  /* Measure first, then format into a buffer just big enough (a large n,
+     e.g. INT_MAX as "no limit", mustn't make the buffer that large).  */
   va_start (ap, format);
   va_copy (ap2, ap);
   len = vsnprintf (NULL, 0, nfmt, ap);
   va_end (ap);
-  if (len < 0)
+  if (len < 0 || (out = malloc ((size_t) len + 1)) == NULL)
     {
       va_end (ap2);
       free (nfmt);
       return -1;
     }
-  outsize = (size_t) len + 1 < n ? (size_t) len + 1 : n;
-  if ((out = malloc (outsize)) == NULL)
-    {
-      va_end (ap2);
-      free (nfmt);
-      return -1;
-    }
-  vsnprintf (out, outsize, nfmt, ap2);
+  vsnprintf (out, (size_t) len + 1, nfmt, ap2);
   va_end (ap2);
-  for (i = 0; i < outsize && out[i] != 0; i++)
-    s[i] = (unsigned char) out[i];
-  s[i < outsize ? i : outsize - 1] = 0;
-  if ((size_t) len >= n)
-    len = -1;
+  wlen = widen_utf8 (out, (size_t) len, s, n - 1);
+  s[wlen < n ? wlen : n - 1] = 0;
   free (nfmt);
   free (out);
-  return len;
+  if (wlen >= n || wlen > INT_MAX)
+    return -1;
+  return (int) wlen;
 }
 
-/* wcsftime: as swprintf.  Returns 0 for a format that isn't Latin-1.  */
+/* wcsftime: as swprintf.  Returns 0 for a format that isn't Unicode, or
+   if the result (with its terminator) doesn't fit in MAXSIZE characters.
+   2026 (audit): the scratch buffer grows as needed instead of being
+   MAXSIZE bytes (a huge MAXSIZE as "no limit" made it fail).  */
 size_t
 wcsftime (wchar_t *restrict wcs, size_t maxsize,
 	  const wchar_t *restrict format, const struct tm *restrict timeptr)
 {
-  size_t i, r;
-  char *nfmt, *out;
+  size_t r = 0, w, size, limit;
+  char *nfmt, *out = NULL;
 
   if (maxsize == 0)
     return 0;
+  wcs[0] = 0;
   if ((nfmt = narrow_format (format)) == NULL)
     return 0;
-  if ((out = malloc (maxsize)) == NULL)
+  if (nfmt[0] == '\0')
     {
       free (nfmt);
       return 0;
     }
-  r = strftime (out, maxsize, nfmt, timeptr);
-  for (i = 0; i < r; i++)
-    wcs[i] = (unsigned char) out[i];
-  if (r < maxsize)
-    wcs[r] = 0;
+  /* A wide character is at most 4 UTF-8 bytes.  strftime returns 0 both
+     for "too small" and for an empty result, so stop at a sane size.  */
+  limit = maxsize < ((size_t) 1 << 18) ? maxsize * 4 : (size_t) 1 << 20;
+  for (size = 256; ; size *= 2)
+    {
+      char *bigger;
+      if (size > limit)
+	size = limit;
+      if ((bigger = realloc (out, size)) == NULL)
+	break;
+      out = bigger;
+      if ((r = strftime (out, size, nfmt, timeptr)) != 0 || size >= limit)
+	break;
+    }
+  w = r ? widen_utf8 (out, r, NULL, 0) : 0;
+  if (r == 0 || w >= maxsize)
+    w = 0;
+  else
+    {
+      widen_utf8 (out, r, wcs, w);
+      wcs[w] = 0;
+    }
   free (nfmt);
   free (out);
-  return r;
+  return w;
 }
 
 /* Byte-oriented wide stream I/O (Latin-1).  */
