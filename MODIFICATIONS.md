@@ -57,7 +57,7 @@ the commits are named below.
 | `pthread/schedparam.c`, `pthread/newnode.c` | P2 `pthread_setschedparam` |
 | `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s`, `sys/exec.c` | K1-K7, K9 thread ticker (`sys/_syslib.s` also A2) |
 | `sys/vfork.c`, `sys/_vfork.s`, `incl-local/internal/unix.h` | K8 fork on EABI: the child's exit and the parent's stack (K10 follow-ups) |
-| `pthread/context.c`, `pthread/join.c`, `pthread/newnode.c`, `incl-local/pthread.h` | K10 only the forking thread runs in a fork child |
+| `pthread/join.c`, `pthread/newnode.c`, `incl-local/pthread.h` | K10 only the forking thread exists in a fork child |
 | `include/sys/stat.h`, `incl-local/sys/stat.h`, `unix/stat64.c` (**new**), `unix/stat.c`, `unix/lstat.c`, `unix/fstat.c`, `unix/scl_fstat.c` | L1 `struct stat64` with a 64-bit size |
 | `unix/ul_lseek.c`, `stdio/fseeko.c`, `stdio/ftello.c`, `stdio/fgetpos.c`, `stdio/fsetpos.c` | L2 64-bit seeking to 4GB-1 |
 | `unix/truncate.c` | L3 `truncate64`, `ftruncate64` |
@@ -1297,36 +1297,6 @@ check), `ForkThreads` PASS (with PThreadTicker loaded: RMKill refused),
 `ForkExec` PASS (without the module).
 
 
-### K10. fork() on EABI: only the forking thread exists in the child; the stack copy is taken later (`sys/vfork.c`, `pthread/context.c`, `pthread/join.c`, `pthread/newnode.c`, `incl-local/pthread.h`)
-
-**Problem.** Found by the 2026-10-04 audit, by reading the code.
-
-1. **K8 saves only the forking thread's stack.** On EABI every other thread's stack is an ARMEABISupport stack outside application space. The child shares those stacks with the parent, and its thread list still names those threads.
-   - A child that yields lets them run on the parent's real stacks. Examples: `exit()` → atexit → `SDL_Quit` → `SDL_WaitThread`, a mutex, or `sleep`.
-   - A thread that finishes in the child has its stack freed by the child's context switcher (`__pthread_cleanup_idle`, `ARMEABISupport_StackOp 1`), from under the parent.
-2. **The copy was taken before the atfork prepare handlers ran and before the ticker stopped.**
-   - The parent's restore undid whatever the handlers changed in the callers' frames.
-   - A thread switch could happen in the middle of the copy.
-3. **The child dropped `status.is_armeabi` only after `__env_unixlib()`.** A signal taken there would end the child with the flag set, and SharedUnixLibrary would free the parent's stack (the K8 abort).
-
-**Change.**
-1. **In a fork child** every thread but the forking one is marked `fork_gone`, as POSIX has it (only the calling thread exists in the child):
-   - the context switcher never runs them, and never frees their stacks as idle threads;
-   - `pthread_join` on one gives `ESRCH`.
-   - `fork_gone` is a new 1-bit field in the same word as `suspended`, so the structure's layout is unchanged.
-   - Not for vfork: its child shares the parent's memory.
-   - The parent's own thread list is untouched, because SharedUnixLibrary puts the parent's application space back.
-2. **The stack copy is taken after** `__pthread_atfork_callprepare` and `__pthread_stop_ticker`. If it can't be made (`ENOMEM`), the ticker is restarted and the parent handlers run before `fork` fails.
-3. **The child clears `is_armeabi`** as the first thing in `__fork_post`.
-
-**Verification.** New Pi test `ForkWorker` (`tests/riscos/fwtest.c`):
-- a worker thread runs while the program forks;
-- the child yields 100 times, and the worker must not run;
-- the child's atexit handler joins the worker and must get `ESRCH`;
-- the parent's worker must still run, with its stack pattern intact;
-- a change an atfork prepare handler made to `main`'s frame must survive.
-
-The library builds and `make check` passes. Not yet run on RISC OS.
 ### K9. Threads starved in a program that polls often (`incl-local/internal/ticker.s`, `module/pthticker.s` 0.03, `pthread/ticker.c`, the RMA block)
 
 **Problem.** `Ticker` on a Pi 4 (2026-10-01, rc5-rc8): "598959 polls,
@@ -1403,6 +1373,41 @@ and harmless; nothing crashed), `via=RMA` and, after LoadTicker,
 `via=module`. (The program name in those lines read "BASIC": it is taken
 from `OS_GetEnv` at exit, which by then can be another task's command
 line. Cosmetic.)
+
+### K10. fork() on EABI: only the forking thread exists in the child; the stack copy is taken later (`sys/vfork.c`, `pthread/join.c`, `pthread/newnode.c`, `incl-local/pthread.h`)
+
+**Problem.** Found by the 2026-10-04 audit, by reading the code.
+
+1. **K8 saves only the forking thread's stack.** On EABI every other thread's stack is an ARMEABISupport stack outside application space. The child shares those stacks with the parent, and its thread list still names those threads.
+   - A child that yields lets them run on the parent's real stacks. Examples: `exit()` → atexit → `SDL_Quit` → `SDL_WaitThread`, a mutex, or `sleep`.
+   - A thread that finishes in the child has its stack freed by the child's context switcher (`__pthread_cleanup_idle`, `ARMEABISupport_StackOp 1`), from under the parent.
+2. **The copy was taken before the atfork prepare handlers ran and before the ticker stopped.**
+   - The parent's restore undid whatever the handlers changed in the callers' frames.
+   - A thread switch could happen in the middle of the copy.
+3. **The child dropped `status.is_armeabi` only after `__env_unixlib()`.** A signal taken there would end the child with the flag set, and SharedUnixLibrary would free the parent's stack (the K8 abort).
+
+**Change.**
+1. **In a fork child the thread list is cut down to the forking thread,** as POSIX has it (only the calling thread exists in the child).
+   - The other threads are never scheduled and never cleaned up as idle threads; the parent frees their stacks.
+   - `pthread_num_running_threads` becomes 1.
+   - Each other thread is marked `fork_gone` and taken off any mutex or condition variable it was waiting on, so an unlock or signal in the child reaches the child's own threads.
+   - `pthread_join` on a gone thread gives `ESRCH`, unless the thread had already finished, which can still be joined as before.
+   - `fork_gone` is a new 1-bit field in the same word as `suspended`, so the layout is unchanged (peer review compiled both versions: same size and offsets).
+   - Not for vfork: its child shares the parent's memory.
+   - All of this happens in the child's copy of application space; SharedUnixLibrary puts the parent's back when the child exits.
+2. **The stack copy is taken after** `__pthread_atfork_callprepare` and `__pthread_stop_ticker`. If it can't be made (`ENOMEM`), the ticker is restarted and the parent handlers run before `fork` fails.
+3. **The child clears `is_armeabi`** as the first thing in `__fork_post`.
+
+**Peer review.** The first version marked the threads and had the context switcher skip them with `continue`. Inside its `do … while (state < STATE_RUNNING)` loop, that `continue` jumps to the test, so a running gone thread was still switched in. The same `continue` upstream means `pthread_suspend_thread` has never stopped a running thread; that is unchanged here. Cutting the list avoids the loop entirely. Review also found that `pthread_num_running_threads` and the wait lists needed resetting.
+
+**Verification.** New Pi test `ForkWorker` (`tests/riscos/fwtest.c`):
+- a worker thread runs while the program forks;
+- the child yields 100 times, and the worker must not run;
+- the child's atexit handler joins the worker and must get `ESRCH`;
+- the parent's worker must still run, with its stack pattern intact;
+- a change an atfork prepare handler made to `main`'s frame must survive.
+
+Peer review confirmed the test would fail on the code before K10, and on K10's first version. The library builds and `make check` passes. Not yet run on RISC OS.
 
 ## 5. Files over 2GB (L1-L5)
 

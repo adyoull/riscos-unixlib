@@ -103,8 +103,10 @@ struct __pthread_thread
   unsigned int suspended : 1;
 
   /* 2026: in a fork () child, a thread other than the one that forked:
-     it doesn't exist there (POSIX), so it never runs and can't be
-     joined.  Same word as the flags above, so the layout is unchanged.  */
+     it doesn't exist there (POSIX).  It is off the child's thread list,
+     so it never runs, and joining it gives ESRCH unless it had already
+     finished (sys/vfork.c, pthread/join.c).  Same word as the flags
+     above, so the layout is unchanged.  */
   unsigned int fork_gone : 1;
 
   __sigset_t blocked; /* Signal mask for this thread. */

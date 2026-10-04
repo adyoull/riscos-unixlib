@@ -184,13 +184,44 @@ __fork_post (pid_t pid, int isfork)
 	 child that let them run (a yield in an atexit handler joining a
 	 thread, a mutex, sleep) changed the parent's stacks under it, and
 	 a thread that finished in the child freed its stack from under the
-	 parent.  In a fork child they never run again, and joining one
-	 gives ESRCH.  Not for vfork, whose child shares the parent's
-	 memory (the parent's thread list must stay as it is).  */
+	 parent.  So the child's thread list is cut down to the forking
+	 thread: the others are never scheduled and never cleaned up (their
+	 stacks are freed by the parent).  They are marked fork_gone, so
+	 joining one that hadn't finished gives ESRCH, and taken off any
+	 mutex or condition variable they were waiting on, so a signal or an
+	 unlock in the child reaches the child's own threads.  Not for
+	 vfork, whose child shares the parent's memory.  (In a fork child
+	 all this is in the child's copy of application space:
+	 SharedUnixLibrary puts the parent's back when the child exits.)  */
       if (isfork && gbl->pthread_system_running)
-	for (pthread_t th = __pthread_thread_list; th != NULL; th = th->next)
-	  if (th != __pthread_running_thread)
-	    th->fork_gone = 1;
+	{
+	  pthread_t self = __pthread_running_thread;
+
+	  for (pthread_t th = __pthread_thread_list; th != NULL; th = th->next)
+	    {
+	      pthread_t *link = NULL;
+
+	      if (th == self)
+		continue;
+	      th->fork_gone = 1;
+	      if ((th->state == STATE_COND_WAIT
+		   || th->state == STATE_COND_TIMED_WAIT) && th->cond)
+		link = &th->cond->waiting;
+	      else if (th->state == STATE_MUTEX_WAIT && th->mutex)
+		link = &th->mutex->waiting;
+	      for (; link && *link; link = &(*link)->nextwait)
+		if (*link == th)
+		  {
+		    *link = th->nextwait;
+		    break;
+		  }
+	    }
+	  if (self->joined && self->joined->fork_gone)
+	    self->joined = NULL;
+	  __pthread_thread_list = self;
+	  self->next = NULL;
+	  gbl->pthread_num_running_threads = 1;
+	}
 #endif
 
       if (gbl->pthread_system_running)
