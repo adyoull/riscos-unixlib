@@ -31,12 +31,12 @@ the commits are named below.
 | SharedUnixLibrary there | 1.16 |
 | Import commit here | `13eea91` "Import UnixLib from GCCSDK (jhamby/riscos-gccsdk 64c6f81)", the tree unchanged |
 
-### File inventory (1335 files in `libunixlib/`)
+### File inventory (1336 files in `libunixlib/`)
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1266 |
-| Modified (listed below) | 61 |
+| Byte-identical to GCCSDK `64c6f81` | 1264 |
+| Modified (listed below) | 63 |
 | Added | 9 |
 | Removed relative to upstream | 0 |
 

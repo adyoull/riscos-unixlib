@@ -2,12 +2,14 @@
    Two threads write 1 to an eventfd as fast as they can for about 10
    seconds while the main thread reads it (non-blocking); every write must
    be counted exactly once.  Then a blocking read must wake when another
-   thread writes (rc1 stopped there: "pthread_yield called with context switching disabled").  Before 5.0.3.2-rc1 the counter's load and store could
+   thread writes, and a blocked read must be cancellable (5.0.3.3-rc1).
+   (rc1 stopped at the blocking read: "pthread_yield called with context switching disabled").  Before 5.0.3.2-rc1 the counter's load and store could
    be split by a thread switch, losing counts (GLib's main-loop wakeups
    use an eventfd).  */
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <sched.h>
 #include <time.h>
 #include <unistd.h>
 #include <sys/eventfd.h>
@@ -23,6 +25,27 @@ static void *writer (void *arg)
       if (eventfd_write (efd, 1) == 0)
 	(*n)++;
     }
+  return NULL;
+}
+
+static volatile int reader_started, reader_returned, reader_cancelled;
+
+static void note_cancelled (void *arg)
+{
+  (void) arg;
+  reader_cancelled = 1;
+}
+
+/* Blocks in an eventfd read that nothing will satisfy.  */
+static void *blocked_reader (void *arg)
+{
+  eventfd_t v;
+  (void) arg;
+  pthread_cleanup_push (note_cancelled, NULL);
+  reader_started = 1;
+  eventfd_read (efd, &v);
+  reader_returned = 1;		/* must not get here: it's cancelled */
+  pthread_cleanup_pop (0);
   return NULL;
 }
 
@@ -74,6 +97,32 @@ int main (void)
   printf ("blocking read woken by another thread: %s\n",
 	  v == 42 ? "ok" : "FAIL");
   close (efd);
+
+  /* 5.0.3.3-rc1: a blocking read is a cancellation point (before, a
+     cancelled reader never stopped and the join hung).  */
+  efd = eventfd (0, 0);
+  pthread_create (&t1, NULL, blocked_reader, NULL);
+  while (!reader_started)
+    sched_yield ();
+  usleep (200000);
+  pthread_cancel (t1);
+  /* pthread_join would hang for ever on the old library: wait at most
+     5 s for the cancellation to happen, and only then join.  */
+  time_t give_up = time (NULL) + 5;
+  while (time (NULL) < give_up && !reader_cancelled)
+    sched_yield ();
+  int ok = reader_cancelled && !reader_returned;
+  if (ok)
+    {
+      void *res = NULL;
+      pthread_join (t1, &res);
+      ok = res == PTHREAD_CANCELED;
+    }
+  printf ("blocking read cancelled: %s\n",
+	  ok ? "ok" : "FAIL (the cancelled reader didn't stop)");
+  bad |= !ok;
+  if (ok)
+    close (efd);
 
   printf ("%s\n", bad ? "FAIL" : "PASS");
   return bad;

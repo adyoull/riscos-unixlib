@@ -1,0 +1,4 @@
+| /dev/dsp through fwrite from a threaded program, DigitalRenderer
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.dsstest -d

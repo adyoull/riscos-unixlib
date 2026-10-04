@@ -1,0 +1,5 @@
+| /dev/dsp through fwrite from a threaded program (stopped with
+| "pthread_yield called with context switching disabled" before 5.0.3.3-rc1)
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.dsstest

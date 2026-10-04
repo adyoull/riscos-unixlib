@@ -88,11 +88,17 @@ TickerStartTask
             TickerStats is appended to, tickertest is overwritten).
 Sched       sched_get_priority_min/max and pthread_setschedparam:
             must print PASS
+ToneStdio   3 s of tone written to /dev/dsp with fwrite while a thread
+            runs: must print PASS (stopped with "pthread_yield called with
+            context switching disabled" before 5.0.3.3-rc1).
+            ToneStdioDR: the same through DigitalRenderer
 EventFD     eventfd between threads: two threads write for about 10
             seconds while the main thread reads; every write must be
-            counted once. Then a blocking read woken by another thread.
-            Must print PASS (needs 5.0.3.2-rc2 or later). PASS on a Pi 4
-            with rc2, 2026-10-03
+            counted once. Then a blocking read woken by another thread,
+            and (5.0.3.3-rc1) a blocked read that must be cancellable.
+            Must print PASS (needs 5.0.3.2-rc2, and 5.0.3.3-rc1 for the
+            cancel part). The first two parts PASS on a Pi 4 with
+            5.0.3.2-rc2, 2026-10-03
 LargeFile   files over 2GB (built with -D_FILE_OFFSET_BITS=64): makes a
             3GB file LargeTest in this folder, checks seeking, sizes and
             data past 2GB, deletes it; must print PASS. Needs 3GB free on
