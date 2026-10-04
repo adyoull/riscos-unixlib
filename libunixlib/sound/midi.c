@@ -164,13 +164,14 @@ __midiclose (struct __unixlib_fd *fd)
 }
 
 /* Let other threads run while waiting, when that's allowed (pthread_yield
-   is a fatal error with thread switching held off).  */
+   is a fatal error with thread switching held off).  2026: write () and
+   writev () always hold switching off, so testing for no hold meant it
+   never yielded and the program's other threads stopped for up to 2 s;
+   __pthread_held_wait releases the call's own hold around the yield.  */
 static void
 midi_yield (void)
 {
-  if (__ul_global.pthread_system_running
-      && __ul_global.pthread_callevery_rma->pthread_worksemaphore == 0)
-    pthread_yield ();
+  (void) __pthread_held_wait (0);
 }
 
 int

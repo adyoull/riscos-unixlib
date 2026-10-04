@@ -31,13 +31,13 @@ the commits are named below.
 | SharedUnixLibrary there | 1.16 |
 | Import commit here | `13eea91` "Import UnixLib from GCCSDK (jhamby/riscos-gccsdk 64c6f81)", the tree unchanged |
 
-### File inventory (1334 files in `libunixlib/`)
+### File inventory (1335 files in `libunixlib/`)
 
 | Status | Files |
 |---|---|
 | Byte-identical to GCCSDK `64c6f81` | 1266 |
 | Modified (listed below) | 61 |
-| Added | 8 |
+| Added | 9 |
 | Removed relative to upstream | 0 |
 
 | File | Change |
@@ -48,9 +48,9 @@ the commits are named below.
 | `signal/sleep.c` | T2 `nanosleep` accuracy, T3 long sleeps and held-off thread switching |
 | `stdlib/alloc.c` | A1 no `mmap` for large blocks on EABI, A2 a heap of several dynamic areas |
 | `sys/brk.c`, `incl-local/unistd.h` | A2 a heap of several dynamic areas |
-| `sound/dsp.c` | S1 exit bug, S2 default format, S3 SharedSoundBuffer output, S4 empty block, S6-S9 (fork children, second opens, READ ioctls, takeover), S10 fragments and `GETOPTR` |
+| `sound/dsp.c` | S1 exit bug, S2 default format, S3 SharedSoundBuffer output, S4 empty block, S6-S9 (fork children, second opens, READ ioctls, takeover), S10 fragments and `GETOPTR`, Y1 waits |
 | `sound/DRender.h` | R1 (`"memory"` on the sample-buffer calls) |
-| `sound/midi.c` (**new**), `common/__stat.c`, `unix/unix.c` | S5 `/dev/midi`, S6 (fork children), S11 writes when MIDISynth is full |
+| `sound/midi.c` (**new**), `common/__stat.c`, `unix/unix.c` | S5 `/dev/midi`, S6 (fork children), S11 writes when MIDISynth is full, Y1 wait |
 | `unix/sync.c` | F1 `fsync` on read-only files, `fdatasync` |
 | `stdlib/atexit.c` | X1 atexit handlers with thread switching allowed |
 | `sched/sched_prio.c` (**new**), `include/sched.h` | P1 `sched_get_priority_min/max` |
@@ -69,7 +69,8 @@ the commits are named below.
 | `unix/unix.c`, `signal/post.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `vscript` | X2 `_exit` takes an exit code |
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends |
-| `unix/eventfd.c` | E1 counter updated with thread switching held off |
+| `unix/eventfd.c` | E1 counter updated with thread switching held off, Y1 waits |
+| `pthread/heldwait.c` (**new**) | Y1 waiting inside a held call |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
 
 The modified files keep their original copyright lines. Code added to them
@@ -479,13 +480,14 @@ odd buffer address, not found, too small, the exact size and one byte short.
 **Problem.** Reported by the GTK port (2026-10-03), from reading the code:
 GLib wakes its main loop through an eventfd, written from other threads.
 
-**Cause.** `__eventfd_write` and `__eventfd_read` load the 64-bit counter,
-work out the new value and store it, with nothing stopping a thread
-switch in between in `write()`, which doesn't hold switching off. A switch
-between the load and the store loses the other thread's increment. On ARM
-the 64-bit load is two words, so `select()` could also see half an
-update. (`read()`, `readv()` and `writev()` hold switching off for the
-whole call with `PTHREAD_UNSAFE_CANCELLATION`.)
+**Cause.** As first described (5.0.3.2-rc1): `__eventfd_write` and
+`__eventfd_read` load the 64-bit counter, work out the new value and store
+it, and a thread switch in between would lose an update. **Corrected by
+the 2026-10-04 audit:** `read()` (`PTHREAD_UNSAFE_CANCELLATION`) and
+`write()` (`__pthread_disable_ints`, `ul_write.c`) both hold switching off
+for the whole call, so that race wasn't real for them; the lock only
+nests there. `select()` did read the counter unprotected (two words on
+ARM), and that one is real.
 
 **Second problem, found on the Pi with 5.0.3.2-rc1.** A blocking read
 of a zero counter (`EventFD`) stopped with "EMT - pthread_yield called
@@ -497,13 +499,14 @@ threads running (the GCCSDK code has the same fault). A blocking
 **Change.** The load, check and store are done between
 `__pthread_disable_ints ()` and `__pthread_enable_ints ()` once threads are
 running, as `malloc` does, and released before waiting. `select()` reads
-the counter under the hold. To wait, if the caller holds switching off
-(the work semaphore isn't 0) that hold is released around `pthread_yield
-()`, as `dsp.c` does for its own. The hold's return address
-(`__ul_global.pthread_return_address`) is a single global that another
-thread's `PTHREAD_UNSAFE` call replaces, so it's saved before the yield and
-put back after the hold is taken again. No change to the device handle or
-the counter's storage.
+the counter under the hold. In rc2 a blocking wait released one level of
+the caller's hold around `pthread_yield ()` and put back the hold's
+return address (`__ul_global.pthread_return_address`, a single global
+another thread's `PTHREAD_UNSAFE` call replaces). Since 5.0.3.3-rc1 the
+wait is `__pthread_held_wait` (Y1): it's a cancellation point, and when
+the hold is nested (a read or write through stdio) the call fails with
+`EAGAIN` instead of yielding (fatal) or spinning for ever. No change to
+the device handle or the counter's storage.
 
 **Verification.** `tests/host/eventfd` (35 checks) models the work
 semaphore: read, write and select take the hold and release it, it's never
@@ -520,6 +523,37 @@ thread. With rc1 its blocking read hit the EMT above; with rc2 it
 passes on a Pi 4 (2026-10-03). riscos-gtk's GTKTest 0.5 (GLib's eventfd
 wake-up with a thread pool and GIO workers) passes glibtest 29/29 on the
 Pi with rc2.
+
+### Y1. Waiting for another thread inside a held call (new `pthread/heldwait.c`; `sound/dsp.c`, `sound/midi.c`, `unix/eventfd.c`)
+
+**Problem.** Found by the 2026-10-04 code audit.
+- **`/dev/dsp`:** a blocking write through stdio (`fwrite`, `fputc`, `fflush`) in a threaded program stopped with "pthread_yield called with context switching disabled" on the first full queue, on both back ends.
+- **`/dev/midi`:** the S11 wait for a full MIDISynth never yielded, so the program's other threads stopped for up to 2 s.
+- **eventfd:** E1's wait had the stdio problem too, and a blocking read couldn't be cancelled.
+
+**Cause.** `write()` holds thread switching off (`__pthread_disable_ints`), and `read()`, `readv()`, `writev()` and stdio do (`PTHREAD_UNSAFE`). A yield with switching held off is a fatal error.
+- `dsp.c` released one level and yielded. Through stdio the hold is 2 deep, so the yield was still fatal.
+- `midi.c` yielded only with no hold at all, which `write()` never has.
+
+**Change.** One helper, `__pthread_held_wait (cancel)`, used by all three waits:
+- **threads not running:** returns 1 without yielding;
+- **hold 0:** yields;
+- **hold 1** (the call's own): released around the yield, then taken again with its return address put back;
+- **hold 2 or more** (the caller is inside stdio or a lock): returns 0 without yielding.
+
+What the callers do:
+- **`/dev/dsp` and `/dev/midi`:** with a nested hold they spin within their existing 2 s stall limits (the sound queue drains by interrupt). The DigitalRenderer write wait, which waited for ever, gets the same 2 s limit (`EIO`, or a short write).
+- **eventfd:** with a nested hold the read or write fails with `EAGAIN` rather than spin with no other thread able to run. With `cancel` set the wait is a cancellation point (eventfd read and write).
+
+**Known limit.** Nested `PTHREAD_UNSAFE` doesn't add to the hold, so `fread()` → `read()` is 1 deep, and the wait releases stdio's hold. Another thread could then use the same `FILE` while the first is part way through refilling it.
+
+**Verification.**
+- `tests/host/heldwait` (13 checks): every hold depth, the return address, and cancellation only with the hold released.
+- The sound fakes now model the hold:
+  - **dsp:** a blocking write with `write()`'s hold yields with it released; with a nested hold, no yield at all. The old code fails with 408 fatal yields.
+  - **midi:** the blocking wait yields 3 times with `write()`'s hold. The old code yielded 0 times.
+- **eventfd:** a nested hold gives `EAGAIN` with no yield, and the wait calls `pthread_testcancel`.
+- Not yet run on RISC OS.
 
 ### P1. `sched_get_priority_min` / `sched_get_priority_max` (new `sched/sched_prio.c`, `include/sched.h`) - commit `04408eb`
 

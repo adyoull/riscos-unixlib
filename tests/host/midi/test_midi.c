@@ -20,9 +20,13 @@ int __ul_seterr (const _kernel_oserror *er, int en) { (void) er; errno = en; ret
 int fake_pid = 100;
 int fake_getpid (void) { return fake_pid; }
 static struct fake_callevery_block cb;
-struct ul_global __ul_global = { 1, &cb };
+struct ul_global __ul_global = { 1, &cb, 0 };
+static int fatal_yields;
+void __pthread_enable_ints (void) { cb.pthread_worksemaphore--; }
+void __pthread_disable_ints (void) { cb.pthread_worksemaphore++; }
+void fake_testcancel (void) {}
 static long now_cs; static int yields, frees_after = -1;
-int fake_yield (void) { now_cs++; yields++; return 0; }
+int fake_yield (void) { if (cb.pthread_worksemaphore) fatal_yields++; now_cs++; yields++; return 0; }
 long fake_clock (void) { return now_cs++; }
 char *fake_getenv (const char *n) { return strcmp (n, "UnixLib$MIDI") == 0 ? env_midi : NULL; }
 
@@ -97,13 +101,19 @@ int main (void)
      write-all loop retries for ever.  */
   synth_limit = 0; errno = 0; FD.fflag = O_WRONLY | O_NONBLOCK;
   CHECK (__midiwrite (&FD, song, sizeof song) == -1 && errno == EAGAIN, "module full, non-blocking -> EAGAIN");
+  /* 2026 audit: write () always holds switching off (1), so the wait has
+     to release that hold to yield; it used to test for 0 and never
+     yielded.  */
   FD.fflag = O_WRONLY; yields = 0; frees_after = 3; synth_len = 0;
-  CHECK (__midiwrite (&FD, song, sizeof song) == (int) sizeof song && yields == 3, "module full, blocking -> waits for room (%d yields)", yields);
+  cb.pthread_worksemaphore = 1;
+  CHECK (__midiwrite (&FD, song, sizeof song) == (int) sizeof song && yields == 3, "module full, blocking (write ()'s hold) -> waits for room (%d yields)", yields);
+  CHECK (fatal_yields == 0 && cb.pthread_worksemaphore == 1, "hold released around each yield and put back");
+  cb.pthread_worksemaphore = 0;
   synth_limit = 0; frees_after = -1; now_cs = 0; errno = 0;
   CHECK (__midiwrite (&FD, song, sizeof song) == -1 && errno == EIO && now_cs > 200, "stuck module -> EIO after 2 s");
-  cb.pthread_worksemaphore = 1; yields = 0; now_cs = 0;
+  cb.pthread_worksemaphore = 2; yields = 0; now_cs = 0;
   __midiwrite (&FD, song, sizeof song);
-  CHECK (yields == 0, "no pthread_yield with thread switching held off");
+  CHECK (yields == 0 && cb.pthread_worksemaphore == 2, "nested hold (stdio): no pthread_yield");
   cb.pthread_worksemaphore = 0;
   synth_limit = 1 << 20;
   CHECK (__midiioctl (&FD, SNDCTL_SEQ_RESET, NULL) == 0 && synth_resets == 1, "SEQ_RESET -> MIDISynth_Reset");

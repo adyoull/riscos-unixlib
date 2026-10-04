@@ -8,6 +8,7 @@
 #include <sys/soundcard.h>
 #include "internal/dev.h"
 #include "riscos.h"
+#include "internal/unix.h"
 
 static int fails, checks;
 #define CHECK(c, ...) do { checks++; if (!(c)) { fails++; printf ("FAIL %s:%d: ", __FILE__, __LINE__); printf (__VA_ARGS__); printf ("\n"); } } while (0)
@@ -105,7 +106,9 @@ static void test_blocking_and_latency (void)
   fake_reset ();
   dsp_open (O_WRONLY);
   static short buf[44100 * 2];	/* 1 s */
+  __ul_global.pthread_callevery_rma->pthread_worksemaphore = 1;	/* write ()'s hold */
   CHECK (__dspwrite (&FD, buf, sizeof buf) == (int) sizeof buf, "1 s blocking write");
+  CHECK (F.fatal_yields == 0 && __ul_global.pthread_callevery_rma->pthread_worksemaphore == 1, "write ()'s hold released around each yield and put back (%d fatal)", F.fatal_yields);
   int cap = 4096 * 8;
   CHECK (F.max_queued <= cap, "never queued more than the capacity (%d > %d)", F.max_queued, cap);
   CHECK (F.now_us >= 700000, "blocked while it played (%lld us)", F.now_us);
@@ -120,6 +123,25 @@ static void test_blocking_and_latency (void)
   CHECK (__dspioctl (&FD, SNDCTL_DSP_GETOPTR, &ci) == 0 && ci.bytes == (int) sizeof buf, "GETOPTR bytes %d", ci.bytes);
   CHECK (F.ints_toggles > 0, "waits re-enable thread switches");
   __dspclose (&FD);
+  __ul_global.pthread_callevery_rma->pthread_worksemaphore = 0;
+}
+
+/* 2026 audit: through stdio (fwrite -> write) the hold is 2 deep;
+   releasing one level and yielding was a fatal error.  Now it spins
+   without yielding until the queue drains.  */
+static void test_blocking_through_stdio (void)
+{
+  fake_reset ();
+  dsp_open (O_WRONLY);
+  static short buf[44100 * 2];	/* 1 s */
+  __ul_global.pthread_callevery_rma->pthread_worksemaphore = 2;
+  F.clock_plays = 1;
+  CHECK (__dspwrite (&FD, buf, sizeof buf) == (int) sizeof buf, "1 s blocking write with a nested hold");
+  CHECK (F.fatal_yields == 0 && F.yields == 0, "no yield with the hold nested (%d yields)", F.yields);
+  CHECK (__ul_global.pthread_callevery_rma->pthread_worksemaphore == 2, "hold unchanged");
+  __dspclose (&FD);
+  __ul_global.pthread_callevery_rma->pthread_worksemaphore = 0;
+  F.clock_plays = 0;
 }
 
 static void test_fragment_setting (void)
@@ -426,6 +448,7 @@ int main (void)
   test_formats ();
   test_partial_frames ();
   test_blocking_and_latency ();
+  test_blocking_through_stdio ();
   test_fragment_setting ();
   test_fragment_limits ();
   test_nonblock ();

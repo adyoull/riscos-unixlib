@@ -249,6 +249,11 @@ extern stack_t __pthread_new_stack (pthread_t node);
 /* Main scheduling code */
 extern void __pthread_context_switch (void);
 
+/* 2026: wait for another thread from inside a call that holds thread
+   switching off: 1 if it yielded (or there was nothing to yield to), 0 if
+   the hold is nested and it mustn't yield (pthread/heldwait.c).  */
+extern int __pthread_held_wait (int __cancel);
+
 /* Assembly functions */
 
 /* Prevent the callevery interrupt from initialising a context switch.  */

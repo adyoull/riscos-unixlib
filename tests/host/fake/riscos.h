@@ -1,5 +1,6 @@
 struct fake {
   int modules, open, opens, closes, paused, stall, rate, blocksize, sm_limit, blocks, yields, ints_toggles;
+  int fatal_yields, clock_plays;   /* yields with the hold taken; clock() plays */
   unsigned volume; char name[64]; char *env_dsp;
   char var_owner[16]; int var_set;   /* UnixLib$DSPOwner */
   long long now_us, first_unpause_us, underruns_us;

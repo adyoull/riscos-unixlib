@@ -5,6 +5,17 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## Unreleased
+
+- **Waiting for another thread inside `write()`/`read()` and stdio.**
+  - A blocking `/dev/dsp` write through stdio (`fwrite`, `fflush`) stopped a threaded program with "pthread_yield called with context switching disabled". The hold was nested 2 deep and only one level was released.
+  - The `/dev/midi` wait for a full MIDISynth never let other threads run.
+  - A blocking eventfd read couldn't be cancelled, and through stdio it had the same fatal yield.
+  - One helper, `__pthread_held_wait`, now does these waits: it releases only the call's own hold, and doesn't yield when the hold is nested.
+  - The DigitalRenderer write wait now gives up after 2 s, like the SharedSoundBuffer one.
+  - Found by the 2026-10-04 audit. MODIFICATIONS.md Y1.
+- **Doc correction (E1):** `write()` does hold thread switching off, so rc1's counter race wasn't real for `read()`/`write()`. Only `select()`'s unprotected read was.
+
 ## 5.0.3.2 (2026-10-04, tag v5.0.3.2)
 
 The same code as 5.0.3.2-rc2. Changes since 5.0.3.1, all found by the GTK

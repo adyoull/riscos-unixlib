@@ -7,6 +7,12 @@
 #include <errno.h>
 #include "swis.h"
 #include "riscos.h"
+#include "internal/unix.h"
+
+/* The thread-switch hold (worksemaphore): write () takes 1, stdio one
+   more.  A yield with it taken is a fatal error in UnixLib.  */
+static struct fake_callevery_block fake_cb;
+struct ul_global __ul_global = { 1, &fake_cb, 0 };
 
 struct fake F;
 int dr_state, dr_nbuf, dr_activations, dr_deactivations, dr_numbuf_calls, dr_streamed;
@@ -26,6 +32,7 @@ void fake_reset (void)
   dr_streamed = 0;
   F.out_cap = 1 << 22;
   F.out = malloc (F.out_cap);
+  fake_cb.pthread_worksemaphore = 0;
 }
 
 static void play (long us)
@@ -43,12 +50,24 @@ static void play (long us)
   if (F.frac > 4) F.frac = 4;
 }
 
-int fake_yield (void) { F.now_us += 1000; F.yields++; play (1000); return 0; }
-long fake_clock (void) { return (long) (F.now_us / 10000); }
+int fake_yield (void)
+{
+  if (fake_cb.pthread_worksemaphore != 0)
+    F.fatal_yields++;
+  F.now_us += 1000; F.yields++; play (1000); return 0;
+}
+/* With clock_plays set, time passes (and sound plays) as the program
+   reads the clock: a wait that spins without yielding.  */
+long fake_clock (void)
+{
+  if (F.clock_plays) { F.now_us += 1000; play (1000); }
+  return (long) (F.now_us / 10000);
+}
+void fake_testcancel (void) {}
 char *fake_getenv (const char *n) { return strcmp (n, "UnixLib$DSP") == 0 ? F.env_dsp : NULL; }
 int __ul_seterr (const _kernel_oserror *e, int en) { (void) e; errno = en; return -1; }
-void __pthread_enable_ints (void) { F.ints_toggles++; }
-void __pthread_disable_ints (void) {}
+void __pthread_enable_ints (void) { F.ints_toggles++; fake_cb.pthread_worksemaphore--; }
+void __pthread_disable_ints (void) { fake_cb.pthread_worksemaphore++; }
 
 const _kernel_oserror *_swix (int swi, unsigned mask, ...)
 {

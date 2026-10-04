@@ -53,6 +53,9 @@ void pthread_yield (void)
     other_thread ();
 }
 
+static int cancels;
+void pthread_testcancel (void) { cancels++; }
+
 static void *fake_malloc (int pid, int size) { (void) pid; return malloc (size); }
 static void fake_free (int pid, void *p) { (void) pid; free (p); }
 static struct __sul_process proc = { 1, sizeof (struct __unixlib_fd_handle),
@@ -156,6 +159,23 @@ int main (void)
   CHECK (depth == 1);
   CHECK (__ul_global.pthread_return_address == (void *) 0x8123);
   depth = 0;
+
+  /* Through fread or fwrite the hold is nested (2): the wait mustn't
+     yield (fatal) and can't let the other side run, so EAGAIN.  */
+  reset ();
+  depth = 2;
+  other_thread = other_writes_2;
+  errno = 0;
+  CHECK (__eventfd_read (efd, &v, sizeof v) == -1 && errno == EAGAIN);
+  CHECK (yields == 0 && depth == 2 && !bad_enable);
+  other_thread = NULL;
+  depth = 0;
+
+  /* The blocking wait is a cancellation point.  */
+  reset ();
+  cancels = 0;
+  other_thread = other_writes_2;
+  CHECK (__eventfd_read (efd, &v, sizeof v) == sizeof v && cancels == 1);
 
   /* Blocking write that would overflow yields, unheld, until a read.  */
   *(eventfd_t *) efd->devicehandle->handle = UINT64_MAX - 1;

@@ -148,6 +148,7 @@ VERSION {
      __pthread_atfork_callparentchild;
      __pthread_new_stack;
      __pthread_context_switch;
+     __pthread_held_wait;
      __pthread_init_save_area;
      __pthread_exit;
      __pthread_protect_unsafe;

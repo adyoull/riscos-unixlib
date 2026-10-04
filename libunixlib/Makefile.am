@@ -660,6 +660,7 @@ pthread_src = \
 	pthread/equal.c \
 	pthread/error.c \
 	pthread/exit.c \
+	pthread/heldwait.c \
 	pthread/join.c \
 	pthread/key.c \
 	pthread/keydest.c \

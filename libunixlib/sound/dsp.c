@@ -374,11 +374,25 @@ dr_write (struct __unixlib_fd *fd, const void *data, int nbyte)
   int left = nbyte;
   while (left > 0)
     {
-      while (DRender_StreamStatistics () >= dr_buffers)
+      /* 2026: wait for room with __pthread_held_wait (a yield with
+	 switching held off, as through fwrite, was a fatal error), and
+	 give up after 2 s with nothing played, as the SharedSoundBuffer
+	 path does (it waited for ever).  */
+      int waiting, last_waiting = -1;
+      clock_t since = clock ();
+      while ((waiting = DRender_StreamStatistics ()) >= dr_buffers)
         {
-          __pthread_enable_ints ();
-          pthread_yield ();
-          __pthread_disable_ints ();
+	  if (waiting != last_waiting)
+	    {
+	      last_waiting = waiting;
+	      since = clock ();
+	    }
+	  else if (clock () - since > 200)
+	    {
+	      int done = nbyte - left;
+	      return done ? done : __set_errno (EIO);
+	    }
+	  (void) __pthread_held_wait (0);
         }
 
       void *next = (void*)((size_t)data + nbyte - left);
@@ -726,9 +740,9 @@ ssb_wait (int *last_queued, clock_t *since)
     }
   else if (clock () - *since > 200)
     return 0;
-  __pthread_enable_ints ();
-  pthread_yield ();
-  __pthread_disable_ints ();
+  /* 2026: through stdio the hold is nested and yielding was fatal; with
+     a nested hold this spins until the queue drains (or the 2 s limit).  */
+  (void) __pthread_held_wait (0);
   return 1;
 }
 

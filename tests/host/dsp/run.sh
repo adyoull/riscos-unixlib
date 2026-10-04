@@ -8,5 +8,5 @@ mkdir -p out
 cp ../../../libunixlib/sound/dsp.c out/dsp.c
 cp $F/DRender.h out/
 gcc -O1 -g -no-pie -Wall -Wno-unused-function -Wno-int-to-pointer-cast -Wno-unused-value -D_GNU_SOURCE -include $F/prelude.h -I$F \
-  out/dsp.c $F/riscos.c test_dsp.c -o out/test_dsp
+  out/dsp.c $F/riscos.c ../../../libunixlib/pthread/heldwait.c test_dsp.c -o out/test_dsp
 ./out/test_dsp
