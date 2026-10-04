@@ -517,7 +517,9 @@ original, more. On RISC OS, `EventFD` (`tests/riscos/efdtest.c`) has two
 threads write for about 10 seconds while the main thread reads, checks
 every write is counted once, then does a blocking read woken by another
 thread. With rc1 its blocking read hit the EMT above; with rc2 it
-passes on a Pi 4 (2026-10-03).
+passes on a Pi 4 (2026-10-03). riscos-gtk's GTKTest 0.5 (GLib's eventfd
+wake-up with a thread pool and GIO workers) passes glibtest 29/29 on the
+Pi with rc2.
 
 ### P1. `sched_get_priority_min` / `sched_get_priority_max` (new `sched/sched_prio.c`, `include/sched.h`) - commit `04408eb`
 

@@ -5,6 +5,27 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.2 (2026-10-04, tag v5.0.3.2)
+
+The same code as 5.0.3.2-rc2. Changes since 5.0.3.1, all found by the GTK
+port (details in the rc sections below and MODIFICATIONS.md):
+
+- **`LLONG_MIN` is a negative `long long`** (it was an `unsigned long long`
+  constant; harfbuzz failed to compile). H1.
+- **`getservbyname_r`, `getservbyport_r`, `getservent_r` exist** (declared
+  but missing; GLib's compile-only check passed and the link failed). N1.
+- **eventfd works between threads:** the counter is updated with thread
+  switching held off, and a blocking read no longer stops the program with
+  "pthread_yield called with context switching disabled". E1.
+- libtool `-version-info` 7:0:2.
+
+Run on a Pi 4 (RISC OS 5) with rc2: `EventFD` passes; riscos-gtk's
+GTKTest 0.5 (GLib 2.80 main loop, thread pool and eventfd wake-up, GIO
+workers; fontconfig, FreeType, harfbuzz, pango, cairo, gdk-pixbuf) passes
+glibtest 29/29 three runs in a row and rendertest 22/22. The GTK
+dependency stack builds with its LLONG_MIN and getservbyname_r workarounds
+removed.
+
 ## 5.0.3.2-rc2 (2026-10-03, pre-release, tag v5.0.3.2-rc2)
 
 - **A blocking eventfd read works with threads running.** On the Pi,
