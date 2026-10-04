@@ -1639,10 +1639,10 @@ index 0000000..351ad91
 +	.end
 diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/getserv_r.c b/gcc4/recipe/files/gcc/libunixlib/netlib/getserv_r.c
 new file mode 100644
-index 0000000..5871b82
+index 0000000..dd26c07
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/netlib/getserv_r.c
-@@ -0,0 +1,130 @@
+@@ -0,0 +1,133 @@
 +/* getservbyname_r (), getservbyport_r (), getservent_r ()
 +   Copyright (c) 2026 UnixLib Developers.
 +
@@ -1769,7 +1769,10 @@ index 0000000..5871b82
 +      return ERANGE;
 +    }
 +  if (err == 0 && *result == NULL)
-+    return ENOENT;
++    {
++      errno = ENOENT;		/* as glibc sets it too */
++      return ENOENT;
++    }
 +  return err;
 +}
 +#endif
@@ -1818,22 +1821,30 @@ index 4f0199f..e9551ca 100644
  }
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/ul_serv.c b/gcc4/recipe/files/gcc/libunixlib/netlib/ul_serv.c
-index 50bc9f2..11fec89 100644
+index 50bc9f2..e82b999 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/netlib/ul_serv.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/netlib/ul_serv.c
-@@ -22,6 +22,11 @@ static FILE *servfile = NULL;
+@@ -18,11 +18,17 @@
+ static FILE *servfile = NULL;
+ 
+ /* Set to 1 if the database file should be kept open between
+-   calls to these routines.  */
++   calls to these routines.  2026: no longer used: getservent () keeps
++   its stream open until endservent (), and the lookups use their own.  */
  static int keepopen = 0;
  
  static int __setservent (int allowrewind);
+-static struct servent *__getservent (void);
 +
 +/* 2026: changes whenever __getservent's static entry may change, so
 +   getservent_r (getserv_r.c) can tell whether the entry it couldn't copy
 +   (ERANGE) is still there to hand back.  */
 +unsigned int __servent_generation;
- static struct servent *__getservent (void);
++static struct servent *__getservent (FILE *file);
  
  /* Open and rewind the services file.  */
-@@ -40,6 +45,9 @@ setservent (int stayopen)
+ void
+@@ -40,6 +46,9 @@ setservent (int stayopen)
  static int
  __setservent (int allowrewind)
  {
@@ -1843,14 +1854,17 @@ index 50bc9f2..11fec89 100644
    /* Open or rewind the file as necessary */
    if (servfile)
      {
-@@ -70,10 +78,11 @@ getservent ()
-   /* Do the actual read */
-   serv = __getservent ();
+@@ -68,18 +77,19 @@ getservent ()
+       return NULL;
  
+   /* Do the actual read */
+-  serv = __getservent ();
+-
 -  /* Close the file unless the user has prohibited it */
 -  if (!keepopen)
 -    endservent ();
--
++  serv = __getservent (servfile);
+ 
 +  /* 2026: the file stays open until endservent (), as in glibc: closing
 +     it here unless setservent (1) had been called meant every call
 +     reopened it and returned the first entry again, so a getservent ()
@@ -1859,13 +1873,25 @@ index 50bc9f2..11fec89 100644
    return serv;
  }
  
-@@ -103,34 +112,44 @@ __getservent ()
+ /* Do the real work of getting an entry from the file.  */
+-struct servent *
+-__getservent ()
++static struct servent *
++__getservent (FILE *file)
+ {
+   static struct servent serv =
+   {
+@@ -103,34 +113,63 @@ __getservent ()
        serv.s_name = NULL;
      }
  
 -  /* Read a line from the file */
 -  if (__net_readline (servfile, line, sizeof (line) - 1) == NULL)
 -    return NULL;
+-
+-  /* Extract the offical service name from the line */
+-  element = strtok (line, " \t");
+-  serv.s_name = strdup (element);
 +  /* 2026: strtok_r, not strtok: strtok's single saved pointer belongs to
 +     the program, and getservbyname_r () and friends (getserv_r.c) are
 +     reentrant; a program's strtok loop that called one was left pointing
@@ -1877,35 +1903,38 @@ index 50bc9f2..11fec89 100644
 +    {
 +      char *save, *name, *port, *protocol;
  
--  /* Extract the offical service name from the line */
--  element = strtok (line, " \t");
--  serv.s_name = strdup (element);
-+      /* Read a line from the file */
-+      if (__net_readline (servfile, line, sizeof (line) - 1) == NULL)
-+	return NULL;
- 
 -  /* Extract the port number from the line */
 -  element = strtok (NULL, "/");
 -  serv.s_port = htons (atoi (element));
++      /* Read a line from the file */
++      if (__net_readline (file, line, sizeof (line) - 1) == NULL)
++	return NULL;
+ 
+-  /* Extract the protocol name from the line */
+-  element = strtok (NULL, " \t");
+-  serv.s_proto = strdup (element);
 +      if ((name = strtok_r (line, " \t", &save)) == NULL
 +	  || (port = strtok_r (NULL, "/", &save)) == NULL
 +	  || (protocol = strtok_r (NULL, " \t", &save)) == NULL)
 +	continue;
  
--  /* Extract the protocol name from the line */
--  element = strtok (NULL, " \t");
--  serv.s_proto = strdup (element);
-+      serv.s_name = strdup (name);
-+      serv.s_port = htons (atoi (port));
-+      serv.s_proto = strdup (protocol);
- 
 -  /* Initialise the alias list */
 -  serv.s_aliases = malloc (sizeof (char *));
 -  serv.s_aliases[0] = NULL;
 -  aliases = 1;
-+      /* Initialise the alias list */
-+      serv.s_aliases = malloc (sizeof (char *));
-+      serv.s_aliases[0] = NULL;
++      /* Out of memory: no entry (it used to go on with NULLs).  The
++	 entry is only valid once s_name is set, which is what the next
++	 call's freeing goes by.  */
++      char *n = strdup (name), *pr = strdup (protocol);
++      char **al = malloc (sizeof (char *));
++      if (n == NULL || pr == NULL || al == NULL)
++	{
++	  free (n);
++	  free (pr);
++	  free (al);
++	  return NULL;
++	}
++      al[0] = NULL;
 +      aliases = 1;
  
 -  /* Extract the aliases */
@@ -1918,15 +1947,100 @@ index 50bc9f2..11fec89 100644
 +      /* Extract the aliases */
 +      while ((element = strtok_r (NULL, " \t", &save)) != NULL)
 +	{
-+	  aliases += 1;
-+	  serv.s_aliases = realloc (serv.s_aliases, aliases * sizeof (char *));
-+	  serv.s_aliases[aliases - 2] = strdup (element);
-+	  serv.s_aliases[aliases - 1] = NULL;
++	  char **more = realloc (al, (aliases + 1) * sizeof (char *));
++	  char *a = strdup (element);
++	  if (more == NULL || a == NULL)
++	    {
++	      free (a);
++	      if (more)
++		al = more;
++	      break;		/* keep the aliases we have */
++	    }
++	  al = more;
++	  al[aliases - 1] = a;
++	  al[aliases] = NULL;
++	  aliases++;
 +	}
++      serv.s_aliases = al;
++      serv.s_proto = pr;
++      serv.s_port = htons (atoi (port));
++      serv.s_name = n;
 +      break;
      }
  
    return &serv;
+@@ -142,6 +181,10 @@ endservent (void)
+ {
+   PTHREAD_UNSAFE
+ 
++  /* 2026: an entry getservent_r couldn't copy (ERANGE) mustn't be
++     handed back after this.  */
++  __servent_generation++;
++
+   /* If it's open, close it */
+   if (servfile)
+     {
+@@ -159,12 +202,15 @@ getservbyname (const char *name, const char *proto)
+ 
+   PTHREAD_UNSAFE
+ 
+-  /* Open/rewind the file */
+-  if (__setservent (1) == -1)
++  /* 2026 (peer review): the lookups read their own stream, as in glibc:
++     rewinding the one getservent () reads (and closing it) restarted or
++     ended a getservent () walk that looked entries up as it went.  */
++  FILE *file = fopen ("InetDBase:Services", "r");
++  if (file == NULL)
+     return NULL;
+ 
+   /* Look through the file for a match */
+-  while ((serv = __getservent ()) != NULL)
++  while ((serv = __getservent (file)) != NULL)
+     {
+       /* Give up now if the protocol doesn't match */
+       if (proto && (strcmp (serv->s_proto, proto) != 0))
+@@ -186,10 +232,7 @@ getservbyname (const char *name, const char *proto)
+ 	break;
+     }
+ 
+-  /* Close the file unless the user has prohibited it */
+-  if (!keepopen)
+-    endservent ();
+-
++  fclose (file);
+   return serv;
+ }
+ 
+@@ -201,12 +244,15 @@ getservbyport (int port, const char *proto)
+ 
+   PTHREAD_UNSAFE
+ 
+-  /* Open/rewind the file */
+-  if (__setservent (1) == -1)
++  /* 2026 (peer review): the lookups read their own stream, as in glibc:
++     rewinding the one getservent () reads (and closing it) restarted or
++     ended a getservent () walk that looked entries up as it went.  */
++  FILE *file = fopen ("InetDBase:Services", "r");
++  if (file == NULL)
+     return NULL;
+ 
+   /* Look through the file for a match */
+-  while ((serv = __getservent ()) != NULL)
++  while ((serv = __getservent (file)) != NULL)
+     {
+       /* Give up now if the protocol doesn't match */
+       if (proto && (strcmp (serv->s_proto, proto) != 0))
+@@ -218,9 +264,6 @@ getservbyport (int port, const char *proto)
+ 
+     }
+ 
+-  /* Close the file unless the user has prohibited it */
+-  if (!keepopen)
+-    endservent ();
+-
++  fclose (file);
+   return serv;
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s b/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
 index fada843..856bb59 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
@@ -4820,10 +4934,10 @@ index 0d6ed94..4e5fb4f 100644
  	SUB	sp, sp, #2*4
  	ADD	a2, sp, #4	@ Space for __ul_global.sulproc->sul_fork
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/brk.c b/gcc4/recipe/files/gcc/libunixlib/sys/brk.c
-index bce2b55..ab498e5 100644
+index bce2b55..081d3a4 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/brk.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/brk.c
-@@ -59,6 +59,199 @@
+@@ -59,6 +59,206 @@
  
  #define align(x) ((x + 3) & ~3)
  
@@ -4864,8 +4978,10 @@ index bce2b55..ab498e5 100644
 +static int seg_start;		/* first area of the current segment */
 +static int grow_idx;		/* the area holding __ul_memory.dalimit */
 +static int chain_failed;	/* brk_da couldn't add an area after */
-+static unsigned int heap_max_ok;	/* a maximum RISC OS accepted at a base
-+					   it chose (2026 audit) */
++static unsigned int heap_max_ok;	/* a maximum RISC OS accepted (caps
++					   fixed-base requests) */
++static unsigned int heap_max_free;	/* one accepted where RISC OS chose
++					   the base (caps those requests) */
 +static unsigned int chain_blocked;	/* a base where an area couldn't be
 +					   made (0: none): don't keep trying */
 +static char heap_area_name[48];
@@ -4924,8 +5040,16 @@ index bce2b55..ab498e5 100644
 +     to 1 MB.  At a given base, once a maximum has worked before, a
 +     refusal means the space is taken: don't go on halving.  */
 +  want = first_max > HEAP_AREA_MIN_MAX ? first_max : HEAP_AREA_MIN_MAX;
-+  if (heap_max_ok && want > heap_max_ok)
++  /* 2026 (audit, peer review): a maximum accepted at a fixed base may be
++     small only because the gap there is: it used to cap every later area,
++     new segments included, so one 1 MB gap after the heap stopped it at
++     about first + 63 MB.  Where RISC OS chooses the base, only what it
++     accepted where it chose the base is a limit (heap_max_free; an older
++     RISC OS that refuses large maxima then isn't asked again each time).  */
++  if (base != -1 && heap_max_ok && want > heap_max_ok)
 +    want = heap_max_ok;
++  if (base == -1 && heap_max_free && want > heap_max_free)
++    want = heap_max_free;
 +  for (;;)
 +    {
 +      max = 0;
@@ -4939,18 +5063,15 @@ index bce2b55..ab498e5 100644
 +      if (want < (1u << 20))
 +	return -1;
 +    }
-+  /* 2026 (audit): only a maximum accepted where RISC OS chose the base
-+     says how big an area may be.  At a fixed base it can be small only
-+     because a gap is small: learning that made every later area that
-+     size, so one 1 MB gap after the heap stopped it at about first + 63
-+     MB.  */
-+  if (base == -1 && heap_max_ok < want)
-+    heap_max_ok = want;
 +  if ((base != -1 && got_base != (unsigned int) base) || max == 0)
 +    {
 +      _swix (OS_DynamicArea, _INR(0,1), 1, num);
 +      return -1;
 +    }
++  if (heap_max_ok < want)
++    heap_max_ok = want;
++  if (base == -1 && heap_max_free < want)
++    heap_max_free = want;
 +  heap_areas[heap_area_count].num = num;
 +  heap_areas[heap_area_count].base = got_base;
 +  heap_areas[heap_area_count].max = max;
@@ -5023,7 +5144,7 @@ index bce2b55..ab498e5 100644
  /* brk function for dynamic areas.  */
  static int
  brk_da (unsigned int addr)
-@@ -89,35 +282,80 @@ brk_da (unsigned int addr)
+@@ -89,35 +289,80 @@ brk_da (unsigned int addr)
        return __set_errno (EINVAL);
      }
  
@@ -5119,7 +5240,7 @@ index bce2b55..ab498e5 100644
      }
  
    /* At this point, we know that we can always satisfy a request to
-@@ -139,8 +377,14 @@ brk_da (unsigned int addr)
+@@ -139,8 +384,14 @@ brk_da (unsigned int addr)
        mem->dabreak = addr;
  
        /* See if we can give some memory back to the system by
@@ -5136,7 +5257,7 @@ index bce2b55..ab498e5 100644
  
        /* Align size down to multiple of 32K, thereby sticking to the
  	 rule that we provide a small buffer space to reduce the number
-@@ -319,6 +563,50 @@ sbrk (intptr_t delta)
+@@ -319,6 +570,50 @@ sbrk (intptr_t delta)
      }
  }
  
@@ -5187,7 +5308,7 @@ index bce2b55..ab498e5 100644
  /* sbrk for internal UnixLib callers (i.e. malloc) that are aware that
     space allocated may not be contiguous.  No need to be thread safe
     as the internal callers should already have ensured that context switching
-@@ -363,8 +651,42 @@ __internal_sbrk (int incr)
+@@ -363,8 +658,42 @@ __internal_sbrk (int incr)
        /* Dynamic areas are in use.  */
        unsigned int oldbrk = mem->dabreak;
  
@@ -6280,7 +6401,7 @@ index dee2f50..57bf85f 100644
    return lseek (fd, (__off_t) offset, whence);
  }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
-index 7f47f19..9dd7179 100644
+index 7f47f19..08ca429 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
 @@ -47,6 +47,7 @@ static void __badr (void) __attribute__ ((__noreturn__));
@@ -6291,9 +6412,18 @@ index 7f47f19..9dd7179 100644
  
  static struct proc ___u;
  struct proc *__u = &___u;	/* current process */
-@@ -359,14 +360,28 @@ _Exit (int status)
-      reserved for the run-time library internals.  */
-   status = status & 0x7f;
+@@ -355,18 +356,32 @@ _Exit (int status)
+      delete tmpfile() temporary files.  */
+   __stdioexit ();
+ 
+-  /* Only return codes between 0 and 127 are valid.  128 to 255 are
+-     reserved for the run-time library internals.  */
+-  status = status & 0x7f;
++  /* 2026 (peer review): the low 8 bits, as POSIX has it; a UnixLib
++     parent's waitpid sees all of them.  It used to keep only 0-127, so
++     exit (128) reported success.  What RISC OS itself is given (where
++     128-255 mean a death by signal) is limited in __exit_status.  */
++  status = status & 0xff;
  
 -  _exit (__W_EXITCODE (status, 0));
 +  __exit_status (__W_EXITCODE (status, 0));
@@ -6302,14 +6432,12 @@ index 7f47f19..9dd7179 100644
 +/* POSIX _exit: 'status' is a plain exit code, as for exit().
 +   2026: in GCCSDK UnixLib _exit itself took a wait status
 +   (<sys/wait.h> encoding), so a program's _exit(1) was reported to its
-+   parent as death by signal 1, and _exit(3) as signal 3.  It keeps the
-+   same 0-127 as exit () (2026-10-04 audit: it kept 0-255, so _exit (200)
-+   and exit (200) reached the parent differently, and 128-255 are what
-+   __exit_status gives RISC OS for a death by signal).  */
++   parent as death by signal 1, and _exit(3) as signal 3.  The low 8
++   bits, as exit () keeps.  */
 +void
 +_exit (int status)
 +{
-+  __exit_status (__W_EXITCODE (status & 0x7f, 0));
++  __exit_status (__W_EXITCODE (status & 0xff, 0));
  }
  
  /* Final process termination. 'return_code' is a 16-bit
@@ -6331,6 +6459,17 @@ index 7f47f19..9dd7179 100644
  
    /* Convert the 16-bit return code into an 8-bit equivalent
       for compatibility with RISC OS.
+@@ -423,6 +439,10 @@ _exit (int return_code)
+       sulproc->status.return_code = status;
+       sulproc->status.core_dump = 0;
+       sulproc->status.signal_exit = 0;
++      /* 2026: a UnixLib parent gets all 8 bits from return_code above;
++	 RISC OS gets at most 127, as bit 7 means a death by signal.  */
++      if (status > 127)
++	status = 127;
+     }
+ 
+   /* Reset the DDEUtils' Prefix variable to the value at startup.  */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/vscript b/gcc4/recipe/files/gcc/libunixlib/vscript
 index 606421f..db2d388 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/vscript
