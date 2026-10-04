@@ -69,7 +69,8 @@ the commits are named below.
 | `configure.ac`, `doc/UnixLib/Help` | V1 version number, D1 unofficial fork |
 | `unix/unix.c`, `signal/post.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `vscript` | X2 `_exit` takes an exit code |
 | `include/limits.h` | H1 `LLONG_MIN` type |
-| `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends |
+| `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
+| `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
 | `unix/eventfd.c` | E1 counter updated with thread switching held off, Y1 waits |
 | `pthread/heldwait.c` (**new**) | Y1 waiting inside a held call |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
@@ -555,6 +556,32 @@ What the callers do:
   - **midi:** the blocking wait yields 3 times with `write()`'s hold. The old code yielded 0 times.
 - **eventfd:** a nested hold gives `EAGAIN` with no yield, and the wait calls `pthread_testcancel`.
 - Not yet run on RISC OS.
+
+### N2. The services database: `strtok`, `getservent` and `getservent_r` (`netlib/ul_serv.c`, `netlib/getserv_r.c`, `vscript`)
+
+**Problem.** Found by the 2026-10-04 audit (and while testing it).
+1. **`strtok`:** N1's `getservbyname_r`, `getservbyport_r` and `getservent_r` call the old lookups, which parse each line with `strtok`.
+   - That replaces the program's own `strtok` state, leaving it pointing into a dead stack frame.
+   - A `strtok` loop that looked each token up got garbage after the first token (reproduced natively).
+2. **`getservent()` (upstream):** it closed the file after every call unless `setservent(1)` had been called. The next call reopened it, so `getservent()` returned the first entry for ever, and no `getservent` or `getservent_r` loop ended.
+3. **`getservent_r` didn't behave as glibc's:**
+   - it returned 0 with `*result` NULL at the end of the file, where glibc gives `ENOENT`, so `while (getservent_r (...) == 0)` used NULL;
+   - after `ERANGE` the entry was lost.
+4. **Malformed lines (upstream):** a line with no port or protocol (blanks only, say) crashed the parser (`strdup (NULL)`).
+
+**Change.**
+- The parser uses `strtok_r`, and skips lines without a name, port and protocol.
+- `getservent()` leaves the file open until `endservent()`, as glibc does. `getservbyname()` and `getservbyport()` still rewind, and close it unless `setservent(1)` was called.
+- `getservent_r` returns `ENOENT` at the end. After `ERANGE` it returns the same entry on the next call, unless the file has been read or rewound since: a generation counter, `__servent_generation`, is hidden by `vscript`.
+
+**Verification.** `tests/host/services` (20 checks) builds the real parser, readline and `_r` files against a test services file. It covers:
+- a `strtok` loop calling `getservbyname_r`;
+- aliases and lookup by port;
+- a `getservent_r` walk that skips a blank and a broken line and ends with `ENOENT`;
+- `ERANGE` followed by the same entry, but not after an intervening lookup;
+- a `getservent()` walk that ends.
+
+The old code crashes on the blank line.
 
 ### P1. `sched_get_priority_min` / `sched_get_priority_max` (new `sched/sched_prio.c`, `include/sched.h`) - commit `04408eb`
 

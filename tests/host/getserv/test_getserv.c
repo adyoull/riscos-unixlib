@@ -19,6 +19,7 @@ struct servent *getservbyname (const char *n, const char *p)
 struct servent *getservbyport (int port, const char *p)
 { (void) p; return port == 0x5000 ? &http : NULL; }
 struct servent *getservent (void) { return &ssh; }
+unsigned int __servent_generation;
 
 int main (void)
 {

@@ -20,6 +20,12 @@ How to release: docs/MAINTAINING.md.
   - The child drops its "free my stack" flag first.
   - New Pi test `ForkWorker`.
   - Found by the 2026-10-04 audit.
+- **The services database (N2):**
+  - `getservbyname_r` and friends no longer reset the program's `strtok` state.
+  - `getservent()` no longer returns the first entry for ever (it closed the file after every call).
+  - `getservent_r` returns `ENOENT` at the end and the same entry again after `ERANGE`, as glibc does.
+  - A blank or broken line in the services file no longer crashes the parser.
+  - Found by the 2026-10-04 audit.
 - **Doc correction (E1):** `write()` does hold thread switching off, so rc1's counter race wasn't real for `read()`/`write()`. Only `select()`'s unprotected read was.
 
 ## 5.0.3.2 (2026-10-04, tag v5.0.3.2)

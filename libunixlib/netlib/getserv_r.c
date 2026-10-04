@@ -7,7 +7,8 @@
    switching held off and copy the result into the caller's buffer.
 
    As glibc: 0 on success with *result set; 0 with *result NULL if there is
-   no such service; ERANGE (with *result NULL) if BUF is too small.  */
+   no such service; ERANGE (with *result NULL) if BUF is too small; and
+   for getservent_r, ENOENT at the end of the file.  */
 
 #include <errno.h>
 #include <netdb.h>
@@ -92,12 +93,38 @@ getservbyport_r (int port, const char *proto,
 }
 
 #ifndef __TARGET_SCL__
+extern unsigned int __servent_generation;
+
+/* 2026 (audit): as glibc, ENOENT at the end of the file (it was 0 with
+   *result NULL, so the usual while (getservent_r (...) == 0) loop used
+   NULL), and after ERANGE the same entry again on the next call (it was
+   skipped), unless the services file has been read or rewound since.  */
 int
 getservent_r (struct servent *result_buf, char *buf, size_t buflen,
 	      struct servent **result)
 {
+  static struct servent *pending;
+  static unsigned int pending_generation;
+  struct servent *serv;
+  int err;
+
   PTHREAD_UNSAFE
 
-  return copy_servent (getservent (), result_buf, buf, buflen, result);
+  if (pending && pending_generation == __servent_generation)
+    serv = pending;
+  else
+    serv = getservent ();
+  pending = NULL;
+
+  err = copy_servent (serv, result_buf, buf, buflen, result);
+  if (err == ERANGE)
+    {
+      pending = serv;
+      pending_generation = __servent_generation;
+      return ERANGE;
+    }
+  if (err == 0 && *result == NULL)
+    return ENOENT;
+  return err;
 }
 #endif

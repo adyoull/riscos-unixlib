@@ -149,6 +149,7 @@ VERSION {
      __pthread_new_stack;
      __pthread_context_switch;
      __pthread_held_wait;
+     __servent_generation;
      __pthread_init_save_area;
      __pthread_exit;
      __pthread_protect_unsafe;

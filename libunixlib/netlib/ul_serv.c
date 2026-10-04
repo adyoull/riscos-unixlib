@@ -22,6 +22,11 @@ static FILE *servfile = NULL;
 static int keepopen = 0;
 
 static int __setservent (int allowrewind);
+
+/* 2026: changes whenever __getservent's static entry may change, so
+   getservent_r (getserv_r.c) can tell whether the entry it couldn't copy
+   (ERANGE) is still there to hand back.  */
+unsigned int __servent_generation;
 static struct servent *__getservent (void);
 
 /* Open and rewind the services file.  */
@@ -40,6 +45,9 @@ setservent (int stayopen)
 static int
 __setservent (int allowrewind)
 {
+  /* 2026: the static entry is about to mean something else.  */
+  __servent_generation++;
+
   /* Open or rewind the file as necessary */
   if (servfile)
     {
@@ -70,10 +78,11 @@ getservent ()
   /* Do the actual read */
   serv = __getservent ();
 
-  /* Close the file unless the user has prohibited it */
-  if (!keepopen)
-    endservent ();
-
+  /* 2026: the file stays open until endservent (), as in glibc: closing
+     it here unless setservent (1) had been called meant every call
+     reopened it and returned the first entry again, so a getservent ()
+     loop never ended.  (getservbyname () and getservbyport () rewind,
+     and still close it unless setservent (1) was called.)  */
   return serv;
 }
 
@@ -103,34 +112,44 @@ __getservent ()
       serv.s_name = NULL;
     }
 
-  /* Read a line from the file */
-  if (__net_readline (servfile, line, sizeof (line) - 1) == NULL)
-    return NULL;
-
-  /* Extract the offical service name from the line */
-  element = strtok (line, " \t");
-  serv.s_name = strdup (element);
-
-  /* Extract the port number from the line */
-  element = strtok (NULL, "/");
-  serv.s_port = htons (atoi (element));
-
-  /* Extract the protocol name from the line */
-  element = strtok (NULL, " \t");
-  serv.s_proto = strdup (element);
-
-  /* Initialise the alias list */
-  serv.s_aliases = malloc (sizeof (char *));
-  serv.s_aliases[0] = NULL;
-  aliases = 1;
-
-  /* Extract the aliases */
-  while ((element = strtok (NULL, " \t")) != NULL)
+  /* 2026: strtok_r, not strtok: strtok's single saved pointer belongs to
+     the program, and getservbyname_r () and friends (getserv_r.c) are
+     reentrant; a program's strtok loop that called one was left pointing
+     into this function's dead stack frame.  And a line without a name,
+     port and protocol (only blanks, say) is skipped: strdup (NULL) and
+     atoi (NULL) used to crash on it.  */
+  __servent_generation++;
+  for (;;)
     {
-      aliases += 1;
-      serv.s_aliases = realloc (serv.s_aliases, aliases * sizeof (char *));
-      serv.s_aliases[aliases - 2] = strdup (element);
-      serv.s_aliases[aliases - 1] = NULL;
+      char *save, *name, *port, *protocol;
+
+      /* Read a line from the file */
+      if (__net_readline (servfile, line, sizeof (line) - 1) == NULL)
+	return NULL;
+
+      if ((name = strtok_r (line, " \t", &save)) == NULL
+	  || (port = strtok_r (NULL, "/", &save)) == NULL
+	  || (protocol = strtok_r (NULL, " \t", &save)) == NULL)
+	continue;
+
+      serv.s_name = strdup (name);
+      serv.s_port = htons (atoi (port));
+      serv.s_proto = strdup (protocol);
+
+      /* Initialise the alias list */
+      serv.s_aliases = malloc (sizeof (char *));
+      serv.s_aliases[0] = NULL;
+      aliases = 1;
+
+      /* Extract the aliases */
+      while ((element = strtok_r (NULL, " \t", &save)) != NULL)
+	{
+	  aliases += 1;
+	  serv.s_aliases = realloc (serv.s_aliases, aliases * sizeof (char *));
+	  serv.s_aliases[aliases - 2] = strdup (element);
+	  serv.s_aliases[aliases - 1] = NULL;
+	}
+      break;
     }
 
   return &serv;

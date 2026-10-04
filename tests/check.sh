@@ -13,6 +13,8 @@ echo "== host tests: wide characters (swprintf, wcsftime, wcsto*)"
 tests/host/wchar/run.sh
 echo "== host tests: getservbyname_r and friends"
 tests/host/getserv/run.sh
+echo "== host tests: the services database"
+tests/host/services/run.sh
 echo "== host tests: eventfd counter"
 tests/host/eventfd/run.sh
 echo "== host tests: waiting inside a held call"
