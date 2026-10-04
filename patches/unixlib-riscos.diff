@@ -4768,10 +4768,10 @@ index 0d6ed94..4e5fb4f 100644
  	SUB	sp, sp, #2*4
  	ADD	a2, sp, #4	@ Space for __ul_global.sulproc->sul_fork
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/brk.c b/gcc4/recipe/files/gcc/libunixlib/sys/brk.c
-index bce2b55..e432c2a 100644
+index bce2b55..ab498e5 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/brk.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/brk.c
-@@ -59,6 +59,193 @@
+@@ -59,6 +59,199 @@
  
  #define align(x) ((x + 3) & ~3)
  
@@ -4812,7 +4812,8 @@ index bce2b55..e432c2a 100644
 +static int seg_start;		/* first area of the current segment */
 +static int grow_idx;		/* the area holding __ul_memory.dalimit */
 +static int chain_failed;	/* brk_da couldn't add an area after */
-+static unsigned int heap_max_ok;	/* a maximum RISC OS accepted */
++static unsigned int heap_max_ok;	/* a maximum RISC OS accepted at a base
++					   it chose (2026 audit) */
 +static unsigned int chain_blocked;	/* a base where an area couldn't be
 +					   made (0: none): don't keep trying */
 +static char heap_area_name[48];
@@ -4886,7 +4887,12 @@ index bce2b55..e432c2a 100644
 +      if (want < (1u << 20))
 +	return -1;
 +    }
-+  if (heap_max_ok < want)
++  /* 2026 (audit): only a maximum accepted where RISC OS chose the base
++     says how big an area may be.  At a fixed base it can be small only
++     because a gap is small: learning that made every later area that
++     size, so one 1 MB gap after the heap stopped it at about first + 63
++     MB.  */
++  if (base == -1 && heap_max_ok < want)
 +    heap_max_ok = want;
 +  if ((base != -1 && got_base != (unsigned int) base) || max == 0)
 +    {
@@ -4965,7 +4971,7 @@ index bce2b55..e432c2a 100644
  /* brk function for dynamic areas.  */
  static int
  brk_da (unsigned int addr)
-@@ -89,35 +276,80 @@ brk_da (unsigned int addr)
+@@ -89,35 +282,80 @@ brk_da (unsigned int addr)
        return __set_errno (EINVAL);
      }
  
@@ -5061,7 +5067,7 @@ index bce2b55..e432c2a 100644
      }
  
    /* At this point, we know that we can always satisfy a request to
-@@ -139,8 +371,14 @@ brk_da (unsigned int addr)
+@@ -139,8 +377,14 @@ brk_da (unsigned int addr)
        mem->dabreak = addr;
  
        /* See if we can give some memory back to the system by
@@ -5078,7 +5084,7 @@ index bce2b55..e432c2a 100644
  
        /* Align size down to multiple of 32K, thereby sticking to the
  	 rule that we provide a small buffer space to reduce the number
-@@ -319,6 +557,50 @@ sbrk (intptr_t delta)
+@@ -319,6 +563,50 @@ sbrk (intptr_t delta)
      }
  }
  
@@ -5129,7 +5135,7 @@ index bce2b55..e432c2a 100644
  /* sbrk for internal UnixLib callers (i.e. malloc) that are aware that
     space allocated may not be contiguous.  No need to be thread safe
     as the internal callers should already have ensured that context switching
-@@ -363,8 +645,42 @@ __internal_sbrk (int incr)
+@@ -363,8 +651,42 @@ __internal_sbrk (int incr)
        /* Dynamic areas are in use.  */
        unsigned int oldbrk = mem->dabreak;
  
