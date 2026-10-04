@@ -36,6 +36,7 @@ How to release: docs/MAINTAINING.md.
   - `swprintf` terminates the buffer on errors.
   - `wcsftime` no longer fails with a huge `maxsize`.
   - Found by the 2026-10-04 audit.
+- **`_exit` keeps codes 0–127, as `exit` does (X2).** `_exit (200)` reached the parent as 200 and `exit (200)` as 72; codes 128–255 are how UnixLib tells RISC OS a program died by a signal. Found by the 2026-10-04 audit.
 - **Heap (A3):** one small gap after the heap no longer caps every later heap area at the gap's size. Before, a 1 MB gap stopped malloc at about the first area + 63 MB. Found by the 2026-10-04 audit; emulator scenario added.
 - **Doc correction (E1):** `write()` does hold thread switching off, so rc1's counter race wasn't real for `read()`/`write()`. Only `select()`'s unprotected read was.
 

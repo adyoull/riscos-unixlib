@@ -366,11 +366,14 @@ _Exit (int status)
 /* POSIX _exit: 'status' is a plain exit code, as for exit().
    2026: in GCCSDK UnixLib _exit itself took a wait status
    (<sys/wait.h> encoding), so a program's _exit(1) was reported to its
-   parent as death by signal 1, and _exit(3) as signal 3.  */
+   parent as death by signal 1, and _exit(3) as signal 3.  It keeps the
+   same 0-127 as exit () (2026-10-04 audit: it kept 0-255, so _exit (200)
+   and exit (200) reached the parent differently, and 128-255 are what
+   __exit_status gives RISC OS for a death by signal).  */
 void
 _exit (int status)
 {
-  __exit_status (__W_EXITCODE (status & 0xff, 0));
+  __exit_status (__W_EXITCODE (status & 0x7f, 0));
 }
 
 /* Final process termination. 'return_code' is a 16-bit

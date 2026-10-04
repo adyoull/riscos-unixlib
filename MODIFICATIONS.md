@@ -464,13 +464,17 @@ and `popen()` (`_exit (EXIT_FAILURE)`).
 UnixLib's own callers that pass an encoded status (`_Exit`, the signal
 code's default actions, the stack-overflow and fatal-error paths in
 `_syslib.s`) call it. The public `_exit (status)` calls
-`__exit_status (W_EXITCODE (status & 0xff, 0))`. `abort`'s fallback,
+`__exit_status (W_EXITCODE (status & 0x7f, 0))`: 0-127, as `exit`
+keeps (it was `& 0xff` until the 2026-10-04 audit, so `_exit (200)` and
+`exit (200)` reached the parent differently; 128-255 are what
+`__exit_status` gives RISC OS for a death by signal). `abort`'s fallback,
 `system()` and `popen()` keep calling `_exit` and now get the exit code
 they meant.
 
 **What it means for programs.** `_exit (0)` is unchanged. A program
 whose fork/vfork child calls `_exit (n)` now sees `WIFEXITED` and
-`WEXITSTATUS == n`, as on other systems; Sys$ReturnCode is n.
+`WEXITSTATUS == n` (n from 0 to 127, as for `exit`), as on other
+systems; Sys$ReturnCode is n.
 
 **Verification.** Disassembly of `_exit` (shift left 8, mask, call
 `__exit_status`). On RISC OS: `ForkOnly` and `ForkThreads` check the
