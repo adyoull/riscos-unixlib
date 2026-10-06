@@ -1604,9 +1604,12 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 
 ## 8. Still to be done
 
+**Run on RISC OS (Pi 4, 5.0.3.3-rc1, 2026-10-06):** `ForkWorker` (K10),
+`EventFD` with its cancel part (Y1, E1), `ToneStdio` and `ToneStdioDR`
+(Y1, S12, through SharedSoundBuffer and DigitalRenderer) all pass and
+behaved as expected.
+
 **Not yet run on RISC OS:**
-- the 5.0.3.3-rc1 fixes (Y1, K10, N2, A3, S12, W5, X2) and their Pi tests
-  `ForkWorker`, `ToneStdio`, `ToneStdioDR` and `EventFD`'s cancel part;
 - the sound tests (`Tone*`, `Mix`, `ExitBug`, `ExitBugSSB`);
 - a threaded program without PThreadTicker;
 - R1 and R2 (on the machine where Warzone 2100 crashed).

@@ -5,6 +5,14 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.3 (2026-10-06, tag v5.0.3.3)
+
+The same code as 5.0.3.3-rc1: the fixes from the 2026-10-04 code audit
+(Y1, K10, N2, A3, S12, W5, X2; see below), each peer-reviewed in two
+rounds. On a Pi 4 (RISC OS 5) with rc1, `ForkWorker`, `EventFD` (with the
+cancel part), `ToneStdio` and `ToneStdioDR` all pass and behaved as
+expected.
+
 ## 5.0.3.3-rc1 (2026-10-04, pre-release, tag v5.0.3.3-rc1)
 
 Fixes from the 2026-10-04 code audit, each peer-reviewed (two rounds).
