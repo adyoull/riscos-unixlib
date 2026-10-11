@@ -226,8 +226,12 @@ sem_wait_until (sem_t *sem, const struct timespec *abstime)
       /* 2026 (peer review): sem_wait is a cancellation point.  The old
 	 polling loop checked for cancellation on every pass; waiting on
 	 the condition variable, the thread is woken by pthread_cancel
-	 (pthread/cancel.c) and acts on it here, with the lock released.  */
-      if (__pthread_running_thread->cancelpending)
+	 (pthread/cancel.c) and acts on it here, with the lock released.
+	 Only while the count is 0: a thread woken by a post that is then
+	 cancelled takes the unit and returns (POSIX allows either when the
+	 two race), rather than leaving with the post's wakeup used up and
+	 another waiter asleep beside an available unit.  */
+      if (__pthread_running_thread->cancelpending && sem->usem_count == 0)
 	{
 	  pthread_mutex_unlock (&state->lock);
 	  pthread_testcancel ();
