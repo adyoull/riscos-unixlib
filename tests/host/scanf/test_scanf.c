@@ -1,7 +1,7 @@
 /* Host test for UnixLib's scanf length modifiers (2026, C3): ll, hh, j, q,
-   z, t, %Lf and %Ld.  Before, only l, L and h were known: %lld stored a
-   long, %hhd a short, %jd/%zu/%td/%qd weren't understood, %Lf stored a
-   float.  */
+   z, t and %Lf (%Ld still stores an int, as before).  Before, only l, L
+   and h were known: %lld stored a long, %hhd a short, %jd/%zu/%td/%qd
+   weren't understood, %Lf stored a float.  */
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -44,8 +44,8 @@ int main (void)
   CHECK (ul_sscanf ("-77", "%td", &t) == 1 && t == -77);
   ll = 0;
   CHECK (ul_sscanf ("8000000000", "%qd", &ll) == 1 && ll == 8000000000LL);
-  ll = 0;
-  CHECK (ul_sscanf ("5000000000", "%Ld", &ll) == 1 && ll == 5000000000LL);
+  struct { int v; int guard; } Li = { 0, 0x5A5A5A5A };
+  CHECK (ul_sscanf ("5", "%Ld", &Li.v) == 1 && Li.v == 5 && Li.guard == 0x5A5A5A5A);
   CHECK (ul_sscanf ("2.5", "%Lf", &ld) == 1 && ld == 2.5L);
   ll = 0;
   CHECK (ul_sscanf ("1 2", "%*lld %lld%n", &ll, &n) == 1 && ll == 2 && n == 3);

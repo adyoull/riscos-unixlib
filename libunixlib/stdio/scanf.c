@@ -70,8 +70,7 @@ static const char rcsid[] =
 #define	NOSKIP		0x20	/* do not skip blanks */
 /* 2026: ll, hh, j, q, z, t and %Lf: Rob Heaton (riscos-gcc16, his report
    21); only l, L and h were known, so %lld stored a long (the low word of a
-   long long), %hhd a short and %Lf a float.  L on an integer conversion
-   (%Ld) means long long, as in glibc.  */
+   long long), %hhd a short and %Lf a float.  */
 #define	LONGLONG	0x400	/* ll, j, q: long long (intmax_t) */
 #define	CHARSZ		0x800	/* hh: char (SHORT is set as well) */
 
@@ -309,7 +308,7 @@ literal:
 			nconversions++;
 			if (flags & SUPPRESS)	/* ??? */
 				continue;
-			if (flags & (LONGLONG | LONGDBL))
+			if (flags & LONGLONG)
 				*va_arg(ap, long long *) = nread;
 			else if (flags & CHARSZ)
 				*va_arg(ap, char *) = nread;
@@ -609,7 +608,9 @@ fprintf (stderr, "peekc (fp) = %c\n", c);
 			}
 			if ((flags & SUPPRESS) == 0) {
 				*p = 0;
-				if (flags & (LONGLONG | LONGDBL))	/* %Ld as glibc */
+				/* 2026 (peer review): not for %p, whose
+				   store is a pointer whatever the modifier.  */
+				if ((flags & LONGLONG) && !(flags & POINTER))
 					*va_arg(ap, unsigned long long *) =
 					    (*ccfnll)(buf, (char **)NULL, base);
 				else {
