@@ -440,6 +440,13 @@ extern void __free_process (struct __sul_process *process)
    _exit takes a plain exit code.  */
 extern void __exit_status (int __status) __attribute__ ((__noreturn__));
 
+#ifdef __ARM_EABI__
+/* 2026: register the program's .fini_array to run at exit (I1;
+   stdlib/atexit.c), called from __main in sys/_syslib.s.  */
+extern void __register_fini_array (void (**__start) (void),
+				   void (**__end) (void));
+#endif
+
 extern pid_t __fork_post (pid_t pid, int isfork);
 extern int __fork_pre (int isfork, void **sul_fork, pid_t *pid, void *sp);
 

@@ -55,7 +55,8 @@ int main (void)
     }
   catch (const std::exception &e)
     {
-      std::printf ("exception %s; exiting\n", e.what ());
+      std::printf ("exception %s; exiting (no \"exit order\" line "
+		   "after this means FAIL)\n", e.what ());
     }
   return 0;
 }
