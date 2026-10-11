@@ -150,7 +150,6 @@ VERSION {
      __pthread_context_switch;
      __pthread_held_wait;
      __servent_generation;
-     __register_fini_array;
      __pthread_init_save_area;
      __pthread_exit;
      __pthread_protect_unsafe;

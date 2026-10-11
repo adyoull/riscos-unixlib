@@ -44,7 +44,6 @@ static const char rcsid[] =
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
 #include <ctype.h>
 #include <stdarg.h>
 #include <string.h>
@@ -63,16 +62,11 @@ static const char rcsid[] =
  * Flags used during conversion.
  */
 #define	LONG		0x01	/* l: long or double */
-#define	LONGDBL		0x02	/* L: long double */
+#define	LONGDBL		0x02	/* L: long double; unimplemented */
 #define	SHORT		0x04	/* h: short */
 #define	SUPPRESS	0x08	/* suppress assignment */
 #define	POINTER		0x10	/* weird %p pointer (`fake hex') */
 #define	NOSKIP		0x20	/* do not skip blanks */
-/* 2026: ll, hh, j, q, z, t and %Lf: Rob Heaton (riscos-gcc16, his report
-   21); only l, L and h were known, so %lld stored a long (the low word of a
-   long long), %hhd a short and %Lf a float.  */
-#define	LONGLONG	0x400	/* ll, j, q: long long (intmax_t) */
-#define	CHARSZ		0x800	/* hh: char (SHORT is set as well) */
 
 /*
  * The following are used in numeric conversions only:
@@ -121,8 +115,6 @@ vfscanf (FILE *fp, char const *fmt0, va_list ap)
 	int base;		/* base argument to strtol/strtoul */
 	u_long (*ccfn)(const char *, char **, int);
 				/* conversion function (strtol/strtoul) */
-	unsigned long long (*ccfnll)(const char *, char **, int);
-				/* the same for a long long (strtoll/strtoull) */
 	char ccltab[256];	/* character class table for %[...] */
 	char buf[BUF];		/* buffer for numeric conversions */
 
@@ -137,7 +129,6 @@ vfscanf (FILE *fp, char const *fmt0, va_list ap)
 	nread = 0;
 	base = 0;		/* XXX just to keep gcc happy */
 	ccfn = NULL;		/* XXX just to keep gcc happy */
-	ccfnll = NULL;
 	for (;;) {
 		c = *fmt++;
 		if (c == 0)
@@ -183,35 +174,13 @@ literal:
 			flags |= SUPPRESS;
 			goto again;
 		case 'l':
-			if (flags & LONG)	/* ll */
-				flags |= LONGLONG;
-			else
-				flags |= LONG;
+			flags |= LONG;
 			goto again;
 		case 'L':
 			flags |= LONGDBL;
 			goto again;
 		case 'h':
-			if (flags & SHORT)	/* hh */
-				flags |= CHARSZ;
-			else
-				flags |= SHORT;
-			goto again;
-		case 'j':		/* intmax_t */
-		case 'q':		/* BSD: quad_t */
-			flags |= LONGLONG;
-			goto again;
-		case 'z':		/* size_t: as big as an int here, but be right where it is not */
-			if (sizeof (size_t) > sizeof (long))
-				flags |= LONGLONG;
-			else if (sizeof (size_t) > sizeof (int))
-				flags |= LONG;
-			goto again;
-		case 't':		/* ptrdiff_t */
-			if (sizeof (ptrdiff_t) > sizeof (long))
-				flags |= LONGLONG;
-			else if (sizeof (ptrdiff_t) > sizeof (int))
-				flags |= LONG;
+			flags |= SHORT;
 			goto again;
 
 		case '0': case '1': case '2': case '3': case '4':
@@ -232,14 +201,12 @@ literal:
 		case 'd':
 			c = CT_INT;
 			ccfn = (u_long (*)(const char *, char **, int))strtol;
-			ccfnll = (unsigned long long (*)(const char *, char **, int))strtoll;
 			base = 10;
 			break;
 
 		case 'i':
 			c = CT_INT;
 			ccfn = (u_long (*)(const char *, char **, int))strtol;
-			ccfnll = (unsigned long long (*)(const char *, char **, int))strtoll;
 			base = 0;
 			break;
 
@@ -249,14 +216,12 @@ literal:
 		case 'o':
 			c = CT_INT;
 			ccfn = strtoul;
-			ccfnll = strtoull;
 			base = 8;
 			break;
 
 		case 'u':
 			c = CT_INT;
 			ccfn = strtoul;
-			ccfnll = strtoull;
 			base = 10;
 			break;
 
@@ -267,7 +232,6 @@ literal:
 			flags |= PFXOK;	/* enable 0x prefixing */
 			c = CT_INT;
 			ccfn = strtoul;
-			ccfnll = strtoull;
 			base = 16;
 			break;
 
@@ -300,7 +264,6 @@ literal:
 			flags |= POINTER | PFXOK;
 			c = CT_INT;
 			ccfn = strtoul;
-			ccfnll = strtoull;
 			base = 16;
 			break;
 
@@ -308,11 +271,7 @@ literal:
 			nconversions++;
 			if (flags & SUPPRESS)	/* ??? */
 				continue;
-			if (flags & LONGLONG)
-				*va_arg(ap, long long *) = nread;
-			else if (flags & CHARSZ)
-				*va_arg(ap, char *) = nread;
-			else if (flags & SHORT)
+			if (flags & SHORT)
 				*va_arg(ap, short *) = nread;
 			else if (flags & LONG)
 				*va_arg(ap, long *) = nread;
@@ -331,7 +290,6 @@ literal:
 				flags |= LONG;
 			c = CT_INT;
 			ccfn = (u_long (*)(const char *, char **, int))strtol;
-			ccfnll = (unsigned long long (*)(const char *, char **, int))strtoll;
 			base = 10;
 			break;
 		}
@@ -607,26 +565,18 @@ fprintf (stderr, "peekc (fp) = %c\n", c);
 				(void) ungetc(c, fp);
 			}
 			if ((flags & SUPPRESS) == 0) {
-				*p = 0;
-				/* 2026 (peer review): not for %p, whose
-				   store is a pointer whatever the modifier.  */
-				if ((flags & LONGLONG) && !(flags & POINTER))
-					*va_arg(ap, unsigned long long *) =
-					    (*ccfnll)(buf, (char **)NULL, base);
-				else {
-					u_long res = (*ccfn)(buf, (char **)NULL, base);
+				u_long res;
 
-					if (flags & POINTER)
-						*va_arg(ap, void **) = (void *)res;
-					else if (flags & CHARSZ)
-						*va_arg(ap, char *) = (char)res;
-					else if (flags & SHORT)
-						*va_arg(ap, short *) = (short)res;
-					else if (flags & LONG)
-						*va_arg(ap, long *) = res;
-					else
-						*va_arg(ap, int *) = (int)res;
-				}
+				*p = 0;
+				res = (*ccfn)(buf, (char **)NULL, base);
+				if (flags & POINTER)
+					*va_arg(ap, void **) = (void *)res;
+				else if (flags & SHORT)
+					*va_arg(ap, short *) = (short)res;
+				else if (flags & LONG)
+					*va_arg(ap, long *) = res;
+				else
+					*va_arg(ap, int *) = (int)res;
 				nassigned++;
 			}
 			nread += p - buf;
@@ -715,15 +665,11 @@ fprintf (stderr, "peekc (fp) = %c\n", c);
 #ifdef DEBUG
 fprintf (stderr, "strtod: '%s'\n", buf);
 #endif
-				if (flags & LONGDBL)
-					*va_arg(ap, long double *) = strtold(buf, (char **) NULL);
-				else {
-					res = strtod(buf,(char **) NULL);
-					if (flags & LONG)
-						*va_arg(ap, double *) = res;
-					else
-						*va_arg(ap, float *) = (float)res;
-				}
+				res = strtod(buf,(char **) NULL);
+				if (flags & LONG)
+					*va_arg(ap, double *) = res;
+				else
+					*va_arg(ap, float *) = (float)res;
 				nassigned++;
 			}
 			nread += p - buf;

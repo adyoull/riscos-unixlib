@@ -51,32 +51,7 @@ pthread_cancel (pthread_t thread)
   if (__pthread_invalid (thread))
     return ESRCH;
 
-  __pthread_disable_ints ();
-
   thread->cancelpending = 1;
-
-  /* 2026: a thread waiting on a condition variable is woken (a spurious
-     wakeup, which POSIX allows), so that a wait that is a cancellation
-     point (sem_wait, which now waits on one instead of polling: P5) can
-     act on it.  Taken off the list as pthread_cond_signal does; its
-     'cond' stays set, so a timed wait reports 0, not ETIMEDOUT.  */
-  if (thread->cancelstate == PTHREAD_CANCEL_ENABLE
-      && (thread->state == STATE_COND_WAIT
-	  || thread->state == STATE_COND_TIMED_WAIT)
-      && thread->cond != NULL)
-    {
-      pthread_t *link;
-
-      for (link = &thread->cond->waiting; *link; link = &(*link)->nextwait)
-	if (*link == thread)
-	  {
-	    *link = thread->nextwait;
-	    break;
-	  }
-      thread->state = STATE_RUNNING;
-    }
-
-  __pthread_enable_ints ();
 
   return 0;
 }

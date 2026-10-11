@@ -146,13 +146,9 @@ __pthread_context_switch (void)
         {
           /* Check that the condition variable wait has not timed out */
           iter = 0; /* Prevent deadlock error ocurring if we are waiting */
-          /* 2026: compared as a signed difference, so it still works
-             when the centisecond clock wraps (it used to be clock () >
-             condtimeout, wrong across the wrap and for deadlines past
-             2^31 cs).  */
-          if ((int) ((unsigned long) clock ()
-                     - (unsigned long) __pthread_running_thread->condtimeout) > 0)
+          if (clock () > __pthread_running_thread->condtimeout)
             {
+              /* Hmm, this will fail if the monotonic timer wraps around.  */
               __pthread_running_thread->state = STATE_RUNNING;
 
               /* Remove this thread from the list of threads waiting on the
@@ -170,9 +166,6 @@ __pthread_context_switch (void)
                   if (thread->nextwait)
                     thread->nextwait = thread->nextwait->nextwait;
                 }
-              /* 2026: tells pthread_cond_timedwait it timed out (a signal
-                 leaves cond set).  */
-              __pthread_running_thread->cond = NULL;
             }
         }
 #ifdef PTHREAD_DEBUG_CONTEXT

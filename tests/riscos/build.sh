@@ -11,16 +11,10 @@ PATH=$GCCSDK_ENV/bin:$PATH
 L=../../build/work/build/.libs
 O=out/UnixLibTests
 rm -rf out; mkdir -p $O
-for p in dsptest miditest nosound ejtest fsrotest tickertest schedtest lfstest heaptest daprobe fxtest eabxtest pmovtest efdtest fwtest dsstest vhtest oncetest twtest; do
+for p in dsptest miditest nosound ejtest fsrotest tickertest schedtest lfstest heaptest daprobe fxtest eabxtest pmovtest efdtest fwtest dsstest; do
   flags=
   [ $p = lfstest ] && flags=-D_FILE_OFFSET_BITS=64
   arm-riscos-gnueabihf-gcc -O2 -static -fstack-clash-protection $flags -isystem ../../libunixlib/include -L$L $p.c -o out/$p.elf -lm
-  GCCSDK_ENV="$GCCSDK_ENV" ../../tools/check-lib.sh out/$p.elf >/dev/null
-  "$ELF2AIF" -e out/$p.elf $O/$p,ff8
-done
-# C++ tests
-for p in finitest; do
-  arm-riscos-gnueabihf-g++ -O2 -static -fstack-clash-protection -isystem ../../libunixlib/include -L$L $p.cc -o out/$p.elf -lm
   GCCSDK_ENV="$GCCSDK_ENV" ../../tools/check-lib.sh out/$p.elf >/dev/null
   "$ELF2AIF" -e out/$p.elf $O/$p,ff8
 done

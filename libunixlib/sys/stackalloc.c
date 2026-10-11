@@ -44,17 +44,6 @@ __stackalloc_incr_wimpslot (unsigned int incr)
   struct ul_memory *mem = &__ul_memory;
   struct ul_global *gbl = &__ul_global;
 
-  /* 2026: never above the permitted RAM limit the program started with
-     (struct ul_memory): in a program started by vfork () + exec () the
-     memory above it is the copy of its parent, and a heap or stack grown
-     over it destroyed the parent ("abort on data transfer" in the parent
-     after the child ended normally).  The caller gets an error (brk:
-     ENOMEM).  Where 'appspace_himem' is already above it (a fork ()
-     child: __fork_post) the subtraction wraps and nothing is refused.
-     Rob Heaton (riscos-gcc16, his report 08).  */
-  if (incr > mem->appspace_himem_max - mem->appspace_himem)
-    return 0;
-
   /* If the amount requested does not exceed the current application space
      limit, then we can satisfy the request easily.  */
   if (mem->appspace_himem + incr <= mem->appspace_limit)

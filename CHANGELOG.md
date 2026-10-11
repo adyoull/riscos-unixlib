@@ -5,25 +5,6 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
-## 5.0.3.4-rc1 (2026-10-11, pre-release, tag v5.0.3.4-rc1)
-
-Fixes for problems found by Rob Heaton in his riscos-gcc16 UnixLib
-(2026-10), mostly with his patches, each peer-reviewed in two rounds. Not
-yet run on RISC OS. libtool `-version-info` 7:2:2 (no interface changes;
-`<unistd.h>` `_SC_` values after `_SC_PAGE_SIZE` change for programs
-rebuilt with it, see C2).
-
-- **`fread`/`fwrite` after a short transfer (C4).** After a `read ()` or `write ()` that moved fewer bytes than asked, the next one stored over the same bytes or wrote them again. Found and fixed by Rob Heaton (riscos-gcc16).
-- **`scanf` understands `ll`, `hh`, `j`, `q`, `z`, `t` and `%Lf` (C3).** `%lld` stored only 32 bits, `%hhd` wrote two bytes, `%jd`, `%zu`, `%td` and `%qd` weren't understood, and `%Lf` stored a float. `%p` with a length modifier still stores a pointer, and `%Ld` still stores an int. Found and fixed by Rob Heaton (riscos-gcc16). New emulator test of the real library.
-- **`sysconf (_SC_NPROCESSORS_ONLN)` is 1, not 2048 (C2).** A numbering mistake in `<unistd.h>` gave it the value of `_SC_BC_DIM_MAX`, so a program could size a thread pool at 2048. `_SC_NPROCESSORS_CONF` was added, and `_SC_PHYS_PAGES` gives the machine's page count. Programs and libraries must be rebuilt with the new header to see the fix. Found and fixed by Rob Heaton (riscos-gcc16).
-- **Semaphores block instead of polling, and `sem_timedwait` works (P5).** `sem_wait` used to poll, burning CPU, and leaked a queue entry on every call; `sem_timedwait` was ENOSYS and undeclared. `sem_wait` is still a cancellation point: `pthread_cancel` now wakes a thread waiting on a condition variable. `sem_post` no longer yields, so a woken waiter runs at the next thread switch. Found and fixed by Rob Heaton (riscos-gcc16). New Pi test `TimedWait`.
-- **`pthread_cond_timedwait` waits as long as it was asked (P4).** On CLOCK_REALTIME it overran by up to a second (whole-second arithmetic). On CLOCK_MONOTONIC it added the clock to an absolute time. Deadlines are now compared wrap-safely, and a thread signalled just before its deadline no longer reports a time-out. A `tv_nsec` out of range gives EINVAL, and a wait before any thread is started returns at once instead of corrupting the wait list. Found by Rob Heaton (riscos-gcc16); his deadline code plus the wrap and lost-signal fixes.
-- **`pthread_once` no longer deadlocks when an init routine waits for another thread that calls `pthread_once` (P3).** `std::async` does exactly that. Callers of an object whose init routine is running now wait for it, and an object already done costs no lock. Found by Rob Heaton (riscos-gcc16); his design, without the C++ exception handling. New Pi test `Once`.
-- **A program's .fini_array now runs at exit (I1).** It runs after the atexit functions and static destructors, last entry first, as in glibc. Before, C functions marked `__attribute__ ((destructor))` never ran, and `--coverage` never wrote its data. Found and fixed by Rob Heaton (riscos-gcc16). New Pi test `FiniArray`.
-- **A program started by vfork + exec no longer grows its heap over the copy of its parent (A4).** This only applies to a heap in the Wimp slot. Before, the parent died ("abort on data transfer") or came back with wrong data after the child ended normally. Found and fixed by Rob Heaton (riscos-gcc16). New Pi test `VforkHeap`.
-- **A fork or vfork child no longer inherits its parent's "started by exec" flag (K11).** With it, SharedUnixLibrary's exit deregistered the Shared Object Manager client the child shares with its parent, which froze the machine in a dynamically linked parent started by make or a shell. No effect on static programs. Fixed in UnixLib, so SharedUnixLibrary is unchanged. Found by Rob Heaton (riscos-gcc16).
-- **A program started with a DDEUtils prefix set (`*Prefix`) no longer hangs (C1).** `__get_dde_prefix` measured the prefix by testing its first character over and over. It runs at start-up, in vfork, getcwd and chdir. Found by Rob Heaton (riscos-gcc16).
-
 ## 5.0.3.3 (2026-10-06, tag v5.0.3.3)
 
 The same code as 5.0.3.3-rc1: the fixes from the 2026-10-04 code audit

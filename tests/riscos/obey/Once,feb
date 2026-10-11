@@ -1,5 +1,0 @@
-| pthread_once: an init routine that waits for another thread in
-| pthread_once (deadlocked before 5.0.3.4-rc1); one run for three callers
-Set UST$Dir <Obey$Dir>
-WimpSlot -min 8000K
-Run <UST$Dir>.oncetest

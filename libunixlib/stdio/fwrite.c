@@ -77,10 +77,6 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
 		  break;
 		}
 	      to_write -= bytes;
-	      /* 2026: a short write continues after the bytes it took; it
-		 used to write the same bytes again.  Rob Heaton
-		 (riscos-gcc16, his report 09).  */
-	      data = (const void *)((const char *)data + bytes);
 	      /* Increment the internal file offset.  */
 	      stream->__offset += bytes;
 	      total_bytes += bytes;
@@ -176,7 +172,6 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
 	      break;
 	    }
 	  to_write -= bytes;
-	  data = (const void *)((const char *)data + bytes);	/* 2026 */
 	  stream->__offset += bytes;
 	  total_bytes += bytes;
 	}

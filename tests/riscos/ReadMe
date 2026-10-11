@@ -48,10 +48,6 @@ EABIExit    does ARMEABISupport still know the program when it exits?
             EABIExitRunning  exits with its threads still running
             After each, *ARMEABISupport_Info should list no App left by it.
 
-Once        pthread_once: an init routine that waits for another thread
-            in pthread_once (stopped with "Deadlocked" before 5.0.3.4-rc1),
-            three callers of one slow init routine, a cancelled init
-            routine. Must print PASS
 PageMove    a reproducer: claims the physical page at the program's own
             &8000, which RISC OS then replaces, and asks whether
             ARMEABISupport still finds the program. With ARMEABISupport
@@ -62,10 +58,6 @@ PageMove    a reproducer: claims the physical page at the program's own
 ExitJoin    a thread joined from an atexit() handler: must print PASS,
             no "Aborted" (Warzone 2100 aborted like this on quit)
 FsyncRO     fsync() on a read-only file: must print PASS
-TimedWait   pthread_cond_timedwait on CLOCK_REALTIME and CLOCK_MONOTONIC
-            (a 300 ms wait must take 300 ms), passed deadlines, a signal
-            before the deadline; sem_wait, sem_timedwait (was ENOSYS) and
-            20000 posts between two threads. Must print PASS (5.0.3.4-rc1)
 Ticker      two busy threads in a Wimp task for 20 s while other tasks run
             (have Alarm, a clock or Organizer running). Ends with an error
             box saying PASS: both threads counted more than 0 although the
@@ -128,17 +120,11 @@ ForkOnly    fork() three times, no threads: must print PASS.
 ForkThreads fork() from a program with two busy threads (as ForkExec, with
             fork added): must print PASS. With 5.0.3.1-rc4 this aborted
             ("abort on data transfer") as fork returned in the parent.
-FiniArray   a C++ program: at exit the atexit() function, the static
-            destructor and two __attribute__((destructor)) functions must
-            run in that order (prints ASFL and PASS; needs 5.0.3.4-rc1)
 ForkWorker  fork() with a worker thread running: the child must not run
             the parent's thread (its join gives ESRCH), the parent's
             worker must carry on unharmed, and a change an atfork prepare
             handler makes to main's frame must be kept. Must print PASS
             (needs 5.0.3.3-rc1 or later)
-VforkHeap   a program started by system() (vfork + exec) whose heap is in
-            the Wimp slot fills up to 48 MB; the parent's memory must come
-            back intact. Must print PASS (needs 5.0.3.4-rc1)
 HeapProbe   a probe, not a pass/fail test: can one heap block be bigger
             than 128 MB? Tries (A) a second dynamic area placed right
             after the first, and (B) "physical memory pool" areas of

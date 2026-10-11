@@ -84,25 +84,11 @@
 #include <internal/os.h>
 #endif
 
-/* 2026: the blocking semaphore below is Rob Heaton's (riscos-gcc16, his
-   report 24), ported unchanged.
-
-   The state that sem_init allocates for a semaphore: a mutex and a condition
-   variable.  The threads of UnixLib are scheduled by the library itself, and a
-   thread that waits on a condition variable is not run again until it is
-   signalled or, for a timed wait, until its deadline has passed.  The state is
-   hung on the usem_waiters member of sem_t, where the NetBSD code that this
-   file comes from kept a queue of the waiting threads.  That queue was never
-   filled: sem_wait polled with pthread_yield (), which burns the time slice of
-   a thread that has nothing to do, and it leaked a list entry per call;
-   sem_timedwait was ENOSYS.  */
-struct sem_state
+struct pthread_queue_t
 {
-  pthread_mutex_t lock;
-  pthread_cond_t cond;
+  pthread_t thread; /* this thread */
+  struct pthread_queue_t *next;    /* next element */
 };
-
-#define SEM_STATE(sem) ((struct sem_state *) (sem)->usem_waiters)
 
 #define	USEM_MAGIC	0x09fa4012
 #define	USEM_USER	0	/* assumes kernel does not use NULL */
@@ -111,59 +97,82 @@ struct sem_state
    and non-zero if invalid.  */
 static __inline int sem_check_validity (const sem_t *sem)
 {
-  if (sem != NULL && sem->usem_magic == USEM_MAGIC && sem->usem_waiters != NULL)
+  if (sem != NULL && sem->usem_magic == USEM_MAGIC)
     return 0;
 
   return __set_errno (EINVAL);
+}
+
+static __inline void sem_free (sem_t *sem)
+{
+#ifdef PTHREAD_DEBUG_SEMS
+  __os_print("-- sem_free: Freeing semaphore (");
+  __os_prhex((int)sem);
+  __os_print(")\r\n");
+#endif
+  sem->usem_magic = 0;
 }
 
 /* Initialise a semaphore structure.  User has already passed a valid
    piece of memory in 'sem'.  */
 int sem_init (sem_t *sem, int pshared, unsigned int value)
 {
-  struct sem_state *state;
+  semid_t semid = USEM_USER;
 
   /* Semaphores shared between processes aren't supported on RISC OS */
   if (pshared)
     return __set_errno (ENOSYS);
 
-  if (sem == NULL || value > SEM_VALUE_MAX)
+  if (value > SEM_VALUE_MAX)
     return __set_errno (EINVAL);
 
-  state = malloc (sizeof (struct sem_state));
-  if (state == NULL)
-    return __set_errno (ENOMEM);
-  pthread_mutex_init (&state->lock, NULL);
-  pthread_cond_init (&state->cond, NULL);
-
+#ifdef PTHREAD_DEBUG_SEMS
+  __os_print("-- sem_alloc: Allocating semaphore (");
+  __os_prhex((int)sem);
+  __os_print(" id: ");
+  __os_prhex((int)semid);
+  __os_print(" value: ");
+  __os_prdec((int)value);
+  __os_print(")\r\n");
+#endif
   sem->usem_magic = USEM_MAGIC;
-  sem->usem_semid = USEM_USER;
-  sem->usem_waiters = (struct pthread_queue_t *) state;
+  pthread_rwlock_init(&sem->usem_interlock, NULL);
+  /*PTQ_INIT(&sem->usem_waiters);*/
+  sem->usem_waiters = NULL;
   sem->usem_count = value;
+  sem->usem_semid = semid;
   return 0;
 }
 
 int
 sem_destroy(sem_t *sem)
 {
-  struct sem_state *state;
-
   if (sem_check_validity (sem))
     return -1;
 
-  state = SEM_STATE (sem);
-  pthread_mutex_lock (&state->lock);
-  if (state->cond.waiting != NULL)
+#ifdef PTHREAD_DEBUG_SEMS
+  __os_print("-- sem_destroy: Attempting to destroy semaphore (");
+  __os_prhex((int)sem);
+  __os_print(")..........");
+#endif
+
+  pthread_rwlock_rdlock(&sem->usem_interlock);
+  if (/*!PTQ_EMPTY(&(*sem)->usem_waiters)*/
+      sem->usem_waiters != NULL)
     {
-      /* Threads are still waiting on it.  */
-      pthread_mutex_unlock (&state->lock);
+      pthread_rwlock_unlock(&sem->usem_interlock);
+#ifdef PTHREAD_DEBUG_SEMS
+      __os_print("failed\r\n");
+#endif
       return __set_errno (EBUSY);
     }
-  pthread_mutex_unlock (&state->lock);
+  pthread_rwlock_unlock(&sem->usem_interlock);
 
-  sem->usem_magic = 0;
-  sem->usem_waiters = NULL;
-  free (state);
+#ifdef PTHREAD_DEBUG_SEMS
+  __os_print("succeeded\r\n");
+#endif
+
+  sem_free (sem);
   return 0;
 }
 
@@ -190,131 +199,176 @@ sem_unlink(const char *name)
   return (-1);
 }
 
-/* Decrement the semaphore, waiting while it is zero: until it is posted, or,
-   when ABSTIME is not NULL, until the absolute time ABSTIME (on the
-   CLOCK_REALTIME clock) has passed.  A semaphore that can be decremented at
-   once is decremented whatever ABSTIME is.  */
-static int
-sem_wait_until (sem_t *sem, const struct timespec *abstime)
+int sem_wait (sem_t *sem)
 {
-  struct sem_state *state;
-  int err = 0;
+  pthread_t self;
+  struct pthread_queue_t *queue_entry, *tmp;
 
   if (sem_check_validity (sem))
     return -1;
 
   PTHREAD_SAFE_CANCELLATION
 
-  state = SEM_STATE (sem);
-  pthread_mutex_lock (&state->lock);
+  self = __pthread_running_thread;
+  queue_entry = malloc(sizeof(struct pthread_queue_t));
+  queue_entry->thread = self;
+  queue_entry->next = NULL;
 
-  while (sem->usem_count == 0)
+#ifdef PTHREAD_DEBUG_SEMS
+  __os_print("-- sem_wait: waiting on semaphore (");
+  __os_prhex((int)sem);
+  __os_print(")\r\n");
+#endif
+
+  for (;;)
     {
-      if (abstime != NULL)
-	err = pthread_cond_timedwait (&state->cond, &state->lock, abstime);
-      else
-	err = pthread_cond_wait (&state->cond, &state->lock);
-
-      /* The mutex is held again in every case.  A deadline that passed
-	 just as the semaphore was posted still gets the semaphore.  */
-      if (err != 0 && !(err == ETIMEDOUT && sem->usem_count != 0))
+      pthread_rwlock_wrlock(&sem->usem_interlock);
+      __pthread_disable_ints();
+      /* pthread_spinlock(self, &self->pt_statelock); */
+      if (self->cancelpending)
 	{
-	  pthread_mutex_unlock (&state->lock);
-	  return __set_errno (err);
+	  /* pthread_spinunlock(self, &self->pt_statelock); */
+	  __pthread_enable_ints();
+	  pthread_rwlock_unlock(&sem->usem_interlock);
+	  pthread_exit(PTHREAD_CANCELED);
 	}
 
-      /* 2026 (peer review): sem_wait is a cancellation point.  The old
-	 polling loop checked for cancellation on every pass; waiting on
-	 the condition variable, the thread is woken by pthread_cancel
-	 (pthread/cancel.c) and acts on it here, with the lock released.
-	 Only while the count is 0: a thread woken by a post that is then
-	 cancelled takes the unit and returns (POSIX allows either when the
-	 two race), rather than leaving with the post's wakeup used up and
-	 another waiter asleep beside an available unit.  */
-      if (__pthread_running_thread->cancelpending && sem->usem_count == 0)
+      if (sem->usem_count > 0)
 	{
-	  pthread_mutex_unlock (&state->lock);
-	  pthread_testcancel ();
-	  pthread_mutex_lock (&state->lock);
+	  /* pthread_spinunlock(self, &self->pt_statelock); */
+	  __pthread_enable_ints();
+	  sem->usem_count--;
+	  pthread_rwlock_unlock(&sem->usem_interlock);
+	  return 0;
 	}
+
+      if (sem->usem_waiters)
+	{
+	  /* PTQ_INSERT_TAIL(&(*sem)->usem_waiters, self, pt_sleep); */
+	  for (tmp = sem->usem_waiters;
+	       tmp->next && tmp != queue_entry; tmp = tmp->next)
+	    ;
+	  if (tmp != queue_entry)
+	    tmp->next = queue_entry;
+      
+	  self->state = STATE_BLOCKED;
+	  /* self->pt_sleepobj = *sem;
+	     self->pt_sleepq = &(*sem)->usem_waiters;
+	     self->pt_sleeplock = &(*sem)->usem_interlock;
+	     pthread_spinunlock(self, &self->pt_statelock); */
+	}
+
+      __pthread_enable_ints();
+      /* XXX What about signals? */
+
+      pthread_rwlock_unlock(&sem->usem_interlock);
+
+      /* pthread__block(self, &(*sem)->usem_interlock); */
+      /* interlock is not held when we return */
+      pthread_yield();
     }
-
-  sem->usem_count--;
-  pthread_mutex_unlock (&state->lock);
   return 0;
-}
-
-int sem_wait (sem_t *sem)
-{
-  return sem_wait_until (sem, NULL);
-}
-
-int
-sem_timedwait (sem_t *sem, const struct timespec *abstime)
-{
-  if (abstime == NULL)
-    return __set_errno (EINVAL);
-
-  return sem_wait_until (sem, abstime);
 }
 
 int
 sem_trywait(sem_t *sem)
 {
-  struct sem_state *state;
   int retval = 0;
 
   if (sem_check_validity (sem))
     return -1;
 
-  state = SEM_STATE (sem);
-  pthread_mutex_lock (&state->lock);
+#ifdef PTHREAD_DEBUG_SEMS
+  __os_print("-- sem_trywait: trying to acquire semaphore (");
+  __os_prhex((int)sem);
+  __os_print(")..........");
+#endif
+
+  pthread_rwlock_wrlock(&sem->usem_interlock);
+
   if (sem->usem_count == 0)
     {
       errno = EAGAIN;
       retval = -1;
     }
   else
-    sem->usem_count--;
-  pthread_mutex_unlock (&state->lock);
+    {
+      sem->usem_count --;
+    }
+
+  pthread_rwlock_unlock(&sem->usem_interlock);
+#ifdef PTHREAD_DEBUG_SEMS
+  __os_print ((retval == 0) ? "succeeded\r\n" : "failed\r\n");
+#endif
   return retval;
 }
 
 int
 sem_post(sem_t *sem)
 {
-  struct sem_state *state;
+  pthread_t self, blocked;
+  struct pthread_queue_t *tmp;
 
   if (sem_check_validity (sem))
     return -1;
 
-  state = SEM_STATE (sem);
-  pthread_mutex_lock (&state->lock);
-  if (sem->usem_count == SEM_VALUE_MAX)
-    {
-      pthread_mutex_unlock (&state->lock);
-      return __set_errno (EOVERFLOW);
-    }
+  self = __pthread_running_thread;
+
+#ifdef PTHREAD_DEBUG_SEMS
+  __os_print("-- sem_post: releasing semaphore (");
+  __os_prhex((int)sem);
+  __os_print(")\r\n");
+#endif
+
+  pthread_rwlock_wrlock(&sem->usem_interlock);
   sem->usem_count++;
-  /* Make the first waiting thread runnable (it takes the semaphore when it
-     runs); a broadcast is not needed, one post allows one thread.  */
-  pthread_cond_signal (&state->cond);
-  pthread_mutex_unlock (&state->lock);
+
+  if (sem->usem_waiters != NULL)
+    blocked = sem->usem_waiters->thread;
+  else
+    blocked = NULL;
+  if (blocked)
+    {
+      /* PTQ_REMOVE(&(*sem)->usem_waiters, blocked, pt_sleep); */
+      tmp = sem->usem_waiters;
+      sem->usem_waiters = sem->usem_waiters->next;
+      tmp->thread = tmp->thread = NULL;
+      free(tmp);
+
+      /* Give the head of the blocked queue another try. */
+      /* pthread__sched(self, blocked); */
+      __pthread_disable_ints();
+      blocked->state = STATE_RUNNING;
+      __pthread_enable_ints();
+    }
+  pthread_rwlock_unlock(&sem->usem_interlock);
+  pthread_yield();
   return 0;
 }
 
 int
 sem_getvalue(sem_t * __restrict sem, int * __restrict sval)
 {
-  struct sem_state *state;
-
   if (sem_check_validity (sem))
     return -1;
 
-  state = SEM_STATE (sem);
-  pthread_mutex_lock (&state->lock);
+#ifdef PTHREAD_DEBUG_SEMS
+  __os_print("-- sem_getvalue: Retrieving value of semaphore\r\n");
+#endif
+
+  pthread_rwlock_rdlock(&sem->usem_interlock);
   *sval = (int) sem->usem_count;
-  pthread_mutex_unlock (&state->lock);
+  pthread_rwlock_unlock(&sem->usem_interlock);
 
   return 0;
+}
+
+int
+sem_timedwait (sem_t *sem, const struct timespec *abstime)
+{
+#ifdef PTHREAD_DEBUG_SEMS
+  __os_print(" -- sem_timedwait: Not supported\r\n");
+#endif
+
+  return __set_errno (ENOSYS);
 }

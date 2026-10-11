@@ -308,15 +308,6 @@ struct ul_memory
 
   /* Value of 'appspace_himem' last time the stack was increased.  */
   unsigned int old_himem;
-
-  /* 2026: the permitted RAM limit (OS_GetEnv) the program started with,
-     when that is below the application space limit; -1 otherwise.
-     'appspace_himem' is never raised above it: the memory between the two
-     isn't ours.  A program started by vfork () + exec () is told by
-     SharedUnixLibrary to stay below the copy of its parent, which is kept
-     there.  Offset 52 (MEM_APPSPACE_HIMEM_MAX).  Found and fixed by Rob
-     Heaton (riscos-gcc16, his report 08).  */
-  unsigned int appspace_himem_max;
 };
 
 extern struct ul_memory __ul_memory;
@@ -439,13 +430,6 @@ extern void __free_process (struct __sul_process *process)
 /* 2026: end the process with a wait status (<sys/wait.h> encoding);
    _exit takes a plain exit code.  */
 extern void __exit_status (int __status) __attribute__ ((__noreturn__));
-
-#ifdef __ARM_EABI__
-/* 2026: register the program's .fini_array to run at exit (I1;
-   stdlib/atexit.c), called from __main in sys/_syslib.s.  */
-extern void __register_fini_array (void (**__start) (void),
-				   void (**__end) (void));
-#endif
 
 extern pid_t __fork_post (pid_t pid, int isfork);
 extern int __fork_pre (int isfork, void **sul_fork, pid_t *pid, void *sp);

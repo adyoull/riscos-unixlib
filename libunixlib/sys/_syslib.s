@@ -146,17 +146,6 @@ __main:
 	SWI	OS_ChangeEnvironment		@ No X call, if error call parent
 	STR	a2, [fp, #MEM_APPSPACE_LIMIT]	@ error handler.
 
-	@ 2026: when the permitted RAM limit (appspace_himem) is below the
-	@ application space limit, the memory between them isn't ours: a
-	@ program started by vfork () + exec () is told by SharedUnixLibrary to
-	@ stay below the copy of its parent, kept there.  Remember the limit so
-	@ that __stackalloc_incr_wimpslot never raises appspace_himem above it
-	@ (-1: no such limit).  Rob Heaton (riscos-gcc16, his report 08).
-	LDR	a3, [fp, #MEM_APPSPACE_HIMEM]
-	CMP	a3, a2
-	MVNCS	a3, #0
-	STR	a3, [fp, #MEM_APPSPACE_HIMEM_MAX]
-
 	@ For a description of the memory layout of a UnixLib application
 	@ see sys/brk.c.
 	LDR	a2, [fp, #MEM_RWLOMEM]		@ __ul_memory.rwlomem
@@ -633,18 +622,6 @@ no_dynamic_area:
  PICEQ "TEQ	a1, #0"
  PICEQ "BLNE	atexit"
 
-#ifdef __ARM_EABI__
-	@ 2026: --- Executable Finalisation, part 1: the .fini_array ---
-	@ Register a function that calls the program's .fini_array functions
-	@ at exit.  Registered BEFORE the constructors below run, so it runs
-	@ after the atexit () functions and the static destructors they
-	@ register, as in glibc.  See stdlib/atexit.c.  Rob Heaton
-	@ (riscos-gcc16, his report 22).
-	LDR	a1, [v2, #CRT1_FINI_ARRAY_START]
-	LDR	a2, [v2, #CRT1_FINI_ARRAY_END]
-	BL	__register_fini_array
-#endif
-
 	@ --- Executable Initialisation ---
 	@ Call the program's _init function.
 	LDR	a1, [v2, #CRT1_EXEC_INIT]
@@ -653,7 +630,7 @@ no_dynamic_area:
 
 #ifdef __ARM_EABI__
 	@ Call the program's .init_array functions.
-	@ (The .fini_array is registered with atexit () above.)
+	@ FIXME: what about FINI_ARRAY?
 	LDR	v1, [v2, #CRT1_INIT_ARRAY_START]
 	LDR	v3, [v2, #CRT1_INIT_ARRAY_END]
 	TEQ	v1, v3
@@ -1560,7 +1537,6 @@ __ul_memory:
 	.word	0			@ dalimit		offset = 40
 	.word	0			@ appspace_limit	offset = 44
 	.word	0			@ old_himem		offset = 48
-	.word	0			@ appspace_himem_max	offset = 52
 	DECLARE_OBJECT __ul_memory
 
 	@ 2026: the size of the pthread RMA block this file claims (OS_Module 6
