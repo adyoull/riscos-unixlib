@@ -71,6 +71,7 @@ the commits are named below.
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
+| `stdio/scanf.c` | C3 scanf length modifiers ll, hh, j, q, z, t, %Lf, %Ld |
 | `include/unistd.h`, `unix/sysconf.c` | C2 the _SC_ names after _SC_PAGE_SIZE; one processor |
 | `pthread/sem.c`, `include/semaphore.h` | P5 blocking semaphores, sem_timedwait |
 | `pthread/cond.c`, `pthread/context.c` | P4 timed waits: exact deadlines, wrap-safe, no lost signal |
@@ -999,6 +1000,33 @@ Not yet run on RISC OS.
 - the processor and physical-page names don't reuse earlier values.
 
 The old header fails it.
+
+### C3. `scanf` length modifiers `ll`, `hh`, `j`, `q`, `z`, `t`, `%Lf`, `%Ld` (`stdio/scanf.c`)
+
+**Problem.** Found and fixed by Rob Heaton (riscos-gcc16, his report 21). He saw it as the native GCC's LTO linker failing; confirmed in our tree. `scanf` knew only `l`, `L` and `h`:
+- `%lld` and `%llx` stored a `long`, the low 32 bits of the caller's `long long`, leaving the high word unchanged;
+- `%hhd` wrote a `short`, two bytes, into a `char`;
+- `%jd`, `%zu`, `%td` and `%qd` weren't understood;
+- `%Lf` stored a `float`.
+
+**Change.** Rob Heaton's patch:
+- `ll`, `j` and `q` mean `long long`, converted with `strtoll`/`strtoull`;
+- `hh` means `char`;
+- `z` and `t` follow the sizes of `size_t` and `ptrdiff_t` (an `int` here);
+- `%Lf` stores a `long double`;
+- `%n` follows the same sizes.
+
+One addition: `L` on an integer conversion (`%Ld`) means `long long`, as in glibc.
+
+**Performance and behaviour.** The same code path; formats that worked before are unchanged.
+
+**Verification.** `tests/host/scanf` (12 checks) builds the real `vfscanf` for the PC. It covers:
+- each modifier;
+- `%hhd` leaving the next byte alone;
+- `%*lld` with `%n`, and `%lln`;
+- the unchanged `%d %ld %hd`.
+
+The old code fails 6. (On the PC a `long` is 64 bits, so the test checks the conversions and sizes stored rather than the 32-bit truncation itself.)
 
 ## 3. Sound (`/dev/dsp`, `/dev/midi`)
 

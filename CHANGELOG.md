@@ -7,6 +7,7 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **`scanf` understands `ll`, `hh`, `j`, `q`, `z`, `t` and `%Lf` (C3).** `%lld` stored only 32 bits, `%hhd` wrote two bytes, `%jd`, `%zu`, `%td` and `%qd` weren't understood, and `%Lf` stored a float. `%Ld` is long long, as in glibc. Found and fixed by Rob Heaton (riscos-gcc16).
 - **`sysconf (_SC_NPROCESSORS_ONLN)` is 1, not 2048 (C2).** A numbering mistake in `<unistd.h>` gave it the value of `_SC_BC_DIM_MAX`, so a program could size a thread pool at 2048. `_SC_NPROCESSORS_CONF` was added. Programs and libraries must be rebuilt with the new header to see the fix. Found by Rob Heaton (riscos-gcc16).
 - **Semaphores block instead of polling, and `sem_timedwait` works (P5).** `sem_wait` used to poll, burning CPU, and leaked a queue entry on every call; `sem_timedwait` was ENOSYS and undeclared. Found and fixed by Rob Heaton (riscos-gcc16); his code. New Pi test `TimedWait`.
 - **`pthread_cond_timedwait` waits as long as it was asked (P4).** On CLOCK_REALTIME it overran by up to a second (whole-second arithmetic). On CLOCK_MONOTONIC it added the clock to an absolute time. Deadlines are now compared wrap-safely, and a thread signalled just before its deadline no longer reports a time-out. Found by Rob Heaton (riscos-gcc16); his deadline code plus the wrap and lost-signal fixes.
