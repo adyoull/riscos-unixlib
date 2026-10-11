@@ -71,6 +71,7 @@ the commits are named below.
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
+| `pthread/cond.c`, `pthread/context.c` | P4 timed waits: exact deadlines, wrap-safe, no lost signal |
 | `pthread/once.c` | P3 pthread_once without a global hold |
 | `stdlib/atexit.c`, `sys/_syslib.s`, `vscript` | I1 the program's .fini_array runs at exit |
 | `sys/stackalloc.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `incl-local/internal/asm_dec.s` | A4 a vfork + exec child's heap stays below its parent's copy |
@@ -912,6 +913,33 @@ Two differences from his patch:
 - an init routine that starts and joins a thread which calls `pthread_once` (the old library stops with "Deadlocked");
 - three callers of one slow init routine: one run, and all return after it;
 - a cancelled init routine, which runs again.
+
+Not yet run on RISC OS.
+
+### P4. `pthread_cond_timedwait`: exact deadlines, wrap-safe, no lost signal (`pthread/cond.c`, `pthread/context.c`)
+
+**Problem.** Found by Rob Heaton (riscos-gcc16, his report 11); confirmed in our tree.
+- **CLOCK_REALTIME:** the deadline was `abstime − time ()` with `time ()` in whole seconds, so every wait overran by up to a second.
+- **CLOCK_MONOTONIC:** the absolute `abstime` was added to `clock ()` as if it were a duration.
+
+Two more problems found in reviewing his patch:
+- **Signed comparison:** the scheduler (`context.c`) and `pthread_cond_timedwait` compared `clock () > condtimeout` as signed numbers. They were wrong across the wrap of the centisecond clock, and his capped deadline (`clock ()` + up to 10⁹ cs) would have timed out at once after about 132 days of uptime.
+- **Lost signal:** a thread signalled just before its deadline but scheduled after it returned `ETIMEDOUT` (the code compared the clock again), so the signal was lost.
+
+**Change.**
+- **Deadline:** Rob Heaton's `cond_deadline`:
+  - the remaining time is taken on the condition variable's own clock (`clock_gettime`) and rounded up to whole centiseconds;
+  - a passed or invalid `abstime` fails before the mutex is released;
+  - waits are capped at 10⁷ s.
+- **Comparison:** the scheduler compares `(int) (clock () − condtimeout) > 0`.
+- **Timed out or signalled:** when the scheduler ends a wait for its deadline it clears the thread's `cond`, and `pthread_cond_timedwait` reports `ETIMEDOUT` only then. A signal leaves `cond` set.
+
+**Performance and behaviour.** Timed waits end when asked. No extra cost per switch (one subtraction instead of a comparison).
+
+**Verification.** New Pi test `TimedWait` (`tests/riscos/twtest.c`, with P5):
+- a 300 ms wait on each clock must time out after 29–40 cs;
+- a passed deadline gives `ETIMEDOUT` at once;
+- a signal after 100 ms with a 2 s deadline returns 0.
 
 Not yet run on RISC OS.
 

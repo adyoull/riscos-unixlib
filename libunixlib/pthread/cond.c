@@ -43,18 +43,75 @@ pthread_cond_wait (pthread_cond_t *cond, pthread_mutex_t *mutex)
   return pthread_cond_timedwait (cond, mutex, NULL);
 }
 
+/* 2026: turn ABSTIME, an absolute time on the condition variable's clock
+   CLOCK_ID, into a deadline on clock (), which the scheduler compares
+   (pthread/context.c).  The old code took ABSTIME minus time (), which has
+   a resolution of one second, so every wait overran by up to a second; for
+   a CLOCK_MONOTONIC condition variable it added clock () to a time that was
+   already absolute.  Both clocks have centisecond resolution or better, so
+   the difference is exact; it's rounded up (a wait may be a little late,
+   never early).  Returns 0 and the deadline in *DEADLINE, ETIMEDOUT if
+   ABSTIME has passed, or EINVAL.  Found and fixed by Rob Heaton
+   (riscos-gcc16, his report 11); his code.  */
+static int
+cond_deadline (clockid_t clock_id, const struct timespec *abstime,
+               clock_t *deadline)
+{
+  struct timespec now;
+  long long secs;
+  long nsecs, cs;
+
+  if (abstime->tv_nsec < 0 || abstime->tv_nsec >= 1000000000L)
+    return EINVAL;
+
+  if (clock_gettime (clock_id, &now) != 0)
+    return EINVAL;
+
+  /* Time remaining: secs + nsecs / 10^9, with 0 <= nsecs < 10^9.  */
+  secs = (long long) abstime->tv_sec - now.tv_sec;
+  nsecs = abstime->tv_nsec - now.tv_nsec;
+  if (nsecs < 0)
+    {
+      secs--;
+      nsecs += 1000000000L;
+    }
+  if (secs < 0 || (secs == 0 && nsecs == 0))
+    return ETIMEDOUT;
+
+  /* Whole centiseconds, rounded up.  A wait of more than 10^7 seconds (115
+     days) is cut to that, which keeps the deadline within the 2^31 cs that
+     the scheduler's signed comparison allows.  */
+  if (secs > 10000000)
+    cs = 1000000000L;
+  else
+    cs = (long) secs * 100 + (nsecs + 9999999) / 10000000;
+
+  *deadline = (clock_t) ((unsigned long) clock () + (unsigned long) cs);
+  return 0;
+}
+
 /* Wait for a condition variable to be signalled, with a timeout */
 int
 pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
                         const struct timespec *abstime)
 {
   pthread_t thread;
+  clock_t timeout = 0;
 
   if (cond == NULL || mutex == NULL)
     return EINVAL;
 
   if (mutex->owner != __pthread_running_thread)
     return EINVAL;
+
+  if (abstime != NULL)
+    {
+      /* Nothing has been changed yet, so a deadline that has already
+         passed (or an invalid one) fails with the mutex still held.  */
+      int err = cond_deadline (cond->clock_id, abstime, &timeout);
+      if (err)
+        return err;
+    }
 
   __pthread_disable_ints ();
 
@@ -73,20 +130,8 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
     }
   else
     {
-      clock_t diff;
-
       __pthread_running_thread->state = STATE_COND_TIMED_WAIT;
-      if (cond->clock_id == CLOCK_MONOTONIC)
-        {
-          diff = (abstime->tv_sec * 100) + (abstime->tv_nsec / 10000000);
-        }
-      else
-        {
-          /* A bit crude, but... */
-          diff = (100 * (abstime->tv_sec - time (NULL)))
-               + (abstime->tv_nsec / 10000000);
-	}
-      __pthread_running_thread->condtimeout = clock () + diff;
+      __pthread_running_thread->condtimeout = timeout;
     }
 
   /* Add this thread to the linked list of threads that are waiting on
@@ -109,13 +154,13 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
   pthread_yield ();
   /* pthread_yield won't return until either the condition var has been signalled, or a timeout occured */
 
-  if (abstime != NULL)
+  /* 2026: timed out only if the scheduler took this thread off the list
+     for its deadline (it clears 'cond'); a thread signalled just before
+     the deadline used to report ETIMEDOUT as well, losing the signal.  */
+  if (abstime != NULL && __pthread_running_thread->cond == NULL)
     {
-      if (clock () > __pthread_running_thread->condtimeout)
-        {
-          pthread_mutex_lock (mutex);
-          return ETIMEDOUT;
-        }
+      pthread_mutex_lock (mutex);
+      return ETIMEDOUT;
     }
 
   return pthread_mutex_lock (mutex);
