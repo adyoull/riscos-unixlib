@@ -142,3 +142,42 @@ atexit (void (*atexit_function) (void))
   return __cxa_atexit ((void (*) (void *))atexit_function, NULL, NULL);
 }
 #endif
+
+#if defined (__ARM_EABI__) && !defined (__TARGET_SCL__)
+/* 2026: the program's .fini_array.  crt0 hands its bounds to the start-up
+   code (CRT1_FINI_ARRAY_START/_END) and __main registers this runner with
+   atexit () before the program's _init and .init_array run, so the array
+   runs at exit after the atexit () functions and the static destructors
+   that the constructors register, last entry first, as glibc's
+   __libc_csu_fini does.  Nothing used to call it: a C function marked
+   __attribute__ ((destructor)) never ran, nor did libgcov's exit hook (no
+   .gcda file was ever written).  Found and fixed by Rob Heaton
+   (riscos-gcc16, his report 22).  */
+static void (**fini_array_start) (void);
+static void (**fini_array_end) (void);
+
+static void
+__run_fini_array (void)
+{
+  void (**p) (void) = fini_array_end;
+
+  while (p > fini_array_start)
+    {
+      void (*fn) (void) = *--p;
+
+      if (fn != NULL && fn != (void (*) (void)) -1)
+	fn ();
+    }
+}
+
+void
+__register_fini_array (void (**start) (void), void (**end) (void))
+{
+  if (start == NULL || start == end)
+    return;
+
+  fini_array_start = start;
+  fini_array_end = end;
+  atexit (__run_fini_array);
+}
+#endif

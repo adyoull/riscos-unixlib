@@ -71,6 +71,7 @@ the commits are named below.
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
+| `stdlib/atexit.c`, `sys/_syslib.s`, `vscript` | I1 the program's .fini_array runs at exit |
 | `sys/stackalloc.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `incl-local/internal/asm_dec.s` | A4 a vfork + exec child's heap stays below its parent's copy |
 | `common/prefix.c` | C1 the DDEUtils prefix loop |
 | `unix/eventfd.c` | E1 counter updated with thread switching held off, Y1 waits |
@@ -868,6 +869,27 @@ See section 8.
 - the `Prefix$Dir` fallback.
 
 The old code crashes the test. Not yet run on RISC OS.
+
+### I1. The program's `.fini_array` runs at exit (`stdlib/atexit.c`, `sys/_syslib.s`, `vscript`)
+
+**Problem.** Found and fixed by Rob Heaton (riscos-gcc16, his report 22). Confirmed in our tree, where `_syslib.s` said "FIXME: what about FINI_ARRAY?". crt0 passes the bounds of the program's `.fini_array` (`CRT1_FINI_ARRAY_START`/`_END`), but nothing called its functions. So:
+- C functions marked `__attribute__ ((destructor))` never ran;
+- libgcov's exit hook never ran, so a program built with `--coverage` or `-fprofile-generate` never wrote its `.gcda` file;
+- crtstuff's `__do_global_dtors_aux` never ran.
+
+C++ static destructors were unaffected: on EABI they are registered with `__cxa_atexit` as the constructors run.
+
+**Change** (Rob Heaton's patch):
+- `__main` registers `__run_fini_array` with `atexit ()` before the program's `_init` and `.init_array` run.
+- At exit it calls the array last entry first, skipping NULL and -1 entries.
+- So it runs after the atexit () functions and the static destructors the constructors registered, as glibc's `__libc_csu_fini` does.
+- `__register_fini_array` is internal (`vscript` local).
+
+**Behaviour.** This is the one deliberate behaviour change in this batch: destructor functions in a program and the libraries linked into it now run at exit, as on every other platform. A library destructor that misbehaves would now show at exit. The ports should be checked once by quitting them normally.
+
+**Performance.** None outside exit.
+
+**Verification.** New Pi test `FiniArray` (`tests/riscos/finitest.cc`, C++). The exit order must be atexit, the static destructor, then two destructor functions (the default and priority 101), with a C++ exception thrown and caught before. It prints `ASFL` and PASS. The built test's `.fini_array` was checked: [priority 101, `__do_global_dtors_aux`, default], run last first. Not yet run on RISC OS.
 
 ## 3. Sound (`/dev/dsp`, `/dev/midi`)
 

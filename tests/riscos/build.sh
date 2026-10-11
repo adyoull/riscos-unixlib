@@ -18,6 +18,12 @@ for p in dsptest miditest nosound ejtest fsrotest tickertest schedtest lfstest h
   GCCSDK_ENV="$GCCSDK_ENV" ../../tools/check-lib.sh out/$p.elf >/dev/null
   "$ELF2AIF" -e out/$p.elf $O/$p,ff8
 done
+# C++ tests
+for p in finitest; do
+  arm-riscos-gnueabihf-g++ -O2 -static -fstack-clash-protection -isystem ../../libunixlib/include -L$L $p.cc -o out/$p.elf -lm
+  GCCSDK_ENV="$GCCSDK_ENV" ../../tools/check-lib.sh out/$p.elf >/dev/null
+  "$ELF2AIF" -e out/$p.elf $O/$p,ff8
+done
 # Each Obey file first prints the release it came from (the git tag, e.g.
 # 5.0.3.1-rc8), so a photo of a run shows which build was tested.
 # Not TickerChild: TickerStartTask starts it as a Wimp task, where output

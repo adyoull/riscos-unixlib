@@ -7,6 +7,7 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **A program's .fini_array now runs at exit (I1).** It runs after the atexit functions and static destructors, last entry first, as in glibc. Before, C functions marked `__attribute__ ((destructor))` never ran, and `--coverage` never wrote its data. Found and fixed by Rob Heaton (riscos-gcc16). New Pi test `FiniArray`.
 - **A program started by vfork + exec no longer grows its heap over the copy of its parent (A4).** This only applies to a heap in the Wimp slot. Before, the parent died ("abort on data transfer") or came back with wrong data after the child ended normally. Found and fixed by Rob Heaton (riscos-gcc16). New Pi test `VforkHeap`.
 - **A fork or vfork child no longer inherits its parent's "started by exec" flag (K11).** With it, SharedUnixLibrary's exit deregistered the Shared Object Manager client the child shares with its parent, which froze the machine in a dynamically linked parent started by make or a shell. Fixed in UnixLib, so SharedUnixLibrary is unchanged. Found by Rob Heaton (riscos-gcc16).
 - **A program started with a DDEUtils prefix set (`*Prefix`) no longer hangs (C1).** `__get_dde_prefix` measured the prefix by testing its first character over and over. It runs at start-up, in vfork, getcwd and chdir. Found by Rob Heaton (riscos-gcc16).

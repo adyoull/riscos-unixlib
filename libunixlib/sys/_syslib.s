@@ -633,6 +633,18 @@ no_dynamic_area:
  PICEQ "TEQ	a1, #0"
  PICEQ "BLNE	atexit"
 
+#ifdef __ARM_EABI__
+	@ 2026: --- Executable Finalisation, part 1: the .fini_array ---
+	@ Register a function that calls the program's .fini_array functions
+	@ at exit.  Registered BEFORE the constructors below run, so it runs
+	@ after the atexit () functions and the static destructors they
+	@ register, as in glibc.  See stdlib/atexit.c.  Rob Heaton
+	@ (riscos-gcc16, his report 22).
+	LDR	a1, [v2, #CRT1_FINI_ARRAY_START]
+	LDR	a2, [v2, #CRT1_FINI_ARRAY_END]
+	BL	__register_fini_array
+#endif
+
 	@ --- Executable Initialisation ---
 	@ Call the program's _init function.
 	LDR	a1, [v2, #CRT1_EXEC_INIT]
@@ -641,7 +653,7 @@ no_dynamic_area:
 
 #ifdef __ARM_EABI__
 	@ Call the program's .init_array functions.
-	@ FIXME: what about FINI_ARRAY?
+	@ (The .fini_array is registered with atexit () above.)
 	LDR	v1, [v2, #CRT1_INIT_ARRAY_START]
 	LDR	v3, [v2, #CRT1_INIT_ARRAY_END]
 	TEQ	v1, v3
