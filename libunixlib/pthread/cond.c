@@ -7,6 +7,7 @@
 #include <sys/time.h>
 
 #include <internal/os.h>
+#include <internal/unix.h>
 #include <pthread.h>
 
 #ifdef PTHREAD_DEBUG
@@ -111,6 +112,19 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
       int err = cond_deadline (cond->clock_id, abstime, &timeout);
       if (err)
         return err;
+    }
+
+  /* 2026 (peer review): with no other thread started, there is no one to
+     signal and the scheduler doesn't run: return at once (a spurious
+     wakeup, which POSIX allows; a caller's loop, or the deadline check
+     above on its next call, ends the wait).  This used to put the thread
+     on the wait list and return, leaving it there: the next wait linked
+     it to itself.  A single-threaded program using semaphores (P5) does
+     this.  */
+  if (!__ul_global.pthread_system_running)
+    {
+      pthread_mutex_unlock (mutex);
+      return pthread_mutex_lock (mutex);
     }
 
   __pthread_disable_ints ();

@@ -150,7 +150,8 @@ __pthread_context_switch (void)
              when the centisecond clock wraps (it used to be clock () >
              condtimeout, wrong across the wrap and for deadlines past
              2^31 cs).  */
-          if ((int) (clock () - __pthread_running_thread->condtimeout) > 0)
+          if ((int) ((unsigned long) clock ()
+                     - (unsigned long) __pthread_running_thread->condtimeout) > 0)
             {
               __pthread_running_thread->state = STATE_RUNNING;
 
