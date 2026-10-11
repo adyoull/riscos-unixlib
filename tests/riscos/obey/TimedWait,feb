@@ -1,0 +1,5 @@
+| timed waits (pthread_cond_timedwait) and semaphores (sem_wait,
+| sem_timedwait) (5.0.3.4-rc1)
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.twtest

@@ -71,6 +71,7 @@ the commits are named below.
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
+| `pthread/sem.c`, `include/semaphore.h` | P5 blocking semaphores, sem_timedwait |
 | `pthread/cond.c`, `pthread/context.c` | P4 timed waits: exact deadlines, wrap-safe, no lost signal |
 | `pthread/once.c` | P3 pthread_once without a global hold |
 | `stdlib/atexit.c`, `sys/_syslib.s`, `vscript` | I1 the program's .fini_array runs at exit |
@@ -940,6 +941,35 @@ Two more problems found in reviewing his patch:
 - a 300 ms wait on each clock must time out after 29–40 cs;
 - a passed deadline gives `ETIMEDOUT` at once;
 - a signal after 100 ms with a 2 s deadline returns 0.
+
+Not yet run on RISC OS.
+
+### P5. Semaphores block instead of polling; `sem_timedwait` works (`pthread/sem.c`, `include/semaphore.h`)
+
+**Problem.** Found and fixed by Rob Heaton (riscos-gcc16, his report 24). Confirmed in our tree, where `sem.c` was GCCSDK's, unchanged.
+- **Polling:** `sem_wait` polled with `pthread_yield ()`. A waiting thread kept being scheduled just to look, using CPU the other threads could have had.
+- **Leak:** it allocated a queue entry on every call that was never linked in or freed, because the "queue" was only appended to when already non-empty, which it never was.
+- **`sem_post`:** it yielded every time.
+- **`sem_timedwait`:** it returned ENOSYS and wasn't declared in `<semaphore.h>`, which breaks a build with GCC 14 or later.
+
+**Change.** Rob Heaton's patch, unchanged:
+- `sem_init` allocates a mutex and a condition variable, and hangs them on the `usem_waiters` member. The `sem_t` layout is unchanged.
+- `sem_wait`/`sem_timedwait` wait on the condition variable, `sem_post` signals one waiter, and `sem_destroy` refuses (EBUSY) while threads wait.
+- A deadline that passes just as the semaphore is posted still takes it.
+- `sem_post` at `SEM_VALUE_MAX` gives EOVERFLOW.
+- `<semaphore.h>` declares `sem_timedwait` (with a forward `struct timespec`).
+
+**Performance and behaviour.**
+- A waiting thread takes no CPU until posted (with P4, timed waits end on time).
+- `sem_post` no longer yields.
+- `sem_init` can now fail with ENOMEM (16 bytes plus the mutex and condition variable).
+- A semaphore never destroyed keeps that allocation.
+
+**Verification.** `TimedWait` covers:
+- `sem_wait` woken by another thread's post;
+- `sem_timedwait` timing out after 200 ms and returning 0 when posted;
+- 20,000 posts and waits between two threads, timed;
+- `sem_destroy`.
 
 Not yet run on RISC OS.
 

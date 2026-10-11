@@ -7,6 +7,7 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **Semaphores block instead of polling, and `sem_timedwait` works (P5).** `sem_wait` used to poll, burning CPU, and leaked a queue entry on every call; `sem_timedwait` was ENOSYS and undeclared. Found and fixed by Rob Heaton (riscos-gcc16); his code. New Pi test `TimedWait`.
 - **`pthread_cond_timedwait` waits as long as it was asked (P4).** On CLOCK_REALTIME it overran by up to a second (whole-second arithmetic). On CLOCK_MONOTONIC it added the clock to an absolute time. Deadlines are now compared wrap-safely, and a thread signalled just before its deadline no longer reports a time-out. Found by Rob Heaton (riscos-gcc16); his deadline code plus the wrap and lost-signal fixes.
 - **`pthread_once` no longer deadlocks when an init routine waits for another thread that calls `pthread_once` (P3).** `std::async` does exactly that. Callers of an object whose init routine is running now wait for it, and an object already done costs no lock. Found by Rob Heaton (riscos-gcc16); his design, without the C++ exception handling. New Pi test `Once`.
 - **A program's .fini_array now runs at exit (I1).** It runs after the atexit functions and static destructors, last entry first, as in glibc. Before, C functions marked `__attribute__ ((destructor))` never ran, and `--coverage` never wrote its data. Found and fixed by Rob Heaton (riscos-gcc16). New Pi test `FiniArray`.
