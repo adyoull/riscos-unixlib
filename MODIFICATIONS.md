@@ -448,7 +448,7 @@ All 42 checks pass.
 - A program whose permitted RAM limit equals its slot is unaffected: the usual case, and every program started from the desktop.
 - A program run below some other program's memory can no longer grow into it.
 - Our ports keep their heap in dynamic areas (A1/A2), so this only matters for programs with `__dynamic_no_da` or where no area could be made.
-- Both builds: in a chunked-stack build (`__UNIXLIB_CHUNKED_STACK`, not the EABI build we ship) stack chunks taken from the Wimp slot are held below the limit too, so such a child gets a stack overflow instead of writing over its parent.
+- EABI only in effect. In a chunked-stack build (`__UNIXLIB_CHUNKED_STACK`), `__stackalloc_init` starts `appspace_himem` at the top of the slot, so growth already begins above the parent's copy and this check never fires.
 
 **Verification.**
 - The library builds; `make check` and the emulator heap test (42 checks) pass.
@@ -943,7 +943,7 @@ Two more problems found in reviewing his patch:
   - the remaining time is taken on the condition variable's own clock (`clock_gettime`) and rounded up to whole centiseconds;
   - a passed or invalid `abstime` fails before the mutex is released;
   - waits are capped at 10⁷ s.
-- **Comparison:** the scheduler compares `(int) (clock () − condtimeout) > 0`.
+- **Comparison:** the scheduler compares `(int) ((unsigned long) clock () − (unsigned long) condtimeout) > 0`, so the subtraction itself can't overflow.
 - **Timed out or signalled:** when the scheduler ends a wait for its deadline it clears the thread's `cond`, and `pthread_cond_timedwait` reports `ETIMEDOUT` only then. A signal leaves `cond` set.
 
 **Peer review additions.**
@@ -952,7 +952,7 @@ Two more problems found in reviewing his patch:
 
 **Performance and behaviour.** Timed waits end when asked. No extra cost per switch (one subtraction instead of a comparison).
 - An `abstime` with `tv_nsec` outside 0 to 999,999,999 now gives `EINVAL`, as POSIX says; before it was used as given.
-- A wait longer than 10⁷ s (about 116 days) returns `ETIMEDOUT` after 10⁷ s.
+- A wait longer than 10⁷ s (about 115.7 days) returns `ETIMEDOUT` after 10⁷ s.
 
 **Verification.** New Pi test `TimedWait` (`tests/riscos/twtest.c`, with P5):
 - a 300 ms wait on each clock must time out after 29–40 cs;
@@ -975,7 +975,7 @@ It starts a dummy thread first, so that these waits go through the scheduler. No
 - A deadline that passes just as the semaphore is posted still takes it.
 - `sem_post` at `SEM_VALUE_MAX` gives EOVERFLOW.
 - `<semaphore.h>` declares `sem_timedwait` (with a forward `struct timespec`).
-- **Peer review:** `sem_wait` stays a cancellation point. The polling loop checked on every pass; now `pthread_cancel` wakes the waiter (P4) and `sem_wait` calls `pthread_testcancel` with the lock released.
+- **Peer review:** `sem_wait` stays a cancellation point. The polling loop checked on every pass; now `pthread_cancel` wakes the waiter (P4) and `sem_wait` calls `pthread_testcancel` with the lock released, while the count is 0. A thread woken by a post and cancelled at about the same time takes the unit and returns; otherwise the post's wakeup would be used up and another waiter left asleep (second peer review).
 
 **Performance and behaviour.**
 - A waiting thread takes no CPU until posted (with P4, timed waits end on time).
@@ -1037,7 +1037,7 @@ The old header fails it.
 
 Peer review: his patch stored `%llp` as an 8-byte value, over the word after the pointer; `%p` now always stores a pointer. `L` on an integer conversion (`%Ld`) still stores an `int`, as before (glibc reads it as `long long`; we leave it, so no existing caller changes).
 
-**Performance and behaviour.** Formats that worked before give the same results. The function is 196 bytes larger (3949 to 4145), with no measurable cost per call.
+**Performance and behaviour.** Formats that worked before give the same results. The function is 196 bytes larger (3949 to 4145), with no measurable cost per call. A static program that uses `scanf` now also links `strtoll`, `strtoull`, `strtold` and libgcc's 64-bit division: about 2.8 KB more in a test image.
 
 **Verification.**
 - `tests/host/scanf` (12 checks) builds the real `vfscanf` for the PC: each modifier; `%hhd` leaving the next byte alone; `%*lld` with `%n`, and `%lln`; `%Ld` storing an `int`; the unchanged `%d %ld %hd`. The old code fails 5. (On the PC a `long` is 64 bits, so this checks the conversions and sizes stored, not the 32-bit truncation.)
