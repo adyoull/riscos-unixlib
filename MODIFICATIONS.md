@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 63 modified files and 9 added files).
+diff against unchanged GCCSDK UnixLib: 73 modified files and 9 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1264 |
-| Modified (listed below) | 63 |
+| Byte-identical to GCCSDK `64c6f81` | 1254 |
+| Modified (listed below) | 73 |
 | Added | 9 |
 | Removed relative to upstream | 0 |
 
