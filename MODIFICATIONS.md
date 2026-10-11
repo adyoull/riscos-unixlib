@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 73 modified files and 9 added files).
+diff against unchanged GCCSDK UnixLib: 74 modified files and 9 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1254 |
-| Modified (listed below) | 73 |
+| Byte-identical to GCCSDK `64c6f81` | 1253 |
+| Modified (listed below) | 74 |
 | Added | 9 |
 | Removed relative to upstream | 0 |
 
@@ -72,12 +72,13 @@ the commits are named below.
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
 | `stdio/fread.c`, `stdio/fwrite.c` | C4 short transfers |
-| `stdio/scanf.c` | C3 scanf length modifiers ll, hh, j, q, z, t, %Lf, %Ld |
-| `include/unistd.h`, `unix/sysconf.c` | C2 the _SC_ names after _SC_PAGE_SIZE; one processor |
+| `stdio/scanf.c` | C3 scanf length modifiers ll, hh, j, q, z, t, %Lf |
+| `include/unistd.h`, `unix/sysconf.c` | C2 the _SC_ names after _SC_PAGE_SIZE; one processor; _SC_PHYS_PAGES |
 | `pthread/sem.c`, `include/semaphore.h` | P5 blocking semaphores, sem_timedwait |
+| `pthread/cancel.c` | P4/P5 pthread_cancel wakes a thread waiting on a condition variable (sem_wait cancellation) |
 | `pthread/cond.c`, `pthread/context.c` | P4 timed waits: exact deadlines, wrap-safe, no lost signal |
 | `pthread/once.c` | P3 pthread_once without a global hold |
-| `stdlib/atexit.c`, `sys/_syslib.s`, `vscript` | I1 the program's .fini_array runs at exit |
+| `stdlib/atexit.c`, `sys/_syslib.s`, `vscript`, `incl-local/internal/unix.h` | I1 the program's .fini_array runs at exit |
 | `sys/stackalloc.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `incl-local/internal/asm_dec.s` | A4 a vfork + exec child's heap stays below its parent's copy |
 | `common/prefix.c` | C1 the DDEUtils prefix loop |
 | `unix/eventfd.c` | E1 counter updated with thread switching held off, Y1 waits |
@@ -109,6 +110,10 @@ library:
 - riscos-mesa (SDL2, OpenAL Soft): P1, P2.
 - Sound (S1-S5) and large files (L1-L4) were written here.
 - An independent review of all the changes (2026-10-01): K5, S6-S9, W2, L5.
+- Rob Heaton's riscos-gcc16 UnixLib (2026-10): C1-C4, A4, I1, K11 and
+  P3-P5 fix problems from his reports, mostly with his patches (UnixLib's
+  own licence); each section credits the report and says what we changed.
+  Peer review of the ports added the fixes marked "peer review".
 
 L1-L4 were written from UnixLib's own existing LFS declarations and stubs,
 following the glibc conventions UnixLib's headers already use. The only
@@ -443,6 +448,7 @@ All 42 checks pass.
 - A program whose permitted RAM limit equals its slot is unaffected: the usual case, and every program started from the desktop.
 - A program run below some other program's memory can no longer grow into it.
 - Our ports keep their heap in dynamic areas (A1/A2), so this only matters for programs with `__dynamic_no_da` or where no area could be made.
+- Both builds: in a chunked-stack build (`__UNIXLIB_CHUNKED_STACK`, not the EABI build we ship) stack chunks taken from the Wimp slot are held below the limit too, so such a child gets a stack overflow instead of writing over its parent.
 
 **Verification.**
 - The library builds; `make check` and the emulator heap test (42 checks) pass.
@@ -860,7 +866,7 @@ See section 8.
 
 ### C1. The DDEUtils prefix is measured correctly (`common/prefix.c`)
 
-**Problem.** Found by Rob Heaton (riscos-gcc16, his report 20, 2026-10); confirmed in our tree. With a DDEUtils prefix set for the task (`*Prefix <dir>`), `__get_dde_prefix ()` never returned, or ran off the end of memory. StrongED, DDE make and UnixLib's own `chdir ()` set the prefix. The function is called at start-up (`__unixinit`), in vfork, `getcwd ()` and `chdir ()`.
+**Problem.** Found by Rob Heaton (riscos-gcc16, his report 20, 2026-10); confirmed in our tree. With a DDEUtils prefix set for the task (`*Prefix <dir>`), `__get_dde_prefix ()` never returned: the program hung at start-up. StrongED, DDE make and UnixLib's own `chdir ()` set the prefix. The function is called at start-up (`__unixinit`), in vfork, `getcwd ()` and `chdir ()`.
 
 **Cause.** The loop that measures the control-character-terminated string tested `*prefix`, the first character, which never changes, instead of `*end_prefix`. The same line is in GCCSDK.
 
@@ -874,7 +880,7 @@ See section 8.
 - none;
 - the `Prefix$Dir` fallback.
 
-The old code crashes the test. Not yet run on RISC OS.
+The old code hangs the test (or, as built with optimisation, crashes it). Not yet run on RISC OS (`*Prefix` set, then any UnixLib program).
 
 ### I1. The program's `.fini_array` runs at exit (`stdlib/atexit.c`, `sys/_syslib.s`, `vscript`)
 
@@ -893,9 +899,11 @@ C++ static destructors were unaffected: on EABI they are registered with `__cxa_
 
 **Behaviour.** This is the one deliberate behaviour change in this batch: destructor functions in a program and the libraries linked into it now run at exit, as on every other platform. A library destructor that misbehaves would now show at exit. The ports should be checked once by quitting them normally.
 
+**Dynamically linked programs.** Not checked: if the Shared Object Manager also runs the executable's `.fini_array`, its functions would run twice there. Our ports are static. A shared library's own `.fini_array` is not ours to run and is unchanged.
+
 **Performance.** None outside exit.
 
-**Verification.** New Pi test `FiniArray` (`tests/riscos/finitest.cc`, C++). The exit order must be atexit, the static destructor, then two destructor functions (the default and priority 101), with a C++ exception thrown and caught before. It prints `ASFL` and PASS. The built test's `.fini_array` was checked: [priority 101, `__do_global_dtors_aux`, default], run last first. Not yet run on RISC OS.
+**Verification.** New Pi test `FiniArray` (`tests/riscos/finitest.cc`, C++). The exit order must be atexit, the static destructor, then two destructor functions (the default and priority 101), with a C++ exception thrown and caught before. It prints `ASFL` and PASS; `main` prints a line first, so a missing "exit order" line is a FAIL. The built test's `.fini_array` was checked: [priority 101, `__do_global_dtors_aux`, default], run last first. Not yet run on RISC OS.
 
 ### P3. `pthread_once` without one global hold (`pthread/once.c`)
 
@@ -911,7 +919,7 @@ Two differences from his patch:
 - **A fast path:** an object already done returns at once without taking the mutex. That is cheaper than before.
 - **No `-fexceptions`:** his version also undoes the state when a C++ exception leaves the init routine. That needs this file compiled with `-fexceptions`, which would pull the C++ unwinder into every C program that uses `pthread_once`. So exceptions are handled as before, i.e. not.
 
-**Performance and behaviour.** Faster for the common already-done case; otherwise the same work. `pthread_once_t` is unchanged (an `int`, 0 to start, 1 when done).
+**Performance and behaviour.** Faster for the common already-done case; otherwise the same work. `pthread_once_t` is unchanged (an `int`, 0 to start, 1 when done). While the routine runs it holds 2, where it used to stay 0; only code that reads the object directly would see that.
 
 **Verification.** New Pi test `Once` (`tests/riscos/oncetest.c`) covers:
 - an init routine that starts and joins a thread which calls `pthread_once` (the old library stops with "Deadlocked");
@@ -938,14 +946,20 @@ Two more problems found in reviewing his patch:
 - **Comparison:** the scheduler compares `(int) (clock () − condtimeout) > 0`.
 - **Timed out or signalled:** when the scheduler ends a wait for its deadline it clears the thread's `cond`, and `pthread_cond_timedwait` reports `ETIMEDOUT` only then. A signal leaves `cond` set.
 
+**Peer review additions.**
+- **No other thread yet:** with no thread started, nothing can signal and the scheduler doesn't run, so `pthread_cond_wait`/`timedwait` return at once (a spurious wakeup, which POSIX allows). Before, the thread was put on the wait list and left there, and the next wait linked it to itself. A single-threaded program using semaphores (P5) does this; `sem_timedwait` then loops to its deadline.
+- **Cancellation:** `pthread_cancel` wakes a target waiting on a condition variable (a spurious wakeup: 0, not `ETIMEDOUT`), so `sem_wait` can act on it (P5). It takes the switching hold to do so.
+
 **Performance and behaviour.** Timed waits end when asked. No extra cost per switch (one subtraction instead of a comparison).
+- An `abstime` with `tv_nsec` outside 0 to 999,999,999 now gives `EINVAL`, as POSIX says; before it was used as given.
+- A wait longer than 10⁷ s (about 116 days) returns `ETIMEDOUT` after 10⁷ s.
 
 **Verification.** New Pi test `TimedWait` (`tests/riscos/twtest.c`, with P5):
 - a 300 ms wait on each clock must time out after 29–40 cs;
 - a passed deadline gives `ETIMEDOUT` at once;
 - a signal after 100 ms with a 2 s deadline returns 0.
 
-Not yet run on RISC OS.
+It starts a dummy thread first, so that these waits go through the scheduler. Not yet run on RISC OS.
 
 ### P5. Semaphores block instead of polling; `sem_timedwait` works (`pthread/sem.c`, `include/semaphore.h`)
 
@@ -955,23 +969,27 @@ Not yet run on RISC OS.
 - **`sem_post`:** it yielded every time.
 - **`sem_timedwait`:** it returned ENOSYS and wasn't declared in `<semaphore.h>`, which breaks a build with GCC 14 or later.
 
-**Change.** Rob Heaton's patch, unchanged:
+**Change.** Rob Heaton's patch, with the cancellation fix from peer review:
 - `sem_init` allocates a mutex and a condition variable, and hangs them on the `usem_waiters` member. The `sem_t` layout is unchanged.
 - `sem_wait`/`sem_timedwait` wait on the condition variable, `sem_post` signals one waiter, and `sem_destroy` refuses (EBUSY) while threads wait.
 - A deadline that passes just as the semaphore is posted still takes it.
 - `sem_post` at `SEM_VALUE_MAX` gives EOVERFLOW.
 - `<semaphore.h>` declares `sem_timedwait` (with a forward `struct timespec`).
+- **Peer review:** `sem_wait` stays a cancellation point. The polling loop checked on every pass; now `pthread_cancel` wakes the waiter (P4) and `sem_wait` calls `pthread_testcancel` with the lock released.
 
 **Performance and behaviour.**
 - A waiting thread takes no CPU until posted (with P4, timed waits end on time).
-- `sem_post` no longer yields.
-- `sem_init` can now fail with ENOMEM (16 bytes plus the mutex and condition variable).
+- `sem_post` no longer yields: the posting thread carries on, and a woken waiter runs at the next thread switch (up to one tick later) instead of straight away. Throughput is higher; a program that relied on the post handing over at once may see that delay.
+- `sem_init` can now fail with ENOMEM (36 bytes: a mutex and a condition variable).
 - A semaphore never destroyed keeps that allocation.
+- **Known limit:** `sem_post` takes a mutex, so it must not be called from a signal handler that may have interrupted a thread holding that semaphore's lock (POSIX lists `sem_post` as async-signal-safe). None of our ports does this.
 
 **Verification.** `TimedWait` covers:
 - `sem_wait` woken by another thread's post;
 - `sem_timedwait` timing out after 200 ms and returning 0 when posted;
 - 20,000 posts and waits between two threads, timed;
+- `sem_timedwait` before any thread is started;
+- a thread blocked in `sem_wait` cancelled (`PTHREAD_CANCELED`);
 - `sem_destroy`.
 
 Not yet run on RISC OS.
@@ -985,11 +1003,11 @@ Not yet run on RISC OS.
 - So `sysconf (_SC_NPROCESSORS_ONLN)` returned 2048. A program or library that sizes its thread pool by it would start far too many threads on a one-core system.
 - `sysconf.c` tested `#ifdef _SC_NPROCESSORS_ONLN`, which is always false for an enum constant, so its "return 1" case was never compiled.
 
-**Change.** Rob Heaton's header change:
+**Change.** Rob Heaton's patch:
 - `_SC_PAGE_SIZE` moves to the end, so the names before it get new, unique values, with `#define`s so `#ifdef` works.
 - Added: `_SC_NPROCESSORS_CONF`.
 - `sysconf` returns 1 for both processor counts.
-- `_SC_PHYS_PAGES` now has its own value and gives EINVAL (unimplemented) instead of `_SC_BC_BASE_MAX`'s answer.
+- `_SC_PHYS_PAGES` now has its own value instead of `_SC_BC_BASE_MAX`'s answer. Peer review: it is implemented (OS_ReadMemMapInfo's page count), so a program that sizes caches by it gets a real number rather than an error.
 
 **Compatibility.** Programs and libraries built with the old header keep the old numbers and the old answers (2048) until rebuilt. That includes any library built against an older UnixLib, such as the toolchain's libstdc++. No other name changes value.
 
@@ -1002,7 +1020,7 @@ Not yet run on RISC OS.
 
 The old header fails it.
 
-### C3. `scanf` length modifiers `ll`, `hh`, `j`, `q`, `z`, `t`, `%Lf`, `%Ld` (`stdio/scanf.c`)
+### C3. `scanf` length modifiers `ll`, `hh`, `j`, `q`, `z`, `t` and `%Lf` (`stdio/scanf.c`)
 
 **Problem.** Found and fixed by Rob Heaton (riscos-gcc16, his report 21). He saw it as the native GCC's LTO linker failing; confirmed in our tree. `scanf` knew only `l`, `L` and `h`:
 - `%lld` and `%llx` stored a `long`, the low 32 bits of the caller's `long long`, leaving the high word unchanged;
@@ -1017,17 +1035,13 @@ The old header fails it.
 - `%Lf` stores a `long double`;
 - `%n` follows the same sizes.
 
-One addition: `L` on an integer conversion (`%Ld`) means `long long`, as in glibc.
+Peer review: his patch stored `%llp` as an 8-byte value, over the word after the pointer; `%p` now always stores a pointer. `L` on an integer conversion (`%Ld`) still stores an `int`, as before (glibc reads it as `long long`; we leave it, so no existing caller changes).
 
-**Performance and behaviour.** The same code path; formats that worked before are unchanged.
+**Performance and behaviour.** Formats that worked before give the same results. The function is 196 bytes larger (3949 to 4145), with no measurable cost per call.
 
-**Verification.** `tests/host/scanf` (12 checks) builds the real `vfscanf` for the PC. It covers:
-- each modifier;
-- `%hhd` leaving the next byte alone;
-- `%*lld` with `%n`, and `%lln`;
-- the unchanged `%d %ld %hd`.
-
-The old code fails 6. (On the PC a `long` is 64 bits, so the test checks the conversions and sizes stored rather than the 32-bit truncation itself.)
+**Verification.**
+- `tests/host/scanf` (12 checks) builds the real `vfscanf` for the PC: each modifier; `%hhd` leaving the next byte alone; `%*lld` with `%n`, and `%lln`; `%Ld` storing an `int`; the unchanged `%d %ld %hd`. The old code fails 5. (On the PC a `long` is 64 bits, so this checks the conversions and sizes stored, not the 32-bit truncation.)
+- `tests/emu/scanf_test.py` (14 checks; the peer reviewer's idea) links the real library and runs `sscanf` in an ARM emulator, into fields filled with 0x5A, so a store of the wrong size shows on the real 32-bit target. It adds `%llp` and `%Ld`. The old code fails 8.
 
 ### C4. `fread`/`fwrite` after a short transfer (`stdio/fread.c`, `stdio/fwrite.c`)
 
@@ -1035,20 +1049,13 @@ The old code fails 6. (On the PC a `long` is 64 bits, so the test checks the con
 - after a short read, the rest was read over the bytes already stored, so the count was right and the data wrong;
 - after a short write, the same bytes were written again.
 
-Also: a `write ()` that returned 0 made `fwrite` loop for ever.
+**Change.** Rob Heaton's patch: advance the pointer by the bytes transferred, in `fread` and in both `fwrite` loops.
 
-**Change.**
-- Rob Heaton's patch: advance the pointer by the bytes transferred, in `fread` and in both `fwrite` loops.
-- Addition: a `write ()` that takes nothing marks the stream in error and stops, as a -1 does.
+**Not changed.** A `write ()` that returns 0 still makes `fwrite` try again, as before. Stopping there was tried and dropped in peer review: a device that is briefly full would then give an error where it now succeeds. `__flsbuf`'s own write of the buffer has the same short-write question; both are left for a later look (section 8).
 
 **Performance and behaviour.** One addition per transfer. Full transfers, the normal case, are unchanged.
 
-**Verification.** `tests/host/stdio` (9 checks) builds the real `fread.c` and `fwrite.c` for the PC with a shim of UnixLib's `FILE`, against a device that moves 30 bytes per call. It covers:
-- an unbuffered read and write of 100 bytes;
-- a buffered stream's direct write;
-- a `write ()` that takes nothing.
-
-The old code fails 4.
+**Verification.** `tests/host/stdio` (7 checks) builds the real `fread.c` and `fwrite.c` for the PC with a shim of UnixLib's `FILE`, against a device that moves 30 bytes per call. It covers an unbuffered read and write of 100 bytes and a buffered stream's direct write. The old code fails 3.
 
 ## 3. Sound (`/dev/dsp`, `/dev/midi`)
 
@@ -1665,7 +1672,7 @@ Peer review confirmed the test would fail on the code before K10, and on K10's f
 - When a child that ended without an exec of its own exited, `sul_exit` saw the flag and deregistered the Shared Object Manager client, which the child shares with its parent.
 - In a parent that was itself started by exec (anything run by make or a shell), this freed the parent's client record. The next client was given that memory, and the parent then installed garbage handlers with interrupts off: a hard freeze. He measured it on a Pi CM4 with RISC OS 5.30.
 
-**Who it affects.** Only dynamically linked programs are Shared Object Manager clients. For static programs (all our ports) the deregistration is a harmless call for an unknown client. The flag is still wrong for them.
+**Who it affects.** Only dynamically linked programs. `sul_exit` reads the flag only for a dynamically linked (`IS_DYNAMIC`) program, so for static programs (all our ports) this change has no effect; the flag was wrong for them too, but nothing used it.
 
 **Change.** `__fork_post` clears `status.execed` in the child, first thing, next to K10's `is_armeabi`. `exec ()` sets it again (`sys/exec.c`) for the program it starts, which is a new client. SharedUnixLibrary stays unchanged, as our rule requires.
 
@@ -1673,7 +1680,9 @@ Peer review confirmed the test would fail on the code before K10, and on K10's f
 - **Problem 1**, the parent's stack freed: K8/K10 already avoid it.
 - **Problem 2:** `Wimp_SlotSize` is asked for a slot of 0 − &8000 when a vfork child exits without exec, which grows the parent's slot to its maximum. That needs the SharedUnixLibrary fix he proposes upstream.
 
-**Performance and behaviour.** One store in the child. Not yet run on RISC OS. `ForkOnly`, `ForkThreads`, `ForkExec` and `ForkWorker` cover the paths for static programs.
+**Performance and behaviour.** One store in the child. Between the copy in `_vfork.s` and `__fork_post` the child still has the flag, but it can't exit in those few instructions.
+
+**Verification.** No test: none of our tests is dynamically linked, and for static programs there is nothing to see. `ForkOnly`, `ForkThreads`, `ForkExec` and `ForkWorker` re-run the paths it touches. Not yet run on RISC OS.
 
 ## 5. Files over 2GB (L1-L5)
 
@@ -1822,8 +1831,8 @@ PThreadTicker ReadMe say the same.
 - **The module.** It is built with the library: `bin_PROGRAMS = sul
   pthticker`.
 - **`vscript`.** The new internal symbols (`__midi*`, `__pthread_ticker_*`,
-  `__pthread_call_every_code*`, `__pthread_callevery_block_size`) are local,
-  like the existing `__dsp*`.
+  `__pthread_call_every_code*`, `__pthread_callevery_block_size`,
+  `__register_fini_array` (I1)) are local, like the existing `__dsp*`.
 
 Outside `libunixlib/`, the repository has its own build and test kit:
 `build/`, `tests/`, `tools/` (including a fixed `elf2aif` for images over
@@ -1856,6 +1865,13 @@ behaved as expected.
 - R1 and R2 (on the machine where Warzone 2100 crashed).
 - S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
   from the 2026-10-01 review).
+- the 5.0.3.4 batch: `VforkHeap` (A4), `FiniArray` (I1), `Once` (P3),
+  `TimedWait` (P4, P5); C1 by running a program with `*Prefix` set; K11
+  has no test (dynamically linked programs only).
+
+**Follow-ups from the 5.0.3.4 review:** `fwrite` retries a `write ()` that
+returns 0, and `__flsbuf`'s short writes (C4); whether the Shared Object
+Manager also runs an executable's `.fini_array` (I1).
 
 **Done on RISC OS (Pi 4, 5.0.3.1-rc8 and rc9; released as 5.0.3.1 with
 the sound tests still to run):** `ForkOnly`, `ForkThreads`,
