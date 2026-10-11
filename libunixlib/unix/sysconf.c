@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include <internal/unix.h>
+#include <swis.h>
 
 /* Get the value of the system variable NAME.  */
 long int
@@ -132,6 +133,18 @@ sysconf (int name)
       case _SC_NPROCESSORS_ONLN:
       case _SC_NPROCESSORS_CONF:
 	return 1;
+
+      /* 2026: the number of pages of RAM (OS_ReadMemMapInfo).  The name
+	 used to share its value with _SC_BC_BASE_MAX (see <unistd.h>);
+	 now that it is a macro, code that tests #ifdef _SC_PHYS_PAGES calls
+	 it, so it is answered.  */
+      case _SC_PHYS_PAGES:
+	{
+	  int pagesize, pages;
+	  if (_swix (OS_ReadMemMapInfo, _OUTR(0,1), &pagesize, &pages))
+	    return __set_errno (EINVAL);
+	  return pages;
+	}
     }
 
   return __set_errno (EINVAL);
