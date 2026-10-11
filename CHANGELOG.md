@@ -7,6 +7,7 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **A fork or vfork child no longer inherits its parent's "started by exec" flag (K11).** With it, SharedUnixLibrary's exit deregistered the Shared Object Manager client the child shares with its parent, which froze the machine in a dynamically linked parent started by make or a shell. Fixed in UnixLib, so SharedUnixLibrary is unchanged. Found by Rob Heaton (riscos-gcc16).
 - **A program started with a DDEUtils prefix set (`*Prefix`) no longer hangs (C1).** `__get_dde_prefix` measured the prefix by testing its first character over and over. It runs at start-up, in vfork, getcwd and chdir. Found by Rob Heaton (riscos-gcc16).
 ## 5.0.3.3 (2026-10-06, tag v5.0.3.3)
 

@@ -56,7 +56,7 @@ the commits are named below.
 | `sched/sched_prio.c` (**new**), `include/sched.h` | P1 `sched_get_priority_min/max` |
 | `pthread/schedparam.c`, `pthread/newnode.c` | P2 `pthread_setschedparam` |
 | `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s`, `sys/exec.c` | K1-K7, K9 thread ticker (`sys/_syslib.s` also A2) |
-| `sys/vfork.c`, `sys/_vfork.s`, `incl-local/internal/unix.h` | K8 fork on EABI: the child's exit and the parent's stack (K10 follow-ups) |
+| `sys/vfork.c`, `sys/_vfork.s`, `incl-local/internal/unix.h` | K8 fork on EABI: the child's exit and the parent's stack (K10 follow-ups), K11 the exec flag |
 | `pthread/join.c`, `pthread/newnode.c`, `incl-local/pthread.h` | K10 only the forking thread exists in a fork child |
 | `include/sys/stat.h`, `incl-local/sys/stat.h`, `unix/stat64.c` (**new**), `unix/stat.c`, `unix/lstat.c`, `unix/fstat.c`, `unix/scl_fstat.c` | L1 `struct stat64` with a 64-bit size |
 | `unix/ul_lseek.c`, `stdio/fseeko.c`, `stdio/ftello.c`, `stdio/fgetpos.c`, `stdio/fsetpos.c` | L2 64-bit seeking to 4GB-1 |
@@ -1452,6 +1452,23 @@ line. Cosmetic.)
 - a change an atfork prepare handler made to `main`'s frame must survive.
 
 Peer review confirmed the test would fail on the code before K10, and on K10's first version. The library builds and `make check` passes. Not yet run on RISC OS.
+
+### K11. A fork/vfork child doesn't inherit the "started by exec" flag (`sys/vfork.c`)
+
+**Problem.** Found by Rob Heaton (riscos-gcc16, his report 01, problem 3), who fixed it in SharedUnixLibrary.
+- The child's process structure is a copy of its parent's, including `status.execed` ("this process was started by exec").
+- When a child that ended without an exec of its own exited, `sul_exit` saw the flag and deregistered the Shared Object Manager client, which the child shares with its parent.
+- In a parent that was itself started by exec (anything run by make or a shell), this freed the parent's client record. The next client was given that memory, and the parent then installed garbage handlers with interrupts off: a hard freeze. He measured it on a Pi CM4 with RISC OS 5.30.
+
+**Who it affects.** Only dynamically linked programs are Shared Object Manager clients. For static programs (all our ports) the deregistration is a harmless call for an unknown client. The flag is still wrong for them.
+
+**Change.** `__fork_post` clears `status.execed` in the child, first thing, next to K10's `is_armeabi`. `exec ()` sets it again (`sys/exec.c`) for the program it starts, which is a new client. SharedUnixLibrary stays unchanged, as our rule requires.
+
+**Not done here.** Rob's report also covers:
+- **Problem 1**, the parent's stack freed: K8/K10 already avoid it.
+- **Problem 2:** `Wimp_SlotSize` is asked for a slot of 0 − &8000 when a vfork child exits without exec, which grows the parent's slot to its maximum. That needs the SharedUnixLibrary fix he proposes upstream.
+
+**Performance and behaviour.** One store in the child. Not yet run on RISC OS. `ForkOnly`, `ForkThreads`, `ForkExec` and `ForkWorker` cover the paths for static programs.
 
 ## 5. Files over 2GB (L1-L5)
 

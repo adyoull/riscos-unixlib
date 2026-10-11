@@ -141,6 +141,17 @@ __fork_post (pid_t pid, int isfork)
   if (pid == 0)
     gbl->sulproc->status.is_armeabi = 0;
 #endif
+  /* 2026: likewise the "started by exec" flag, which the child's process
+     structure copies from its parent.  A child that ends without an exec
+     of its own is the same Shared Object Manager client as its parent,
+     but with the flag set SharedUnixLibrary's exit deregisters that
+     client: in a parent that was itself started by exec (anything run by
+     make or a shell) this freed the parent's client and froze the
+     machine.  exec () sets the flag again for the program it starts.
+     Found by Rob Heaton (riscos-gcc16, his report 01), who fixes it in
+     SharedUnixLibrary; this keeps SharedUnixLibrary unchanged.  */
+  if (pid == 0)
+    gbl->sulproc->status.execed = 0;
 
   __env_unixlib ();
 
