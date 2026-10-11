@@ -71,6 +71,7 @@ the commits are named below.
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
+| `common/prefix.c` | C1 the DDEUtils prefix loop |
 | `unix/eventfd.c` | E1 counter updated with thread switching held off, Y1 waits |
 | `pthread/heldwait.c` (**new**) | Y1 waiting inside a held call |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
@@ -825,6 +826,24 @@ Socket reads, OS_File loads, OS_Args/OS_FSControl results, and `readlink`.
 See section 8.
 
 ---
+
+### C1. The DDEUtils prefix is measured correctly (`common/prefix.c`)
+
+**Problem.** Found by Rob Heaton (riscos-gcc16, his report 20, 2026-10); confirmed in our tree. With a DDEUtils prefix set for the task (`*Prefix <dir>`), `__get_dde_prefix ()` never returned, or ran off the end of memory. StrongED, DDE make and UnixLib's own `chdir ()` set the prefix. The function is called at start-up (`__unixinit`), in vfork, `getcwd ()` and `chdir ()`.
+
+**Cause.** The loop that measures the control-character-terminated string tested `*prefix`, the first character, which never changes, instead of `*end_prefix`. The same line is in GCCSDK.
+
+**Change.** Test `*end_prefix` (Rob Heaton's one-word fix).
+
+**Performance and behaviour.** No cost. Without a prefix nothing changes; with one, the program now starts.
+
+**Verification.** `tests/host/prefix` (4 checks):
+- a control-character-terminated prefix;
+- an empty one;
+- none;
+- the `Prefix$Dir` fallback.
+
+The old code crashes the test. Not yet run on RISC OS.
 
 ## 3. Sound (`/dev/dsp`, `/dev/midi`)
 

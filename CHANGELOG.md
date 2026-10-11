@@ -5,6 +5,9 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## Unreleased
+
+- **A program started with a DDEUtils prefix set (`*Prefix`) no longer hangs (C1).** `__get_dde_prefix` measured the prefix by testing its first character over and over. It runs at start-up, in vfork, getcwd and chdir. Found by Rob Heaton (riscos-gcc16).
 ## 5.0.3.3 (2026-10-06, tag v5.0.3.3)
 
 The same code as 5.0.3.3-rc1: the fixes from the 2026-10-04 code audit
