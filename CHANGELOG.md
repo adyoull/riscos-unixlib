@@ -5,6 +5,16 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.4-rc1 (2026-10-11, pre-release, withdrawn)
+
+Withdrawn the same day, before it ran on RISC OS; the tree is back to
+5.0.3.3 (commit `a5c2382`). It carried ten fixes adopted from Rob Heaton's
+riscos-gcc16 UnixLib (C1, K11, A4, I1, P3, P4, P5, C2, C3, C4). A user
+reported that programs built with that library made running programs
+abort one after another until the machine locked up, so none of the
+changes taken from it ship here until that is understood. Its tag stays
+in the history. 5.0.3.3 remains the current release.
+
 ## 5.0.3.3 (2026-10-06, tag v5.0.3.3)
 
 The same code as 5.0.3.3-rc1: the fixes from the 2026-10-04 code audit

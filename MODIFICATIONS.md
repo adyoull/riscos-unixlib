@@ -1599,6 +1599,20 @@ Outside `libunixlib/`, the repository has its own build and test kit:
   would cause confusion. The routines went into PThreadTicker instead (K4).
 - **The RMA copy as the only home of the ticker** (`8c5c824`). It is kept as
   the fallback when the module isn't loaded (K4).
+- **5.0.3.4-rc1: fixes adopted from Rob Heaton's riscos-gcc16 UnixLib**
+  (`582889d`..`bf6eaab`, tag `v5.0.3.4-rc1`, 2026-10-11). C1 DDEUtils
+  prefix loop, K11 fork child's execed flag, A4 vfork + exec heap limit, I1
+  `.fini_array` at exit, P3 `pthread_once`, P4 `pthread_cond_timedwait`
+  deadlines, P5 blocking semaphores and `sem_timedwait`, C2 `sysconf`
+  names, C3 `scanf` length modifiers, C4 `fread`/`fwrite` short transfers,
+  each peer-reviewed in two rounds. Rolled back by `a5c2382` the same day,
+  before it ran on RISC OS: a user reported that programs built with
+  riscos-gcc16's UnixLib made running programs abort one after another
+  until the machine locked up. The cause isn't known (that library also
+  differs in being shared, built with GCC 16, and changing
+  SharedUnixLibrary), so nothing from it ships here until it is. The
+  commits, their tests and their review notes stay in the history for
+  reference.
 
 ---
 
