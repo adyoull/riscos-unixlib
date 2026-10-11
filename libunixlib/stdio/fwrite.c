@@ -71,9 +71,7 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
 	  while (to_write)
 	    {
 	      size_t bytes = write (stream->fd, data, to_write);
-	      /* 2026: write () taking nothing is an error too (it used to
-		 loop for ever).  */
-	      if (bytes == -1 || bytes == 0)
+	      if (bytes == -1)
 		{
 		  stream->__error = 1;
 		  break;
@@ -172,7 +170,7 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
 	  else
 	    bytes = write (stream->fd, data, to_write);
 
-	  if (bytes == -1 || bytes == 0)	/* 2026: 0 too, as above */
+	  if (bytes == -1)
 	    {
 	      stream->__error = 1;
 	      break;
