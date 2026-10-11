@@ -10,6 +10,12 @@
    4. Semaphores: sem_wait blocks until another thread posts; sem_timedwait
       times out after 200 ms (it was ENOSYS), and returns 0 when posted;
       20000 posts and waits between two threads.
+   5. Before any thread is started: sem_timedwait still times out (the
+      condition variable wait returns at once then, and sem_timedwait loops
+      to its deadline).  A dummy thread is then started, so that the tests
+      above go through the scheduler.
+   6. A thread blocked in sem_wait is cancelled by pthread_cancel (sem_wait
+      is a cancellation point): pthread_join returns PTHREAD_CANCELED.
    Must print PASS.  */
 #include <errno.h>
 #include <pthread.h>
@@ -90,10 +96,34 @@ static void *ponger (void *arg)
   return NULL;
 }
 
+static void *nothing (void *arg)
+{
+  return arg;
+}
+
+static void *blocked (void *arg)
+{
+  sem_wait ((sem_t *) arg);
+  return NULL;			/* not reached: cancelled */
+}
+
 int main (void)
 {
   struct timespec ts;
   pthread_t t;
+  void *ret;
+
+  sem_init (&s, 0, 0);
+  deadline (CLOCK_REALTIME, 100, &ts);
+  clock_t t1 = clock ();
+  errno = 0;
+  int r1 = sem_timedwait (&s, &ts);
+  check ("no threads yet: sem_timedwait times out after 100 ms",
+	 r1 == -1 && errno == ETIMEDOUT && clock () - t1 >= 9);
+  sem_destroy (&s);
+
+  pthread_create (&t, NULL, nothing, NULL);
+  pthread_join (t, NULL);
 
   timed (CLOCK_REALTIME, "CLOCK_REALTIME");
   timed (CLOCK_MONOTONIC, "CLOCK_MONOTONIC");
@@ -140,6 +170,15 @@ int main (void)
   pthread_join (t, NULL);
   printf ("20000 posts and waits between two threads in %ld cs\n",
 	  (long) (clock () - t0));
+  sem_init (&s, 0, 0);
+  pthread_create (&t, NULL, blocked, &s);
+  usleep (100000);
+  pthread_cancel (t);
+  t0 = clock ();
+  ret = NULL;
+  pthread_join (t, &ret);
+  check ("a thread blocked in sem_wait is cancelled",
+	 ret == PTHREAD_CANCELED && clock () - t0 < 100);
   check ("semaphores destroyed", sem_destroy (&s) == 0
 	 && sem_destroy (&ping) == 0 && sem_destroy (&pong) == 0);
 

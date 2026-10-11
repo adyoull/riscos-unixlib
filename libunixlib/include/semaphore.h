@@ -77,8 +77,9 @@ extern int sem_unlink (const char *) __THROW;
 
 /* This function is a cancellation point.  */
 extern int sem_wait (sem_t *__sem);
-/* 2026: declared (it existed, as ENOSYS, but wasn't); since 5.0.3.4 it
-   works.  Rob Heaton (riscos-gcc16).  */
+/* 2026: declared and implemented (it was ENOSYS and undeclared).  This
+   function is a cancellation point.  Rob Heaton (riscos-gcc16, his
+   report 24).  */
 struct timespec;
 extern int sem_timedwait (sem_t *__restrict __sem,
 			  const struct timespec *__restrict __abstime);
