@@ -802,7 +802,7 @@ index 0000000..fc1f0c9
 +\p\()_end:
 +.endm
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
-index 9f57871..7dec028 100644
+index 9f57871..9b66d1b 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
 @@ -308,6 +308,15 @@ struct ul_memory
@@ -821,13 +821,20 @@ index 9f57871..7dec028 100644
  };
  
  extern struct ul_memory __ul_memory;
-@@ -427,8 +436,12 @@ extern void __unixinit (void);
+@@ -427,8 +436,19 @@ extern void __unixinit (void);
  extern void __free_process (struct __sul_process *process)
  	__nonnull ((1));
  
 +/* 2026: end the process with a wait status (<sys/wait.h> encoding);
 +   _exit takes a plain exit code.  */
 +extern void __exit_status (int __status) __attribute__ ((__noreturn__));
++
++#ifdef __ARM_EABI__
++/* 2026: register the program's .fini_array to run at exit (I1;
++   stdlib/atexit.c), called from __main in sys/_syslib.s.  */
++extern void __register_fini_array (void (**__start) (void),
++				   void (**__end) (void));
++#endif
 +
  extern pid_t __fork_post (pid_t pid, int isfork);
 -extern int __fork_pre (int isfork, void **sul_fork, pid_t *pid);
@@ -1286,15 +1293,16 @@ index 2e424fb..b2d483d 100644
  
  #endif /* __SCHED_H */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/semaphore.h b/gcc4/recipe/files/gcc/libunixlib/include/semaphore.h
-index 74baee8..d65ac98 100644
+index 74baee8..1e06151 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/semaphore.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/include/semaphore.h
-@@ -77,6 +77,11 @@ extern int sem_unlink (const char *) __THROW;
+@@ -77,6 +77,12 @@ extern int sem_unlink (const char *) __THROW;
  
  /* This function is a cancellation point.  */
  extern int sem_wait (sem_t *__sem);
-+/* 2026: declared (it existed, as ENOSYS, but wasn't); since 5.0.3.4 it
-+   works.  Rob Heaton (riscos-gcc16).  */
++/* 2026: declared and implemented (it was ENOSYS and undeclared).  This
++   function is a cancellation point.  Rob Heaton (riscos-gcc16, his
++   report 24).  */
 +struct timespec;
 +extern int sem_timedwait (sem_t *__restrict __sem,
 +			  const struct timespec *__restrict __abstime);
@@ -2462,11 +2470,56 @@ index fada843..856bb59 100644
 -	DECLARE_OBJECT filter_installed
 -
  	.end
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/cancel.c b/gcc4/recipe/files/gcc/libunixlib/pthread/cancel.c
+index d2c4bf2..0ed2218 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/cancel.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/cancel.c
+@@ -51,7 +51,32 @@ pthread_cancel (pthread_t thread)
+   if (__pthread_invalid (thread))
+     return ESRCH;
+ 
++  __pthread_disable_ints ();
++
+   thread->cancelpending = 1;
+ 
++  /* 2026: a thread waiting on a condition variable is woken (a spurious
++     wakeup, which POSIX allows), so that a wait that is a cancellation
++     point (sem_wait, which now waits on one instead of polling: P5) can
++     act on it.  Taken off the list as pthread_cond_signal does; its
++     'cond' stays set, so a timed wait reports 0, not ETIMEDOUT.  */
++  if (thread->cancelstate == PTHREAD_CANCEL_ENABLE
++      && (thread->state == STATE_COND_WAIT
++	  || thread->state == STATE_COND_TIMED_WAIT)
++      && thread->cond != NULL)
++    {
++      pthread_t *link;
++
++      for (link = &thread->cond->waiting; *link; link = &(*link)->nextwait)
++	if (*link == thread)
++	  {
++	    *link = thread->nextwait;
++	    break;
++	  }
++      thread->state = STATE_RUNNING;
++    }
++
++  __pthread_enable_ints ();
++
+   return 0;
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/cond.c b/gcc4/recipe/files/gcc/libunixlib/pthread/cond.c
-index dc80526..08b2c0d 100644
+index dc80526..957bc57 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/cond.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/cond.c
-@@ -43,12 +43,60 @@ pthread_cond_wait (pthread_cond_t *cond, pthread_mutex_t *mutex)
+@@ -7,6 +7,7 @@
+ #include <sys/time.h>
+ 
+ #include <internal/os.h>
++#include <internal/unix.h>
+ #include <pthread.h>
+ 
+ #ifdef PTHREAD_DEBUG
+@@ -43,12 +44,60 @@ pthread_cond_wait (pthread_cond_t *cond, pthread_mutex_t *mutex)
    return pthread_cond_timedwait (cond, mutex, NULL);
  }
  
@@ -2527,7 +2580,7 @@ index dc80526..08b2c0d 100644
  
    if (cond == NULL || mutex == NULL)
      return EINVAL;
-@@ -56,6 +104,15 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
+@@ -56,6 +105,28 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
    if (mutex->owner != __pthread_running_thread)
      return EINVAL;
  
@@ -2540,10 +2593,23 @@ index dc80526..08b2c0d 100644
 +        return err;
 +    }
 +
++  /* 2026 (peer review): with no other thread started, there is no one to
++     signal and the scheduler doesn't run: return at once (a spurious
++     wakeup, which POSIX allows; a caller's loop, or the deadline check
++     above on its next call, ends the wait).  This used to put the thread
++     on the wait list and return, leaving it there: the next wait linked
++     it to itself.  A single-threaded program using semaphores (P5) does
++     this.  */
++  if (!__ul_global.pthread_system_running)
++    {
++      pthread_mutex_unlock (mutex);
++      return pthread_mutex_lock (mutex);
++    }
++
    __pthread_disable_ints ();
  
    /* This call will not return an error unless mutex is NULL, which we've
-@@ -73,20 +130,8 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
+@@ -73,20 +144,8 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
      }
    else
      {
@@ -2565,7 +2631,7 @@ index dc80526..08b2c0d 100644
      }
  
    /* Add this thread to the linked list of threads that are waiting on
-@@ -109,13 +154,13 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
+@@ -109,13 +168,13 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
    pthread_yield ();
    /* pthread_yield won't return until either the condition var has been signalled, or a timeout occured */
  
@@ -2586,7 +2652,7 @@ index dc80526..08b2c0d 100644
  
    return pthread_mutex_lock (mutex);
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
-index 4343190..a0b141b 100644
+index 4343190..901e096 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 @@ -89,6 +89,15 @@ __pthread_context_switch (void)
@@ -2605,7 +2671,7 @@ index 4343190..a0b141b 100644
    pthread_t next = __pthread_running_thread->next;
  
    /* Loop around the list looking for a thread that is running.  */
-@@ -137,9 +146,12 @@ __pthread_context_switch (void)
+@@ -137,9 +146,13 @@ __pthread_context_switch (void)
          {
            /* Check that the condition variable wait has not timed out */
            iter = 0; /* Prevent deadlock error ocurring if we are waiting */
@@ -2614,13 +2680,14 @@ index 4343190..a0b141b 100644
 +             when the centisecond clock wraps (it used to be clock () >
 +             condtimeout, wrong across the wrap and for deadlines past
 +             2^31 cs).  */
-+          if ((int) (clock () - __pthread_running_thread->condtimeout) > 0)
++          if ((int) ((unsigned long) clock ()
++                     - (unsigned long) __pthread_running_thread->condtimeout) > 0)
              {
 -              /* Hmm, this will fail if the monotonic timer wraps around.  */
                __pthread_running_thread->state = STATE_RUNNING;
  
                /* Remove this thread from the list of threads waiting on the
-@@ -157,6 +169,9 @@ __pthread_context_switch (void)
+@@ -157,6 +170,9 @@ __pthread_context_switch (void)
                    if (thread->nextwait)
                      thread->nextwait = thread->nextwait->nextwait;
                  }
@@ -2969,7 +3036,7 @@ index f6fa1f3..641632c 100644
  
    thread->__policy = policy;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/sem.c b/gcc4/recipe/files/gcc/libunixlib/pthread/sem.c
-index 68da1bb..33f4e49 100644
+index 68da1bb..68669f4 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/sem.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/sem.c
 @@ -84,12 +84,26 @@
@@ -3107,7 +3174,7 @@ index 68da1bb..33f4e49 100644
    return 0;
  }
  
-@@ -199,176 +190,116 @@ sem_unlink(const char *name)
+@@ -199,176 +190,127 @@ sem_unlink(const char *name)
    return (-1);
  }
  
@@ -3149,14 +3216,6 @@ index 68da1bb..33f4e49 100644
 -      __pthread_disable_ints();
 -      /* pthread_spinlock(self, &self->pt_statelock); */
 -      if (self->cancelpending)
--	{
--	  /* pthread_spinunlock(self, &self->pt_statelock); */
--	  __pthread_enable_ints();
--	  pthread_rwlock_unlock(&sem->usem_interlock);
--	  pthread_exit(PTHREAD_CANCELED);
--	}
--
--      if (sem->usem_count > 0)
 +      if (abstime != NULL)
 +	err = pthread_cond_timedwait (&state->cond, &state->lock, abstime);
 +      else
@@ -3168,11 +3227,27 @@ index 68da1bb..33f4e49 100644
  	{
 -	  /* pthread_spinunlock(self, &self->pt_statelock); */
 -	  __pthread_enable_ints();
+-	  pthread_rwlock_unlock(&sem->usem_interlock);
+-	  pthread_exit(PTHREAD_CANCELED);
++	  pthread_mutex_unlock (&state->lock);
++	  return __set_errno (err);
+ 	}
+ 
+-      if (sem->usem_count > 0)
++      /* 2026 (peer review): sem_wait is a cancellation point.  The old
++	 polling loop checked for cancellation on every pass; waiting on
++	 the condition variable, the thread is woken by pthread_cancel
++	 (pthread/cancel.c) and acts on it here, with the lock released.  */
++      if (__pthread_running_thread->cancelpending)
+ 	{
+-	  /* pthread_spinunlock(self, &self->pt_statelock); */
+-	  __pthread_enable_ints();
 -	  sem->usem_count--;
 -	  pthread_rwlock_unlock(&sem->usem_interlock);
 -	  return 0;
 +	  pthread_mutex_unlock (&state->lock);
-+	  return __set_errno (err);
++	  pthread_testcancel ();
++	  pthread_mutex_lock (&state->lock);
  	}
 +    }
  
@@ -5478,19 +5553,10 @@ index 1759e21..777f924 100644
 -#endif
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/fwrite.c b/gcc4/recipe/files/gcc/libunixlib/stdio/fwrite.c
-index 6bbaba5..e4dcb30 100644
+index 6bbaba5..fc9b66c 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdio/fwrite.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/stdio/fwrite.c
-@@ -71,12 +71,18 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
- 	  while (to_write)
- 	    {
- 	      size_t bytes = write (stream->fd, data, to_write);
--	      if (bytes == -1)
-+	      /* 2026: write () taking nothing is an error too (it used to
-+		 loop for ever).  */
-+	      if (bytes == -1 || bytes == 0)
- 		{
- 		  stream->__error = 1;
+@@ -77,6 +77,10 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
  		  break;
  		}
  	      to_write -= bytes;
@@ -5501,14 +5567,7 @@ index 6bbaba5..e4dcb30 100644
  	      /* Increment the internal file offset.  */
  	      stream->__offset += bytes;
  	      total_bytes += bytes;
-@@ -166,12 +172,13 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
- 	  else
- 	    bytes = write (stream->fd, data, to_write);
- 
--	  if (bytes == -1)
-+	  if (bytes == -1 || bytes == 0)	/* 2026: 0 too, as above */
- 	    {
- 	      stream->__error = 1;
+@@ -172,6 +176,7 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
  	      break;
  	    }
  	  to_write -= bytes;
@@ -5517,7 +5576,7 @@ index 6bbaba5..e4dcb30 100644
  	  total_bytes += bytes;
  	}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/scanf.c b/gcc4/recipe/files/gcc/libunixlib/stdio/scanf.c
-index 7bb9f46..1e99010 100644
+index 7bb9f46..d41061e 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdio/scanf.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/stdio/scanf.c
 @@ -44,6 +44,7 @@ static const char rcsid[] =
@@ -5528,7 +5587,7 @@ index 7bb9f46..1e99010 100644
  #include <ctype.h>
  #include <stdarg.h>
  #include <string.h>
-@@ -62,11 +63,17 @@ static const char rcsid[] =
+@@ -62,11 +63,16 @@ static const char rcsid[] =
   * Flags used during conversion.
   */
  #define	LONG		0x01	/* l: long or double */
@@ -5540,14 +5599,13 @@ index 7bb9f46..1e99010 100644
  #define	NOSKIP		0x20	/* do not skip blanks */
 +/* 2026: ll, hh, j, q, z, t and %Lf: Rob Heaton (riscos-gcc16, his report
 +   21); only l, L and h were known, so %lld stored a long (the low word of a
-+   long long), %hhd a short and %Lf a float.  L on an integer conversion
-+   (%Ld) means long long, as in glibc.  */
++   long long), %hhd a short and %Lf a float.  */
 +#define	LONGLONG	0x400	/* ll, j, q: long long (intmax_t) */
 +#define	CHARSZ		0x800	/* hh: char (SHORT is set as well) */
  
  /*
   * The following are used in numeric conversions only:
-@@ -115,6 +122,8 @@ vfscanf (FILE *fp, char const *fmt0, va_list ap)
+@@ -115,6 +121,8 @@ vfscanf (FILE *fp, char const *fmt0, va_list ap)
  	int base;		/* base argument to strtol/strtoul */
  	u_long (*ccfn)(const char *, char **, int);
  				/* conversion function (strtol/strtoul) */
@@ -5556,7 +5614,7 @@ index 7bb9f46..1e99010 100644
  	char ccltab[256];	/* character class table for %[...] */
  	char buf[BUF];		/* buffer for numeric conversions */
  
-@@ -129,6 +138,7 @@ vfscanf (FILE *fp, char const *fmt0, va_list ap)
+@@ -129,6 +137,7 @@ vfscanf (FILE *fp, char const *fmt0, va_list ap)
  	nread = 0;
  	base = 0;		/* XXX just to keep gcc happy */
  	ccfn = NULL;		/* XXX just to keep gcc happy */
@@ -5564,7 +5622,7 @@ index 7bb9f46..1e99010 100644
  	for (;;) {
  		c = *fmt++;
  		if (c == 0)
-@@ -174,13 +184,35 @@ literal:
+@@ -174,13 +183,35 @@ literal:
  			flags |= SUPPRESS;
  			goto again;
  		case 'l':
@@ -5602,7 +5660,7 @@ index 7bb9f46..1e99010 100644
  			goto again;
  
  		case '0': case '1': case '2': case '3': case '4':
-@@ -201,12 +233,14 @@ literal:
+@@ -201,12 +232,14 @@ literal:
  		case 'd':
  			c = CT_INT;
  			ccfn = (u_long (*)(const char *, char **, int))strtol;
@@ -5617,7 +5675,7 @@ index 7bb9f46..1e99010 100644
  			base = 0;
  			break;
  
-@@ -216,12 +250,14 @@ literal:
+@@ -216,12 +249,14 @@ literal:
  		case 'o':
  			c = CT_INT;
  			ccfn = strtoul;
@@ -5632,7 +5690,7 @@ index 7bb9f46..1e99010 100644
  			base = 10;
  			break;
  
-@@ -232,6 +268,7 @@ literal:
+@@ -232,6 +267,7 @@ literal:
  			flags |= PFXOK;	/* enable 0x prefixing */
  			c = CT_INT;
  			ccfn = strtoul;
@@ -5640,7 +5698,7 @@ index 7bb9f46..1e99010 100644
  			base = 16;
  			break;
  
-@@ -264,6 +301,7 @@ literal:
+@@ -264,6 +300,7 @@ literal:
  			flags |= POINTER | PFXOK;
  			c = CT_INT;
  			ccfn = strtoul;
@@ -5648,12 +5706,12 @@ index 7bb9f46..1e99010 100644
  			base = 16;
  			break;
  
-@@ -271,7 +309,11 @@ literal:
+@@ -271,7 +308,11 @@ literal:
  			nconversions++;
  			if (flags & SUPPRESS)	/* ??? */
  				continue;
 -			if (flags & SHORT)
-+			if (flags & (LONGLONG | LONGDBL))
++			if (flags & LONGLONG)
 +				*va_arg(ap, long long *) = nread;
 +			else if (flags & CHARSZ)
 +				*va_arg(ap, char *) = nread;
@@ -5661,7 +5719,7 @@ index 7bb9f46..1e99010 100644
  				*va_arg(ap, short *) = nread;
  			else if (flags & LONG)
  				*va_arg(ap, long *) = nread;
-@@ -290,6 +332,7 @@ literal:
+@@ -290,6 +331,7 @@ literal:
  				flags |= LONG;
  			c = CT_INT;
  			ccfn = (u_long (*)(const char *, char **, int))strtol;
@@ -5669,7 +5727,7 @@ index 7bb9f46..1e99010 100644
  			base = 10;
  			break;
  		}
-@@ -565,18 +608,24 @@ fprintf (stderr, "peekc (fp) = %c\n", c);
+@@ -565,18 +607,26 @@ fprintf (stderr, "peekc (fp) = %c\n", c);
  				(void) ungetc(c, fp);
  			}
  			if ((flags & SUPPRESS) == 0) {
@@ -5685,7 +5743,9 @@ index 7bb9f46..1e99010 100644
 -					*va_arg(ap, long *) = res;
 -				else
 -					*va_arg(ap, int *) = (int)res;
-+				if (flags & (LONGLONG | LONGDBL))	/* %Ld as glibc */
++				/* 2026 (peer review): not for %p, whose
++				   store is a pointer whatever the modifier.  */
++				if ((flags & LONGLONG) && !(flags & POINTER))
 +					*va_arg(ap, unsigned long long *) =
 +					    (*ccfnll)(buf, (char **)NULL, base);
 +				else {
@@ -5705,7 +5765,7 @@ index 7bb9f46..1e99010 100644
  				nassigned++;
  			}
  			nread += p - buf;
-@@ -665,11 +714,15 @@ fprintf (stderr, "peekc (fp) = %c\n", c);
+@@ -665,11 +715,15 @@ fprintf (stderr, "peekc (fp) = %c\n", c);
  #ifdef DEBUG
  fprintf (stderr, "strtod: '%s'\n", buf);
  #endif
@@ -7461,10 +7521,18 @@ index f6b1a2f..8547c9f 100644
 +  return fsync (fd);
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/sysconf.c b/gcc4/recipe/files/gcc/libunixlib/unix/sysconf.c
-index 27b8fdd..73c0d1a 100644
+index 27b8fdd..7066aaf 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/sysconf.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/unix/sysconf.c
-@@ -126,10 +126,12 @@ sysconf (int name)
+@@ -9,6 +9,7 @@
+ #include <time.h>
+ 
+ #include <internal/unix.h>
++#include <swis.h>
+ 
+ /* Get the value of the system variable NAME.  */
+ long int
+@@ -126,10 +127,24 @@ sysconf (int name)
          return _POSIX2_SW_DEV;
  #endif
  
@@ -7476,6 +7544,18 @@ index 27b8fdd..73c0d1a 100644
 +      case _SC_NPROCESSORS_CONF:
  	return 1;
 -#endif
++
++      /* 2026: the number of pages of RAM (OS_ReadMemMapInfo).  The name
++	 used to share its value with _SC_BC_BASE_MAX (see <unistd.h>);
++	 now that it is a macro, code that tests #ifdef _SC_PHYS_PAGES calls
++	 it, so it is answered.  */
++      case _SC_PHYS_PAGES:
++	{
++	  int pagesize, pages;
++	  if (_swix (OS_ReadMemMapInfo, _OUTR(0,1), &pagesize, &pages))
++	    return __set_errno (EINVAL);
++	  return pages;
++	}
      }
  
    return __set_errno (EINVAL);
