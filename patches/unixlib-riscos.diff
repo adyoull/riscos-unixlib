@@ -176,6 +176,25 @@ index c9673b7..9af4dd4 100644
  
    return 0;
  }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/common/prefix.c b/gcc4/recipe/files/gcc/libunixlib/common/prefix.c
+index 0653d66..2e6504a 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/common/prefix.c
++++ b/gcc4/recipe/files/gcc/libunixlib/common/prefix.c
+@@ -25,9 +25,12 @@ __get_dde_prefix (void)
+       if (prefix == NULL)
+         return NULL;
+ 
+-      /* Returned string can be control char terminated.  */
++      /* Returned string can be control char terminated.
++	 2026: the test read *prefix, which never changes, so with a
++	 DDEUtils prefix set (*Prefix) this loop never ended: found by Rob
++	 Heaton (riscos-gcc16, his report 20).  */
+       const char *end_prefix;
+-      for (end_prefix = prefix; (unsigned char)*prefix >= ' '; ++end_prefix)
++      for (end_prefix = prefix; (unsigned char)*end_prefix >= ' '; ++end_prefix)
+         /* */;
+       /* Filter out zero length results.  */
+       size_t size = end_prefix - prefix;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/configure.ac b/gcc4/recipe/files/gcc/libunixlib/configure.ac
 index 53fe31c..7467329 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/configure.ac
@@ -215,10 +234,18 @@ index 7775d56..646a581 100644
  
  What
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
-index 7f01c57..f107e29 100644
+index 7f01c57..3cbca03 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
-@@ -389,6 +389,30 @@ PTHREAD_CALLEVERY_RMA_TICKER_STARTED:		.skip 4
+@@ -328,6 +328,7 @@
+ .set	MEM_DALIMIT, 40		@ = __ul_memory.dalimit
+ .set	MEM_APPSPACE_LIMIT, 44	@ = __ul_memory.appspace_limit
+ .set	MEM_OLD_HIMEM, 48	@ = __ul_memory.old_himem
++.set	MEM_APPSPACE_HIMEM_MAX, 52	@ = __ul_memory.appspace_himem_max
+ #endif
+ 
+ #if __UNIXLIB_CHUNKED_STACK
+@@ -389,6 +390,30 @@ PTHREAD_CALLEVERY_RMA_TICKER_STARTED:		.skip 4
  PTHREAD_CALLEVERY_RMA_WORKSEMAPHORE:		.skip 4
  PTHREAD_CALLEVERY_RMA_CALLBACK_SEMAPHORE:	.skip 4
  PTHREAD_CALLEVERY_RMA_FILTER_NAME:		.skip 20
@@ -775,10 +802,26 @@ index 0000000..fc1f0c9
 +\p\()_end:
 +.endm
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
-index 9f57871..fd30273 100644
+index 9f57871..7dec028 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
-@@ -427,8 +427,12 @@ extern void __unixinit (void);
+@@ -308,6 +308,15 @@ struct ul_memory
+ 
+   /* Value of 'appspace_himem' last time the stack was increased.  */
+   unsigned int old_himem;
++
++  /* 2026: the permitted RAM limit (OS_GetEnv) the program started with,
++     when that is below the application space limit; -1 otherwise.
++     'appspace_himem' is never raised above it: the memory between the two
++     isn't ours.  A program started by vfork () + exec () is told by
++     SharedUnixLibrary to stay below the copy of its parent, which is kept
++     there.  Offset 52 (MEM_APPSPACE_HIMEM_MAX).  Found and fixed by Rob
++     Heaton (riscos-gcc16, his report 08).  */
++  unsigned int appspace_himem_max;
+ };
+ 
+ extern struct ul_memory __ul_memory;
+@@ -427,8 +436,12 @@ extern void __unixinit (void);
  extern void __free_process (struct __sul_process *process)
  	__nonnull ((1));
  
@@ -1242,6 +1285,22 @@ index 2e424fb..b2d483d 100644
  __END_DECLS
  
  #endif /* __SCHED_H */
+diff --git a/gcc4/recipe/files/gcc/libunixlib/include/semaphore.h b/gcc4/recipe/files/gcc/libunixlib/include/semaphore.h
+index 74baee8..d65ac98 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/include/semaphore.h
++++ b/gcc4/recipe/files/gcc/libunixlib/include/semaphore.h
+@@ -77,6 +77,11 @@ extern int sem_unlink (const char *) __THROW;
+ 
+ /* This function is a cancellation point.  */
+ extern int sem_wait (sem_t *__sem);
++/* 2026: declared (it existed, as ENOSYS, but wasn't); since 5.0.3.4 it
++   works.  Rob Heaton (riscos-gcc16).  */
++struct timespec;
++extern int sem_timedwait (sem_t *__restrict __sem,
++			  const struct timespec *__restrict __abstime);
+ 
+ extern sem_t *sem_open (const char *, int, ...) __THROW;
+ __END_DECLS
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/sys/mman.h b/gcc4/recipe/files/gcc/libunixlib/include/sys/mman.h
 index b658ff5..b4ea83e 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/sys/mman.h
@@ -1401,10 +1460,36 @@ index 95184b4..2ed1933 100644
  
  /* Set file access permissions for file to mode.  */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/unistd.h b/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
-index be382ba..e684348 100644
+index be382ba..19137f5 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
-@@ -608,11 +608,39 @@ extern void sync (void) __THROW;
+@@ -343,10 +343,23 @@ enum
+     _SC_2_SW_DEV,
+     _SC_2_LOCALEDEF,
+ 
+-    _SC_PAGE_SIZE = _SC_PAGESIZE,
++    /* 2026: _SC_PAGE_SIZE = _SC_PAGESIZE restarted the numbering, so the
++       names after it shared values with earlier ones: _SC_PHYS_PAGES was
++       _SC_BC_BASE_MAX and _SC_NPROCESSORS_ONLN was _SC_BC_DIM_MAX, so
++       sysconf (_SC_NPROCESSORS_ONLN) returned 2048 and a program sized
++       its thread pool by it.  The alias is now last, so the names before
++       it get values of their own (programs built before keep the old
++       values and answers).  Found and fixed by Rob Heaton (riscos-gcc16,
++       his report 13).  */
+     _SC_PHYS_PAGES,
+-    _SC_NPROCESSORS_ONLN
++    _SC_NPROCESSORS_ONLN,
++    _SC_NPROCESSORS_CONF,
++
++    _SC_PAGE_SIZE = _SC_PAGESIZE
+   };
++#define _SC_PHYS_PAGES _SC_PHYS_PAGES
++#define _SC_NPROCESSORS_ONLN _SC_NPROCESSORS_ONLN
++#define _SC_NPROCESSORS_CONF _SC_NPROCESSORS_CONF
+ 
+ /* Get the value of the system variable NAME.  */
+ extern long int sysconf (int __name) __THROW __attribute__ ((__const__));
+@@ -608,11 +621,39 @@ extern void sync (void) __THROW;
     This function is a cancellation point.  */
  extern int fsync (int __fd);
  
@@ -2377,8 +2462,131 @@ index fada843..856bb59 100644
 -	DECLARE_OBJECT filter_installed
 -
  	.end
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/cond.c b/gcc4/recipe/files/gcc/libunixlib/pthread/cond.c
+index dc80526..08b2c0d 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/cond.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/cond.c
+@@ -43,12 +43,60 @@ pthread_cond_wait (pthread_cond_t *cond, pthread_mutex_t *mutex)
+   return pthread_cond_timedwait (cond, mutex, NULL);
+ }
+ 
++/* 2026: turn ABSTIME, an absolute time on the condition variable's clock
++   CLOCK_ID, into a deadline on clock (), which the scheduler compares
++   (pthread/context.c).  The old code took ABSTIME minus time (), which has
++   a resolution of one second, so every wait overran by up to a second; for
++   a CLOCK_MONOTONIC condition variable it added clock () to a time that was
++   already absolute.  Both clocks have centisecond resolution or better, so
++   the difference is exact; it's rounded up (a wait may be a little late,
++   never early).  Returns 0 and the deadline in *DEADLINE, ETIMEDOUT if
++   ABSTIME has passed, or EINVAL.  Found and fixed by Rob Heaton
++   (riscos-gcc16, his report 11); his code.  */
++static int
++cond_deadline (clockid_t clock_id, const struct timespec *abstime,
++               clock_t *deadline)
++{
++  struct timespec now;
++  long long secs;
++  long nsecs, cs;
++
++  if (abstime->tv_nsec < 0 || abstime->tv_nsec >= 1000000000L)
++    return EINVAL;
++
++  if (clock_gettime (clock_id, &now) != 0)
++    return EINVAL;
++
++  /* Time remaining: secs + nsecs / 10^9, with 0 <= nsecs < 10^9.  */
++  secs = (long long) abstime->tv_sec - now.tv_sec;
++  nsecs = abstime->tv_nsec - now.tv_nsec;
++  if (nsecs < 0)
++    {
++      secs--;
++      nsecs += 1000000000L;
++    }
++  if (secs < 0 || (secs == 0 && nsecs == 0))
++    return ETIMEDOUT;
++
++  /* Whole centiseconds, rounded up.  A wait of more than 10^7 seconds (115
++     days) is cut to that, which keeps the deadline within the 2^31 cs that
++     the scheduler's signed comparison allows.  */
++  if (secs > 10000000)
++    cs = 1000000000L;
++  else
++    cs = (long) secs * 100 + (nsecs + 9999999) / 10000000;
++
++  *deadline = (clock_t) ((unsigned long) clock () + (unsigned long) cs);
++  return 0;
++}
++
+ /* Wait for a condition variable to be signalled, with a timeout */
+ int
+ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
+                         const struct timespec *abstime)
+ {
+   pthread_t thread;
++  clock_t timeout = 0;
+ 
+   if (cond == NULL || mutex == NULL)
+     return EINVAL;
+@@ -56,6 +104,15 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
+   if (mutex->owner != __pthread_running_thread)
+     return EINVAL;
+ 
++  if (abstime != NULL)
++    {
++      /* Nothing has been changed yet, so a deadline that has already
++         passed (or an invalid one) fails with the mutex still held.  */
++      int err = cond_deadline (cond->clock_id, abstime, &timeout);
++      if (err)
++        return err;
++    }
++
+   __pthread_disable_ints ();
+ 
+   /* This call will not return an error unless mutex is NULL, which we've
+@@ -73,20 +130,8 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
+     }
+   else
+     {
+-      clock_t diff;
+-
+       __pthread_running_thread->state = STATE_COND_TIMED_WAIT;
+-      if (cond->clock_id == CLOCK_MONOTONIC)
+-        {
+-          diff = (abstime->tv_sec * 100) + (abstime->tv_nsec / 10000000);
+-        }
+-      else
+-        {
+-          /* A bit crude, but... */
+-          diff = (100 * (abstime->tv_sec - time (NULL)))
+-               + (abstime->tv_nsec / 10000000);
+-	}
+-      __pthread_running_thread->condtimeout = clock () + diff;
++      __pthread_running_thread->condtimeout = timeout;
+     }
+ 
+   /* Add this thread to the linked list of threads that are waiting on
+@@ -109,13 +154,13 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
+   pthread_yield ();
+   /* pthread_yield won't return until either the condition var has been signalled, or a timeout occured */
+ 
+-  if (abstime != NULL)
++  /* 2026: timed out only if the scheduler took this thread off the list
++     for its deadline (it clears 'cond'); a thread signalled just before
++     the deadline used to report ETIMEDOUT as well, losing the signal.  */
++  if (abstime != NULL && __pthread_running_thread->cond == NULL)
+     {
+-      if (clock () > __pthread_running_thread->condtimeout)
+-        {
+-          pthread_mutex_lock (mutex);
+-          return ETIMEDOUT;
+-        }
++      pthread_mutex_lock (mutex);
++      return ETIMEDOUT;
+     }
+ 
+   return pthread_mutex_lock (mutex);
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
-index 4343190..cd8b1ce 100644
+index 4343190..a0b141b 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 @@ -89,6 +89,15 @@ __pthread_context_switch (void)
@@ -2397,6 +2605,31 @@ index 4343190..cd8b1ce 100644
    pthread_t next = __pthread_running_thread->next;
  
    /* Loop around the list looking for a thread that is running.  */
+@@ -137,9 +146,12 @@ __pthread_context_switch (void)
+         {
+           /* Check that the condition variable wait has not timed out */
+           iter = 0; /* Prevent deadlock error ocurring if we are waiting */
+-          if (clock () > __pthread_running_thread->condtimeout)
++          /* 2026: compared as a signed difference, so it still works
++             when the centisecond clock wraps (it used to be clock () >
++             condtimeout, wrong across the wrap and for deadlines past
++             2^31 cs).  */
++          if ((int) (clock () - __pthread_running_thread->condtimeout) > 0)
+             {
+-              /* Hmm, this will fail if the monotonic timer wraps around.  */
+               __pthread_running_thread->state = STATE_RUNNING;
+ 
+               /* Remove this thread from the list of threads waiting on the
+@@ -157,6 +169,9 @@ __pthread_context_switch (void)
+                   if (thread->nextwait)
+                     thread->nextwait = thread->nextwait->nextwait;
+                 }
++              /* 2026: tells pthread_cond_timedwait it timed out (a signal
++                 leaves cond set).  */
++              __pthread_running_thread->cond = NULL;
+             }
+         }
+ #ifdef PTHREAD_DEBUG_CONTEXT
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/heldwait.c b/gcc4/recipe/files/gcc/libunixlib/pthread/heldwait.c
 new file mode 100644
 index 0000000..4758149
@@ -2521,6 +2754,104 @@ index 37f75aa..bd1410f 100644
    node->joined = NULL;
    node->ret = NULL;
    node->mutex = NULL;
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/once.c b/gcc4/recipe/files/gcc/libunixlib/pthread/once.c
+index 3c9205e..57666d7 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/once.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/once.c
+@@ -4,40 +4,82 @@
+ #include <errno.h>
+ #include <pthread.h>
+ 
+-static pthread_mutex_t once_mutex = PTHREAD_MUTEX_INITIALIZER;
++/* 2026: once_mutex only protects the state of the pthread_once_t objects,
++   and once_cond signals changes of that state.  It is NOT held while an
++   init routine runs.
++
++   It used to be held, one mutex for every pthread_once_t, for the whole of
++   the init routine.  An init routine that waits for another thread which
++   itself calls pthread_once (for a different pthread_once_t) then
++   deadlocked: the C++ library does exactly that in std::async
++   (future::get runs call_once (thread::join) while the other thread runs
++   call_once (set the result)).  Found and fixed by Rob Heaton
++   (riscos-gcc16, his report 10); this is his design, without the C++
++   exception handling (see below), and with a fast path for an object
++   whose init routine has already run.
++
++   State of a pthread_once_t:
++     0 (PTHREAD_ONCE_INIT)  the init routine hasn't run
++     ONCE_DONE              it has completed (1, as before)
++     ONCE_RUNNING           a thread is in it
+ 
++   A C++ exception thrown out of the init routine isn't handled here (as
++   before): handling it needs this file compiled with -fexceptions, which
++   would pull the C++ unwinder into every C program that calls
++   pthread_once.  */
++#define ONCE_DONE    1
++#define ONCE_RUNNING 2
++
++static pthread_mutex_t once_mutex = PTHREAD_MUTEX_INITIALIZER;
++static pthread_cond_t once_cond = PTHREAD_COND_INITIALIZER;
+ 
+-/* Cleanup handler for pthread_once */
++/* Cleanup handler for pthread_once: the init routine was cancelled, or
++   called pthread_exit.  The effect must be as if pthread_once was never
++   called, so another thread may try.  */
+ static void
+ __pthread_once_cleanup (void *arg)
+ {
+-  arg = arg;
++  pthread_once_t *once_control = arg;
++
++  pthread_mutex_lock (&once_mutex);
++  *once_control = 0;
++  pthread_cond_broadcast (&once_cond);
+   pthread_mutex_unlock (&once_mutex);
+ }
+ 
+-/* Ensure a specified function is called exactly once
+-   We need a mutex so that only one call to pthread_once
+-   can proceed at any one time, and we can't have ints
+-   disabled during the init_routine call.
+-   If the init_routine is cancelled then the effect should
+-   be as if pthread_once was never called. */
++/* Ensure a specified function is called exactly once.  A thread that
++   finds the init routine running in another thread waits until that has
++   finished (or been cancelled), as POSIX requires.  */
+ int
+ pthread_once (pthread_once_t *once_control, void (*init_routine) (void))
+ {
+   if (once_control == NULL || init_routine == NULL)
+     return EINVAL;
+ 
++  /* Already done: nothing to wait for.  The value is only ever set to
++     ONCE_DONE after the init routine has returned.  */
++  if (*(volatile pthread_once_t *) once_control == ONCE_DONE)
++    return 0;
++
+   pthread_mutex_lock (&once_mutex); /* This won't fail */
+ 
++  while (*once_control == ONCE_RUNNING)
++    pthread_cond_wait (&once_cond, &once_mutex);
++
+   if (*once_control == 0)
+     {
+-      pthread_cleanup_push (__pthread_once_cleanup, NULL);
++      *once_control = ONCE_RUNNING;
++      pthread_mutex_unlock (&once_mutex);
++
++      pthread_cleanup_push (__pthread_once_cleanup, once_control);
+ 
+       init_routine ();
+ 
+       pthread_cleanup_pop (0);
+ 
+-      *once_control = 1;
++      pthread_mutex_lock (&once_mutex);
++      *once_control = ONCE_DONE;
++      pthread_cond_broadcast (&once_cond);
+     }
+ 
+   pthread_mutex_unlock (&once_mutex);
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c b/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
 index 9457494..e37d337 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
@@ -2637,6 +2968,379 @@ index f6fa1f3..641632c 100644
      return EINVAL;
  
    thread->__policy = policy;
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/sem.c b/gcc4/recipe/files/gcc/libunixlib/pthread/sem.c
+index 68da1bb..33f4e49 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/sem.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/sem.c
+@@ -84,12 +84,26 @@
+ #include <internal/os.h>
+ #endif
+ 
+-struct pthread_queue_t
++/* 2026: the blocking semaphore below is Rob Heaton's (riscos-gcc16, his
++   report 24), ported unchanged.
++
++   The state that sem_init allocates for a semaphore: a mutex and a condition
++   variable.  The threads of UnixLib are scheduled by the library itself, and a
++   thread that waits on a condition variable is not run again until it is
++   signalled or, for a timed wait, until its deadline has passed.  The state is
++   hung on the usem_waiters member of sem_t, where the NetBSD code that this
++   file comes from kept a queue of the waiting threads.  That queue was never
++   filled: sem_wait polled with pthread_yield (), which burns the time slice of
++   a thread that has nothing to do, and it leaked a list entry per call;
++   sem_timedwait was ENOSYS.  */
++struct sem_state
+ {
+-  pthread_t thread; /* this thread */
+-  struct pthread_queue_t *next;    /* next element */
++  pthread_mutex_t lock;
++  pthread_cond_t cond;
+ };
+ 
++#define SEM_STATE(sem) ((struct sem_state *) (sem)->usem_waiters)
++
+ #define	USEM_MAGIC	0x09fa4012
+ #define	USEM_USER	0	/* assumes kernel does not use NULL */
+ 
+@@ -97,82 +111,59 @@ struct pthread_queue_t
+    and non-zero if invalid.  */
+ static __inline int sem_check_validity (const sem_t *sem)
+ {
+-  if (sem != NULL && sem->usem_magic == USEM_MAGIC)
++  if (sem != NULL && sem->usem_magic == USEM_MAGIC && sem->usem_waiters != NULL)
+     return 0;
+ 
+   return __set_errno (EINVAL);
+ }
+ 
+-static __inline void sem_free (sem_t *sem)
+-{
+-#ifdef PTHREAD_DEBUG_SEMS
+-  __os_print("-- sem_free: Freeing semaphore (");
+-  __os_prhex((int)sem);
+-  __os_print(")\r\n");
+-#endif
+-  sem->usem_magic = 0;
+-}
+-
+ /* Initialise a semaphore structure.  User has already passed a valid
+    piece of memory in 'sem'.  */
+ int sem_init (sem_t *sem, int pshared, unsigned int value)
+ {
+-  semid_t semid = USEM_USER;
++  struct sem_state *state;
+ 
+   /* Semaphores shared between processes aren't supported on RISC OS */
+   if (pshared)
+     return __set_errno (ENOSYS);
+ 
+-  if (value > SEM_VALUE_MAX)
++  if (sem == NULL || value > SEM_VALUE_MAX)
+     return __set_errno (EINVAL);
+ 
+-#ifdef PTHREAD_DEBUG_SEMS
+-  __os_print("-- sem_alloc: Allocating semaphore (");
+-  __os_prhex((int)sem);
+-  __os_print(" id: ");
+-  __os_prhex((int)semid);
+-  __os_print(" value: ");
+-  __os_prdec((int)value);
+-  __os_print(")\r\n");
+-#endif
++  state = malloc (sizeof (struct sem_state));
++  if (state == NULL)
++    return __set_errno (ENOMEM);
++  pthread_mutex_init (&state->lock, NULL);
++  pthread_cond_init (&state->cond, NULL);
++
+   sem->usem_magic = USEM_MAGIC;
+-  pthread_rwlock_init(&sem->usem_interlock, NULL);
+-  /*PTQ_INIT(&sem->usem_waiters);*/
+-  sem->usem_waiters = NULL;
++  sem->usem_semid = USEM_USER;
++  sem->usem_waiters = (struct pthread_queue_t *) state;
+   sem->usem_count = value;
+-  sem->usem_semid = semid;
+   return 0;
+ }
+ 
+ int
+ sem_destroy(sem_t *sem)
+ {
++  struct sem_state *state;
++
+   if (sem_check_validity (sem))
+     return -1;
+ 
+-#ifdef PTHREAD_DEBUG_SEMS
+-  __os_print("-- sem_destroy: Attempting to destroy semaphore (");
+-  __os_prhex((int)sem);
+-  __os_print(")..........");
+-#endif
+-
+-  pthread_rwlock_rdlock(&sem->usem_interlock);
+-  if (/*!PTQ_EMPTY(&(*sem)->usem_waiters)*/
+-      sem->usem_waiters != NULL)
++  state = SEM_STATE (sem);
++  pthread_mutex_lock (&state->lock);
++  if (state->cond.waiting != NULL)
+     {
+-      pthread_rwlock_unlock(&sem->usem_interlock);
+-#ifdef PTHREAD_DEBUG_SEMS
+-      __os_print("failed\r\n");
+-#endif
++      /* Threads are still waiting on it.  */
++      pthread_mutex_unlock (&state->lock);
+       return __set_errno (EBUSY);
+     }
+-  pthread_rwlock_unlock(&sem->usem_interlock);
++  pthread_mutex_unlock (&state->lock);
+ 
+-#ifdef PTHREAD_DEBUG_SEMS
+-  __os_print("succeeded\r\n");
+-#endif
+-
+-  sem_free (sem);
++  sem->usem_magic = 0;
++  sem->usem_waiters = NULL;
++  free (state);
+   return 0;
+ }
+ 
+@@ -199,176 +190,116 @@ sem_unlink(const char *name)
+   return (-1);
+ }
+ 
+-int sem_wait (sem_t *sem)
++/* Decrement the semaphore, waiting while it is zero: until it is posted, or,
++   when ABSTIME is not NULL, until the absolute time ABSTIME (on the
++   CLOCK_REALTIME clock) has passed.  A semaphore that can be decremented at
++   once is decremented whatever ABSTIME is.  */
++static int
++sem_wait_until (sem_t *sem, const struct timespec *abstime)
+ {
+-  pthread_t self;
+-  struct pthread_queue_t *queue_entry, *tmp;
++  struct sem_state *state;
++  int err = 0;
+ 
+   if (sem_check_validity (sem))
+     return -1;
+ 
+   PTHREAD_SAFE_CANCELLATION
+ 
+-  self = __pthread_running_thread;
+-  queue_entry = malloc(sizeof(struct pthread_queue_t));
+-  queue_entry->thread = self;
+-  queue_entry->next = NULL;
++  state = SEM_STATE (sem);
++  pthread_mutex_lock (&state->lock);
+ 
+-#ifdef PTHREAD_DEBUG_SEMS
+-  __os_print("-- sem_wait: waiting on semaphore (");
+-  __os_prhex((int)sem);
+-  __os_print(")\r\n");
+-#endif
+-
+-  for (;;)
++  while (sem->usem_count == 0)
+     {
+-      pthread_rwlock_wrlock(&sem->usem_interlock);
+-      __pthread_disable_ints();
+-      /* pthread_spinlock(self, &self->pt_statelock); */
+-      if (self->cancelpending)
+-	{
+-	  /* pthread_spinunlock(self, &self->pt_statelock); */
+-	  __pthread_enable_ints();
+-	  pthread_rwlock_unlock(&sem->usem_interlock);
+-	  pthread_exit(PTHREAD_CANCELED);
+-	}
+-
+-      if (sem->usem_count > 0)
++      if (abstime != NULL)
++	err = pthread_cond_timedwait (&state->cond, &state->lock, abstime);
++      else
++	err = pthread_cond_wait (&state->cond, &state->lock);
++
++      /* The mutex is held again in every case.  A deadline that passed
++	 just as the semaphore was posted still gets the semaphore.  */
++      if (err != 0 && !(err == ETIMEDOUT && sem->usem_count != 0))
+ 	{
+-	  /* pthread_spinunlock(self, &self->pt_statelock); */
+-	  __pthread_enable_ints();
+-	  sem->usem_count--;
+-	  pthread_rwlock_unlock(&sem->usem_interlock);
+-	  return 0;
++	  pthread_mutex_unlock (&state->lock);
++	  return __set_errno (err);
+ 	}
++    }
+ 
+-      if (sem->usem_waiters)
+-	{
+-	  /* PTQ_INSERT_TAIL(&(*sem)->usem_waiters, self, pt_sleep); */
+-	  for (tmp = sem->usem_waiters;
+-	       tmp->next && tmp != queue_entry; tmp = tmp->next)
+-	    ;
+-	  if (tmp != queue_entry)
+-	    tmp->next = queue_entry;
+-      
+-	  self->state = STATE_BLOCKED;
+-	  /* self->pt_sleepobj = *sem;
+-	     self->pt_sleepq = &(*sem)->usem_waiters;
+-	     self->pt_sleeplock = &(*sem)->usem_interlock;
+-	     pthread_spinunlock(self, &self->pt_statelock); */
+-	}
++  sem->usem_count--;
++  pthread_mutex_unlock (&state->lock);
++  return 0;
++}
+ 
+-      __pthread_enable_ints();
+-      /* XXX What about signals? */
++int sem_wait (sem_t *sem)
++{
++  return sem_wait_until (sem, NULL);
++}
+ 
+-      pthread_rwlock_unlock(&sem->usem_interlock);
++int
++sem_timedwait (sem_t *sem, const struct timespec *abstime)
++{
++  if (abstime == NULL)
++    return __set_errno (EINVAL);
+ 
+-      /* pthread__block(self, &(*sem)->usem_interlock); */
+-      /* interlock is not held when we return */
+-      pthread_yield();
+-    }
+-  return 0;
++  return sem_wait_until (sem, abstime);
+ }
+ 
+ int
+ sem_trywait(sem_t *sem)
+ {
++  struct sem_state *state;
+   int retval = 0;
+ 
+   if (sem_check_validity (sem))
+     return -1;
+ 
+-#ifdef PTHREAD_DEBUG_SEMS
+-  __os_print("-- sem_trywait: trying to acquire semaphore (");
+-  __os_prhex((int)sem);
+-  __os_print(")..........");
+-#endif
+-
+-  pthread_rwlock_wrlock(&sem->usem_interlock);
+-
++  state = SEM_STATE (sem);
++  pthread_mutex_lock (&state->lock);
+   if (sem->usem_count == 0)
+     {
+       errno = EAGAIN;
+       retval = -1;
+     }
+   else
+-    {
+-      sem->usem_count --;
+-    }
+-
+-  pthread_rwlock_unlock(&sem->usem_interlock);
+-#ifdef PTHREAD_DEBUG_SEMS
+-  __os_print ((retval == 0) ? "succeeded\r\n" : "failed\r\n");
+-#endif
++    sem->usem_count--;
++  pthread_mutex_unlock (&state->lock);
+   return retval;
+ }
+ 
+ int
+ sem_post(sem_t *sem)
+ {
+-  pthread_t self, blocked;
+-  struct pthread_queue_t *tmp;
++  struct sem_state *state;
+ 
+   if (sem_check_validity (sem))
+     return -1;
+ 
+-  self = __pthread_running_thread;
+-
+-#ifdef PTHREAD_DEBUG_SEMS
+-  __os_print("-- sem_post: releasing semaphore (");
+-  __os_prhex((int)sem);
+-  __os_print(")\r\n");
+-#endif
+-
+-  pthread_rwlock_wrlock(&sem->usem_interlock);
+-  sem->usem_count++;
+-
+-  if (sem->usem_waiters != NULL)
+-    blocked = sem->usem_waiters->thread;
+-  else
+-    blocked = NULL;
+-  if (blocked)
++  state = SEM_STATE (sem);
++  pthread_mutex_lock (&state->lock);
++  if (sem->usem_count == SEM_VALUE_MAX)
+     {
+-      /* PTQ_REMOVE(&(*sem)->usem_waiters, blocked, pt_sleep); */
+-      tmp = sem->usem_waiters;
+-      sem->usem_waiters = sem->usem_waiters->next;
+-      tmp->thread = tmp->thread = NULL;
+-      free(tmp);
+-
+-      /* Give the head of the blocked queue another try. */
+-      /* pthread__sched(self, blocked); */
+-      __pthread_disable_ints();
+-      blocked->state = STATE_RUNNING;
+-      __pthread_enable_ints();
++      pthread_mutex_unlock (&state->lock);
++      return __set_errno (EOVERFLOW);
+     }
+-  pthread_rwlock_unlock(&sem->usem_interlock);
+-  pthread_yield();
++  sem->usem_count++;
++  /* Make the first waiting thread runnable (it takes the semaphore when it
++     runs); a broadcast is not needed, one post allows one thread.  */
++  pthread_cond_signal (&state->cond);
++  pthread_mutex_unlock (&state->lock);
+   return 0;
+ }
+ 
+ int
+ sem_getvalue(sem_t * __restrict sem, int * __restrict sval)
+ {
++  struct sem_state *state;
++
+   if (sem_check_validity (sem))
+     return -1;
+ 
+-#ifdef PTHREAD_DEBUG_SEMS
+-  __os_print("-- sem_getvalue: Retrieving value of semaphore\r\n");
+-#endif
+-
+-  pthread_rwlock_rdlock(&sem->usem_interlock);
++  state = SEM_STATE (sem);
++  pthread_mutex_lock (&state->lock);
+   *sval = (int) sem->usem_count;
+-  pthread_rwlock_unlock(&sem->usem_interlock);
++  pthread_mutex_unlock (&state->lock);
+ 
+   return 0;
+ }
+-
+-int
+-sem_timedwait (sem_t *sem, const struct timespec *abstime)
+-{
+-#ifdef PTHREAD_DEBUG_SEMS
+-  __os_print(" -- sem_timedwait: Not supported\r\n");
+-#endif
+-
+-  return __set_errno (ENOSYS);
+-}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/ticker.c b/gcc4/recipe/files/gcc/libunixlib/pthread/ticker.c
 new file mode 100644
 index 0000000..130b336
@@ -4643,6 +5347,21 @@ index 9590f59..d56a0d5 100644
  }
 -#endif
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/fread.c b/gcc4/recipe/files/gcc/libunixlib/stdio/fread.c
+index f1021d3..147a227 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdio/fread.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdio/fread.c
+@@ -91,6 +91,10 @@ fread (void *data, size_t size, size_t count, FILE *stream)
+ 	  else
+ 	    {
+ 	      to_read -= bytes;
++	      /* 2026: a short read continues after the bytes it got; it used
++		 to read the rest over them (the count was right, the data
++		 wasn't).  Rob Heaton (riscos-gcc16, his report 09).  */
++	      data = (void *)((char *)data + bytes);
+ 	      /* Fix the file offset pointer.  */
+ 	      stream->__offset += bytes;
+ 	    }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/fseeko.c b/gcc4/recipe/files/gcc/libunixlib/stdio/fseeko.c
 index 676be70..94d677a 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdio/fseeko.c
@@ -4758,6 +5477,255 @@ index 1759e21..777f924 100644
  }
 -#endif
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/fwrite.c b/gcc4/recipe/files/gcc/libunixlib/stdio/fwrite.c
+index 6bbaba5..e4dcb30 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdio/fwrite.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdio/fwrite.c
+@@ -71,12 +71,18 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
+ 	  while (to_write)
+ 	    {
+ 	      size_t bytes = write (stream->fd, data, to_write);
+-	      if (bytes == -1)
++	      /* 2026: write () taking nothing is an error too (it used to
++		 loop for ever).  */
++	      if (bytes == -1 || bytes == 0)
+ 		{
+ 		  stream->__error = 1;
+ 		  break;
+ 		}
+ 	      to_write -= bytes;
++	      /* 2026: a short write continues after the bytes it took; it
++		 used to write the same bytes again.  Rob Heaton
++		 (riscos-gcc16, his report 09).  */
++	      data = (const void *)((const char *)data + bytes);
+ 	      /* Increment the internal file offset.  */
+ 	      stream->__offset += bytes;
+ 	      total_bytes += bytes;
+@@ -166,12 +172,13 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
+ 	  else
+ 	    bytes = write (stream->fd, data, to_write);
+ 
+-	  if (bytes == -1)
++	  if (bytes == -1 || bytes == 0)	/* 2026: 0 too, as above */
+ 	    {
+ 	      stream->__error = 1;
+ 	      break;
+ 	    }
+ 	  to_write -= bytes;
++	  data = (const void *)((const char *)data + bytes);	/* 2026 */
+ 	  stream->__offset += bytes;
+ 	  total_bytes += bytes;
+ 	}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/scanf.c b/gcc4/recipe/files/gcc/libunixlib/stdio/scanf.c
+index 7bb9f46..1e99010 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdio/scanf.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdio/scanf.c
+@@ -44,6 +44,7 @@ static const char rcsid[] =
+ 
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <stddef.h>
+ #include <ctype.h>
+ #include <stdarg.h>
+ #include <string.h>
+@@ -62,11 +63,17 @@ static const char rcsid[] =
+  * Flags used during conversion.
+  */
+ #define	LONG		0x01	/* l: long or double */
+-#define	LONGDBL		0x02	/* L: long double; unimplemented */
++#define	LONGDBL		0x02	/* L: long double */
+ #define	SHORT		0x04	/* h: short */
+ #define	SUPPRESS	0x08	/* suppress assignment */
+ #define	POINTER		0x10	/* weird %p pointer (`fake hex') */
+ #define	NOSKIP		0x20	/* do not skip blanks */
++/* 2026: ll, hh, j, q, z, t and %Lf: Rob Heaton (riscos-gcc16, his report
++   21); only l, L and h were known, so %lld stored a long (the low word of a
++   long long), %hhd a short and %Lf a float.  L on an integer conversion
++   (%Ld) means long long, as in glibc.  */
++#define	LONGLONG	0x400	/* ll, j, q: long long (intmax_t) */
++#define	CHARSZ		0x800	/* hh: char (SHORT is set as well) */
+ 
+ /*
+  * The following are used in numeric conversions only:
+@@ -115,6 +122,8 @@ vfscanf (FILE *fp, char const *fmt0, va_list ap)
+ 	int base;		/* base argument to strtol/strtoul */
+ 	u_long (*ccfn)(const char *, char **, int);
+ 				/* conversion function (strtol/strtoul) */
++	unsigned long long (*ccfnll)(const char *, char **, int);
++				/* the same for a long long (strtoll/strtoull) */
+ 	char ccltab[256];	/* character class table for %[...] */
+ 	char buf[BUF];		/* buffer for numeric conversions */
+ 
+@@ -129,6 +138,7 @@ vfscanf (FILE *fp, char const *fmt0, va_list ap)
+ 	nread = 0;
+ 	base = 0;		/* XXX just to keep gcc happy */
+ 	ccfn = NULL;		/* XXX just to keep gcc happy */
++	ccfnll = NULL;
+ 	for (;;) {
+ 		c = *fmt++;
+ 		if (c == 0)
+@@ -174,13 +184,35 @@ literal:
+ 			flags |= SUPPRESS;
+ 			goto again;
+ 		case 'l':
+-			flags |= LONG;
++			if (flags & LONG)	/* ll */
++				flags |= LONGLONG;
++			else
++				flags |= LONG;
+ 			goto again;
+ 		case 'L':
+ 			flags |= LONGDBL;
+ 			goto again;
+ 		case 'h':
+-			flags |= SHORT;
++			if (flags & SHORT)	/* hh */
++				flags |= CHARSZ;
++			else
++				flags |= SHORT;
++			goto again;
++		case 'j':		/* intmax_t */
++		case 'q':		/* BSD: quad_t */
++			flags |= LONGLONG;
++			goto again;
++		case 'z':		/* size_t: as big as an int here, but be right where it is not */
++			if (sizeof (size_t) > sizeof (long))
++				flags |= LONGLONG;
++			else if (sizeof (size_t) > sizeof (int))
++				flags |= LONG;
++			goto again;
++		case 't':		/* ptrdiff_t */
++			if (sizeof (ptrdiff_t) > sizeof (long))
++				flags |= LONGLONG;
++			else if (sizeof (ptrdiff_t) > sizeof (int))
++				flags |= LONG;
+ 			goto again;
+ 
+ 		case '0': case '1': case '2': case '3': case '4':
+@@ -201,12 +233,14 @@ literal:
+ 		case 'd':
+ 			c = CT_INT;
+ 			ccfn = (u_long (*)(const char *, char **, int))strtol;
++			ccfnll = (unsigned long long (*)(const char *, char **, int))strtoll;
+ 			base = 10;
+ 			break;
+ 
+ 		case 'i':
+ 			c = CT_INT;
+ 			ccfn = (u_long (*)(const char *, char **, int))strtol;
++			ccfnll = (unsigned long long (*)(const char *, char **, int))strtoll;
+ 			base = 0;
+ 			break;
+ 
+@@ -216,12 +250,14 @@ literal:
+ 		case 'o':
+ 			c = CT_INT;
+ 			ccfn = strtoul;
++			ccfnll = strtoull;
+ 			base = 8;
+ 			break;
+ 
+ 		case 'u':
+ 			c = CT_INT;
+ 			ccfn = strtoul;
++			ccfnll = strtoull;
+ 			base = 10;
+ 			break;
+ 
+@@ -232,6 +268,7 @@ literal:
+ 			flags |= PFXOK;	/* enable 0x prefixing */
+ 			c = CT_INT;
+ 			ccfn = strtoul;
++			ccfnll = strtoull;
+ 			base = 16;
+ 			break;
+ 
+@@ -264,6 +301,7 @@ literal:
+ 			flags |= POINTER | PFXOK;
+ 			c = CT_INT;
+ 			ccfn = strtoul;
++			ccfnll = strtoull;
+ 			base = 16;
+ 			break;
+ 
+@@ -271,7 +309,11 @@ literal:
+ 			nconversions++;
+ 			if (flags & SUPPRESS)	/* ??? */
+ 				continue;
+-			if (flags & SHORT)
++			if (flags & (LONGLONG | LONGDBL))
++				*va_arg(ap, long long *) = nread;
++			else if (flags & CHARSZ)
++				*va_arg(ap, char *) = nread;
++			else if (flags & SHORT)
+ 				*va_arg(ap, short *) = nread;
+ 			else if (flags & LONG)
+ 				*va_arg(ap, long *) = nread;
+@@ -290,6 +332,7 @@ literal:
+ 				flags |= LONG;
+ 			c = CT_INT;
+ 			ccfn = (u_long (*)(const char *, char **, int))strtol;
++			ccfnll = (unsigned long long (*)(const char *, char **, int))strtoll;
+ 			base = 10;
+ 			break;
+ 		}
+@@ -565,18 +608,24 @@ fprintf (stderr, "peekc (fp) = %c\n", c);
+ 				(void) ungetc(c, fp);
+ 			}
+ 			if ((flags & SUPPRESS) == 0) {
+-				u_long res;
+-
+ 				*p = 0;
+-				res = (*ccfn)(buf, (char **)NULL, base);
+-				if (flags & POINTER)
+-					*va_arg(ap, void **) = (void *)res;
+-				else if (flags & SHORT)
+-					*va_arg(ap, short *) = (short)res;
+-				else if (flags & LONG)
+-					*va_arg(ap, long *) = res;
+-				else
+-					*va_arg(ap, int *) = (int)res;
++				if (flags & (LONGLONG | LONGDBL))	/* %Ld as glibc */
++					*va_arg(ap, unsigned long long *) =
++					    (*ccfnll)(buf, (char **)NULL, base);
++				else {
++					u_long res = (*ccfn)(buf, (char **)NULL, base);
++
++					if (flags & POINTER)
++						*va_arg(ap, void **) = (void *)res;
++					else if (flags & CHARSZ)
++						*va_arg(ap, char *) = (char)res;
++					else if (flags & SHORT)
++						*va_arg(ap, short *) = (short)res;
++					else if (flags & LONG)
++						*va_arg(ap, long *) = res;
++					else
++						*va_arg(ap, int *) = (int)res;
++				}
+ 				nassigned++;
+ 			}
+ 			nread += p - buf;
+@@ -665,11 +714,15 @@ fprintf (stderr, "peekc (fp) = %c\n", c);
+ #ifdef DEBUG
+ fprintf (stderr, "strtod: '%s'\n", buf);
+ #endif
+-				res = strtod(buf,(char **) NULL);
+-				if (flags & LONG)
+-					*va_arg(ap, double *) = res;
+-				else
+-					*va_arg(ap, float *) = (float)res;
++				if (flags & LONGDBL)
++					*va_arg(ap, long double *) = strtold(buf, (char **) NULL);
++				else {
++					res = strtod(buf,(char **) NULL);
++					if (flags & LONG)
++						*va_arg(ap, double *) = res;
++					else
++						*va_arg(ap, float *) = (float)res;
++				}
+ 				nassigned++;
+ 			}
+ 			nread += p - buf;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c
 index 46a40ba..4376cc8 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c
@@ -4846,7 +5814,7 @@ index 46a40ba..4376cc8 100644
      sum = av->sbrked_mem;
      if (sum > (CHUNK_SIZE_T)(av->max_sbrked_mem))
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c
-index 79e92bd..266b0fc 100644
+index 79e92bd..5b53d27 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c
 @@ -79,11 +79,28 @@ __cxa_atexit(void (*destructor)(void *),
@@ -4910,11 +5878,100 @@ index 79e92bd..266b0fc 100644
  }
  
  #ifndef __TARGET_SCL__
+@@ -117,3 +142,42 @@ atexit (void (*atexit_function) (void))
+   return __cxa_atexit ((void (*) (void *))atexit_function, NULL, NULL);
+ }
+ #endif
++
++#if defined (__ARM_EABI__) && !defined (__TARGET_SCL__)
++/* 2026: the program's .fini_array.  crt0 hands its bounds to the start-up
++   code (CRT1_FINI_ARRAY_START/_END) and __main registers this runner with
++   atexit () before the program's _init and .init_array run, so the array
++   runs at exit after the atexit () functions and the static destructors
++   that the constructors register, last entry first, as glibc's
++   __libc_csu_fini does.  Nothing used to call it: a C function marked
++   __attribute__ ((destructor)) never ran, nor did libgcov's exit hook (no
++   .gcda file was ever written).  Found and fixed by Rob Heaton
++   (riscos-gcc16, his report 22).  */
++static void (**fini_array_start) (void);
++static void (**fini_array_end) (void);
++
++static void
++__run_fini_array (void)
++{
++  void (**p) (void) = fini_array_end;
++
++  while (p > fini_array_start)
++    {
++      void (*fn) (void) = *--p;
++
++      if (fn != NULL && fn != (void (*) (void)) -1)
++	fn ();
++    }
++}
++
++void
++__register_fini_array (void (**start) (void), void (**end) (void))
++{
++  if (start == NULL || start == end)
++    return;
++
++  fini_array_start = start;
++  fini_array_end = end;
++  atexit (__run_fini_array);
++}
++#endif
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
-index 3f7c274..879fad7 100644
+index 3f7c274..5b6e66a 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
-@@ -835,6 +835,7 @@ __dynamic_area_exit:
+@@ -146,6 +146,17 @@ __main:
+ 	SWI	OS_ChangeEnvironment		@ No X call, if error call parent
+ 	STR	a2, [fp, #MEM_APPSPACE_LIMIT]	@ error handler.
+ 
++	@ 2026: when the permitted RAM limit (appspace_himem) is below the
++	@ application space limit, the memory between them isn't ours: a
++	@ program started by vfork () + exec () is told by SharedUnixLibrary to
++	@ stay below the copy of its parent, kept there.  Remember the limit so
++	@ that __stackalloc_incr_wimpslot never raises appspace_himem above it
++	@ (-1: no such limit).  Rob Heaton (riscos-gcc16, his report 08).
++	LDR	a3, [fp, #MEM_APPSPACE_HIMEM]
++	CMP	a3, a2
++	MVNCS	a3, #0
++	STR	a3, [fp, #MEM_APPSPACE_HIMEM_MAX]
++
+ 	@ For a description of the memory layout of a UnixLib application
+ 	@ see sys/brk.c.
+ 	LDR	a2, [fp, #MEM_RWLOMEM]		@ __ul_memory.rwlomem
+@@ -622,6 +633,18 @@ no_dynamic_area:
+  PICEQ "TEQ	a1, #0"
+  PICEQ "BLNE	atexit"
+ 
++#ifdef __ARM_EABI__
++	@ 2026: --- Executable Finalisation, part 1: the .fini_array ---
++	@ Register a function that calls the program's .fini_array functions
++	@ at exit.  Registered BEFORE the constructors below run, so it runs
++	@ after the atexit () functions and the static destructors they
++	@ register, as in glibc.  See stdlib/atexit.c.  Rob Heaton
++	@ (riscos-gcc16, his report 22).
++	LDR	a1, [v2, #CRT1_FINI_ARRAY_START]
++	LDR	a2, [v2, #CRT1_FINI_ARRAY_END]
++	BL	__register_fini_array
++#endif
++
+ 	@ --- Executable Initialisation ---
+ 	@ Call the program's _init function.
+ 	LDR	a1, [v2, #CRT1_EXEC_INIT]
+@@ -630,7 +653,7 @@ no_dynamic_area:
+ 
+ #ifdef __ARM_EABI__
+ 	@ Call the program's .init_array functions.
+-	@ FIXME: what about FINI_ARRAY?
++	@ (The .fini_array is registered with atexit () above.)
+ 	LDR	v1, [v2, #CRT1_INIT_ARRAY_START]
+ 	LDR	v3, [v2, #CRT1_INIT_ARRAY_END]
+ 	TEQ	v1, v3
+@@ -835,6 +858,7 @@ __dynamic_area_exit:
   PICEQ "LDMFDNE	sp!, {v4, pc}"
  
  	BL	__munmap_all
@@ -4922,7 +5979,7 @@ index 3f7c274..879fad7 100644
  
  	LDR	a2, .L1+4		@=__ul_global
   PICEQ "LDR	a2, [v4, a2]"
-@@ -1134,7 +1135,7 @@ raise_sigstak:
+@@ -1134,7 +1158,7 @@ raise_sigstak:
  	MOV	a1, #0
  	MOV	a2, #SIGSTAK
  	BL	__unixlib_raise_signal
@@ -4931,7 +5988,7 @@ index 3f7c274..879fad7 100644
  
  #if __UNIXLIB_EXTREMELY_PARANOID || __UNIXLIB_STACK_CHECK_MAGIC
  stack_corrupt_msg:
-@@ -1455,7 +1456,7 @@ __unixlib_fatal_got_msg:
+@@ -1455,7 +1479,7 @@ __unixlib_fatal_got_msg:
  	SWI	XOS_Write0
  	SWI	XOS_NewLine
  	MOV	a1, #1
@@ -4940,9 +5997,11 @@ index 3f7c274..879fad7 100644
  	@ Should never return
  #ifdef __ARM_EABI__
  	LDMIA	sp!, {v1, fp, pc}
-@@ -1537,3 +1538,12 @@ __ul_memory:
+@@ -1536,4 +1560,14 @@ __ul_memory:
+ 	.word	0			@ dalimit		offset = 40
  	.word	0			@ appspace_limit	offset = 44
  	.word	0			@ old_himem		offset = 48
++	.word	0			@ appspace_himem_max	offset = 52
  	DECLARE_OBJECT __ul_memory
 +
 +	@ 2026: the size of the pthread RMA block this file claims (OS_Module 6
@@ -5554,8 +6613,30 @@ index 0000000..c1d8f1f
 +  return mmap (addr, len, prot, flags, fd, (__off_t) offset);
 +#endif
 +}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/stackalloc.c b/gcc4/recipe/files/gcc/libunixlib/sys/stackalloc.c
+index 26b930c..febe5df 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/sys/stackalloc.c
++++ b/gcc4/recipe/files/gcc/libunixlib/sys/stackalloc.c
+@@ -44,6 +44,17 @@ __stackalloc_incr_wimpslot (unsigned int incr)
+   struct ul_memory *mem = &__ul_memory;
+   struct ul_global *gbl = &__ul_global;
+ 
++  /* 2026: never above the permitted RAM limit the program started with
++     (struct ul_memory): in a program started by vfork () + exec () the
++     memory above it is the copy of its parent, and a heap or stack grown
++     over it destroyed the parent ("abort on data transfer" in the parent
++     after the child ended normally).  The caller gets an error (brk:
++     ENOMEM).  Where 'appspace_himem' is already above it (a fork ()
++     child: __fork_post) the subtraction wraps and nothing is refused.
++     Rob Heaton (riscos-gcc16, his report 08).  */
++  if (incr > mem->appspace_himem_max - mem->appspace_himem)
++    return 0;
++
+   /* If the amount requested does not exceed the current application space
+      limit, then we can satisfy the request easily.  */
+   if (mem->appspace_himem + incr <= mem->appspace_limit)
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c b/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
-index 4290c5f..452f22a 100644
+index 4290c5f..91b7479 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
 @@ -12,6 +12,7 @@
@@ -5640,7 +6721,7 @@ index 4290c5f..452f22a 100644
    /* Save __ul_global.pthread_system_running, as the child process
       will always set it to 0 on exit.  */
    __saved_pthread_system_running = gbl->pthread_system_running;
-@@ -76,6 +133,15 @@ __fork_post (pid_t pid, int isfork)
+@@ -76,6 +133,26 @@ __fork_post (pid_t pid, int isfork)
  {
    struct ul_global *gbl = &__ul_global;
  
@@ -5652,11 +6733,22 @@ index 4290c5f..452f22a 100644
 +  if (pid == 0)
 +    gbl->sulproc->status.is_armeabi = 0;
 +#endif
++  /* 2026: likewise the "started by exec" flag, which the child's process
++     structure copies from its parent.  A child that ends without an exec
++     of its own is the same Shared Object Manager client as its parent,
++     but with the flag set SharedUnixLibrary's exit deregisters that
++     client: in a parent that was itself started by exec (anything run by
++     make or a shell) this freed the parent's client and froze the
++     machine.  exec () sets the flag again for the program it starts.
++     Found by Rob Heaton (riscos-gcc16, his report 01), who fixes it in
++     SharedUnixLibrary; this keeps SharedUnixLibrary unchanged.  */
++  if (pid == 0)
++    gbl->sulproc->status.execed = 0;
 +
    __env_unixlib ();
  
    gbl->pthread_system_running = __saved_pthread_system_running;
-@@ -98,6 +164,69 @@ __fork_post (pid_t pid, int isfork)
+@@ -98,6 +175,69 @@ __fork_post (pid_t pid, int isfork)
        /* There are now two processes sharing the dynamic area.  */
        __atomic_modify (&__dynamic_area_refcount, 1);
  
@@ -5726,7 +6818,7 @@ index 4290c5f..452f22a 100644
        if (gbl->pthread_system_running)
          __pthread_atfork_callparentchild (0);
  
-@@ -109,6 +238,17 @@ __fork_post (pid_t pid, int isfork)
+@@ -109,6 +249,17 @@ __fork_post (pid_t pid, int isfork)
      {
        /* We are the parent (including the case when sul_fork failed).  */
  
@@ -6368,6 +7460,25 @@ index f6b1a2f..8547c9f 100644
 +{
 +  return fsync (fd);
 +}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/sysconf.c b/gcc4/recipe/files/gcc/libunixlib/unix/sysconf.c
+index 27b8fdd..73c0d1a 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/unix/sysconf.c
++++ b/gcc4/recipe/files/gcc/libunixlib/unix/sysconf.c
+@@ -126,10 +126,12 @@ sysconf (int name)
+         return _POSIX2_SW_DEV;
+ #endif
+ 
+-#ifdef	_SC_NPROCESSORS_ONLN
++      /* 2026: one processor.  The #ifdef here was always false (the names
++	 were enum constants, not macros), so this case wasn't compiled and
++	 the value was taken for _SC_BC_DIM_MAX (2048): see <unistd.h>.  */
+       case _SC_NPROCESSORS_ONLN:
++      case _SC_NPROCESSORS_CONF:
+ 	return 1;
+-#endif
+     }
+ 
+   return __set_errno (EINVAL);
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/truncate.c b/gcc4/recipe/files/gcc/libunixlib/unix/truncate.c
 index 64df871..2229aa4 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/truncate.c
@@ -6506,7 +7617,7 @@ index 7f47f19..08ca429 100644
  
    /* Reset the DDEUtils' Prefix variable to the value at startup.  */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/vscript b/gcc4/recipe/files/gcc/libunixlib/vscript
-index 606421f..db2d388 100644
+index 606421f..248b392 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/vscript
 +++ b/gcc4/recipe/files/gcc/libunixlib/vscript
 @@ -16,12 +16,19 @@ VERSION {
@@ -6540,12 +7651,13 @@ index 606421f..db2d388 100644
       __pthread_init;
       __pthread_fatal_error;
       __pthread_new_node;
-@@ -137,6 +148,8 @@ VERSION {
+@@ -137,6 +148,9 @@ VERSION {
       __pthread_atfork_callparentchild;
       __pthread_new_stack;
       __pthread_context_switch;
 +     __pthread_held_wait;
 +     __servent_generation;
++     __register_fini_array;
       __pthread_init_save_area;
       __pthread_exit;
       __pthread_protect_unsafe;
