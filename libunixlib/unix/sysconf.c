@@ -126,10 +126,12 @@ sysconf (int name)
         return _POSIX2_SW_DEV;
 #endif
 
-#ifdef	_SC_NPROCESSORS_ONLN
+      /* 2026: one processor.  The #ifdef here was always false (the names
+	 were enum constants, not macros), so this case wasn't compiled and
+	 the value was taken for _SC_BC_DIM_MAX (2048): see <unistd.h>.  */
       case _SC_NPROCESSORS_ONLN:
+      case _SC_NPROCESSORS_CONF:
 	return 1;
-#endif
     }
 
   return __set_errno (EINVAL);

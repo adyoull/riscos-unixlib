@@ -57,4 +57,11 @@ else
   cat out/limits.log; fail=1
 fi
 
+# 6. <unistd.h>: _SC_ names have values of their own (C2).
+if $P-gcc -std=c11 -isystem $I -c sysconf.c -o out/sysconf.o 2>out/sysconf.log; then
+  echo "unistd.h sysconf names: OK"
+else
+  cat out/sysconf.log; fail=1
+fi
+
 exit $fail

@@ -71,6 +71,7 @@ the commits are named below.
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
+| `include/unistd.h`, `unix/sysconf.c` | C2 the _SC_ names after _SC_PAGE_SIZE; one processor |
 | `pthread/sem.c`, `include/semaphore.h` | P5 blocking semaphores, sem_timedwait |
 | `pthread/cond.c`, `pthread/context.c` | P4 timed waits: exact deadlines, wrap-safe, no lost signal |
 | `pthread/once.c` | P3 pthread_once without a global hold |
@@ -972,6 +973,32 @@ Not yet run on RISC OS.
 - `sem_destroy`.
 
 Not yet run on RISC OS.
+
+### C2. `sysconf`: the `_SC_` names after `_SC_PAGE_SIZE` get values of their own; one processor (`include/unistd.h`, `unix/sysconf.c`)
+
+**Problem.** Found and fixed by Rob Heaton (riscos-gcc16, his report 13); confirmed in our tree.
+- In `<unistd.h>`, `_SC_PAGE_SIZE = _SC_PAGESIZE` restarted the enum numbering, so the names after it shared values with earlier ones:
+  - `_SC_PHYS_PAGES` = `_SC_BC_BASE_MAX`;
+  - `_SC_NPROCESSORS_ONLN` = `_SC_BC_DIM_MAX`.
+- So `sysconf (_SC_NPROCESSORS_ONLN)` returned 2048. A program or library that sizes its thread pool by it would start far too many threads on a one-core system.
+- `sysconf.c` tested `#ifdef _SC_NPROCESSORS_ONLN`, which is always false for an enum constant, so its "return 1" case was never compiled.
+
+**Change.** Rob Heaton's header change:
+- `_SC_PAGE_SIZE` moves to the end, so the names before it get new, unique values, with `#define`s so `#ifdef` works.
+- Added: `_SC_NPROCESSORS_CONF`.
+- `sysconf` returns 1 for both processor counts.
+- `_SC_PHYS_PAGES` now has its own value and gives EINVAL (unimplemented) instead of `_SC_BC_BASE_MAX`'s answer.
+
+**Compatibility.** Programs and libraries built with the old header keep the old numbers and the old answers (2048) until rebuilt. That includes any library built against an older UnixLib, such as the toolchain's libstdc++. No other name changes value.
+
+**Performance.** For a rebuilt program, it can only help: thread pools sized by the processor count are sized for one processor.
+
+**Verification.** `tests/abi/check.sh` step 6 (`tests/abi/sysconf.c`, static assertions) checks that:
+- the names are macros;
+- `_SC_PAGE_SIZE == _SC_PAGESIZE`;
+- the processor and physical-page names don't reuse earlier values.
+
+The old header fails it.
 
 ## 3. Sound (`/dev/dsp`, `/dev/midi`)
 
