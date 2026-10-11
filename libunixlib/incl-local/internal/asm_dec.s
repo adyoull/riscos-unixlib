@@ -328,6 +328,7 @@
 .set	MEM_DALIMIT, 40		@ = __ul_memory.dalimit
 .set	MEM_APPSPACE_LIMIT, 44	@ = __ul_memory.appspace_limit
 .set	MEM_OLD_HIMEM, 48	@ = __ul_memory.old_himem
+.set	MEM_APPSPACE_HIMEM_MAX, 52	@ = __ul_memory.appspace_himem_max
 #endif
 
 #if __UNIXLIB_CHUNKED_STACK

@@ -71,6 +71,7 @@ the commits are named below.
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
+| `sys/stackalloc.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `incl-local/internal/asm_dec.s` | A4 a vfork + exec child's heap stays below its parent's copy |
 | `common/prefix.c` | C1 the DDEUtils prefix loop |
 | `unix/eventfd.c` | E1 counter updated with thread switching held off, Y1 waits |
 | `pthread/heldwait.c` (**new**) | Y1 waiting inside a held call |
@@ -1607,6 +1608,29 @@ an unofficial fork, not released or supported by the GCCSDK developers.
 They send reports to this repo, and the Help file still points to GCCSDK
 for the official UnixLib. README, this file, MAINTAINING and the
 PThreadTicker ReadMe say the same.
+
+### A4. A vfork + exec child's heap stays below the copy of its parent (`sys/stackalloc.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `incl-local/internal/asm_dec.s`)
+
+**Problem.** Found and fixed by Rob Heaton (riscos-gcc16, his report 08). He saw it as a parent dying with "abort on data transfer" after a native C++ compile it ran had ended normally. Confirmed in our tree.
+
+**Cause.** While a child started by vfork + exec runs, SharedUnixLibrary keeps a copy of the parent above the child's permitted RAM limit (the OS_GetEnv limit, `appspace_himem`), and up to the end of the Wimp slot (`appspace_limit`). A child whose heap is in the Wimp slot, rather than in a dynamic area, grows through `__stackalloc_incr_wimpslot`. That raised `appspace_himem` up to and beyond `appspace_limit`, straight over the copy.
+
+**Change** (Rob Heaton's patch, adapted):
+- At start-up `_syslib.s` records the permitted RAM limit in a new last field, `__ul_memory.appspace_himem_max` (offset 52), when it is below the application space limit; otherwise -1.
+- `__stackalloc_incr_wimpslot` never raises `appspace_himem` above it. The caller gets an error (brk: `ENOMEM`), and malloc falls back to mmap for a Wimp-slot heap.
+- A fork child, whose `__fork_post` sets `appspace_himem` to the new limit, is unaffected: the unsigned difference wraps.
+
+**Performance and behaviour.**
+- One comparison per Wimp-slot growth.
+- A program whose permitted RAM limit equals its slot is unaffected: the usual case, and every program started from the desktop.
+- A program run below some other program's memory can no longer grow into it.
+- Our ports keep their heap in dynamic areas (A1/A2), so this only matters for programs with `__dynamic_no_da` or where no area could be made.
+
+**Verification.**
+- The library builds; `make check` and the emulator heap test (42 checks) pass.
+- New Pi test `VforkHeap` (`tests/riscos/vhtest.c`). The parent fills 4 MB with a pattern and runs itself through `system ()`. The child keeps its heap in the Wimp slot and fills up to 48 MB. The parent's pattern must be intact.
+
+Not yet run on RISC OS.
 
 ### B1. `Makefile.am`, `vscript`
 

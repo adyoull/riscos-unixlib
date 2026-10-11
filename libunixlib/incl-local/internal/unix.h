@@ -308,6 +308,15 @@ struct ul_memory
 
   /* Value of 'appspace_himem' last time the stack was increased.  */
   unsigned int old_himem;
+
+  /* 2026: the permitted RAM limit (OS_GetEnv) the program started with,
+     when that is below the application space limit; -1 otherwise.
+     'appspace_himem' is never raised above it: the memory between the two
+     isn't ours.  A program started by vfork () + exec () is told by
+     SharedUnixLibrary to stay below the copy of its parent, which is kept
+     there.  Offset 52 (MEM_APPSPACE_HIMEM_MAX).  Found and fixed by Rob
+     Heaton (riscos-gcc16, his report 08).  */
+  unsigned int appspace_himem_max;
 };
 
 extern struct ul_memory __ul_memory;

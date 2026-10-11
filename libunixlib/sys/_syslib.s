@@ -146,6 +146,17 @@ __main:
 	SWI	OS_ChangeEnvironment		@ No X call, if error call parent
 	STR	a2, [fp, #MEM_APPSPACE_LIMIT]	@ error handler.
 
+	@ 2026: when the permitted RAM limit (appspace_himem) is below the
+	@ application space limit, the memory between them isn't ours: a
+	@ program started by vfork () + exec () is told by SharedUnixLibrary to
+	@ stay below the copy of its parent, kept there.  Remember the limit so
+	@ that __stackalloc_incr_wimpslot never raises appspace_himem above it
+	@ (-1: no such limit).  Rob Heaton (riscos-gcc16, his report 08).
+	LDR	a3, [fp, #MEM_APPSPACE_HIMEM]
+	CMP	a3, a2
+	MVNCS	a3, #0
+	STR	a3, [fp, #MEM_APPSPACE_HIMEM_MAX]
+
 	@ For a description of the memory layout of a UnixLib application
 	@ see sys/brk.c.
 	LDR	a2, [fp, #MEM_RWLOMEM]		@ __ul_memory.rwlomem
@@ -1537,6 +1548,7 @@ __ul_memory:
 	.word	0			@ dalimit		offset = 40
 	.word	0			@ appspace_limit	offset = 44
 	.word	0			@ old_himem		offset = 48
+	.word	0			@ appspace_himem_max	offset = 52
 	DECLARE_OBJECT __ul_memory
 
 	@ 2026: the size of the pthread RMA block this file claims (OS_Module 6

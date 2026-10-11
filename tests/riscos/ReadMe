@@ -125,6 +125,9 @@ ForkWorker  fork() with a worker thread running: the child must not run
             worker must carry on unharmed, and a change an atfork prepare
             handler makes to main's frame must be kept. Must print PASS
             (needs 5.0.3.3-rc1 or later)
+VforkHeap   a program started by system() (vfork + exec) whose heap is in
+            the Wimp slot fills up to 48 MB; the parent's memory must come
+            back intact. Must print PASS (needs 5.0.3.4-rc1)
 HeapProbe   a probe, not a pass/fail test: can one heap block be bigger
             than 128 MB? Tries (A) a second dynamic area placed right
             after the first, and (B) "physical memory pool" areas of
