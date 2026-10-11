@@ -71,12 +71,18 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
 	  while (to_write)
 	    {
 	      size_t bytes = write (stream->fd, data, to_write);
-	      if (bytes == -1)
+	      /* 2026: write () taking nothing is an error too (it used to
+		 loop for ever).  */
+	      if (bytes == -1 || bytes == 0)
 		{
 		  stream->__error = 1;
 		  break;
 		}
 	      to_write -= bytes;
+	      /* 2026: a short write continues after the bytes it took; it
+		 used to write the same bytes again.  Rob Heaton
+		 (riscos-gcc16, his report 09).  */
+	      data = (const void *)((const char *)data + bytes);
 	      /* Increment the internal file offset.  */
 	      stream->__offset += bytes;
 	      total_bytes += bytes;
@@ -166,12 +172,13 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
 	  else
 	    bytes = write (stream->fd, data, to_write);
 
-	  if (bytes == -1)
+	  if (bytes == -1 || bytes == 0)	/* 2026: 0 too, as above */
 	    {
 	      stream->__error = 1;
 	      break;
 	    }
 	  to_write -= bytes;
+	  data = (const void *)((const char *)data + bytes);	/* 2026 */
 	  stream->__offset += bytes;
 	  total_bytes += bytes;
 	}

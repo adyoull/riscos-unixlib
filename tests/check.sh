@@ -23,6 +23,8 @@ echo "== host tests: the DDEUtils prefix"
 tests/host/prefix/run.sh
 echo "== host tests: scanf length modifiers"
 tests/host/scanf/run.sh
+echo "== host tests: fread/fwrite short transfers"
+tests/host/stdio/run.sh
 
 echo "== emulator: thread ticker machine code (needs a build + unicorn)"
 GCCSDK_ENV=${GCCSDK_ENV:-$HOME/gccsdk/env}

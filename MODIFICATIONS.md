@@ -71,6 +71,7 @@ the commits are named below.
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
+| `stdio/fread.c`, `stdio/fwrite.c` | C4 short transfers |
 | `stdio/scanf.c` | C3 scanf length modifiers ll, hh, j, q, z, t, %Lf, %Ld |
 | `include/unistd.h`, `unix/sysconf.c` | C2 the _SC_ names after _SC_PAGE_SIZE; one processor |
 | `pthread/sem.c`, `include/semaphore.h` | P5 blocking semaphores, sem_timedwait |
@@ -1027,6 +1028,27 @@ One addition: `L` on an integer conversion (`%Ld`) means `long long`, as in glib
 - the unchanged `%d %ld %hd`.
 
 The old code fails 6. (On the PC a `long` is 64 bits, so the test checks the conversions and sizes stored rather than the 32-bit truncation itself.)
+
+### C4. `fread`/`fwrite` after a short transfer (`stdio/fread.c`, `stdio/fwrite.c`)
+
+**Problem.** Found and fixed by Rob Heaton (riscos-gcc16, his report 09); confirmed in our tree. He reports it as latent: not seen on RISC OS, where file transfers are rarely short, but possible on sockets, pipes and devices. In the loops that call `read ()` or `write ()` directly (large blocks, unbuffered streams), the data pointer was never advanced:
+- after a short read, the rest was read over the bytes already stored, so the count was right and the data wrong;
+- after a short write, the same bytes were written again.
+
+Also: a `write ()` that returned 0 made `fwrite` loop for ever.
+
+**Change.**
+- Rob Heaton's patch: advance the pointer by the bytes transferred, in `fread` and in both `fwrite` loops.
+- Addition: a `write ()` that takes nothing marks the stream in error and stops, as a -1 does.
+
+**Performance and behaviour.** One addition per transfer. Full transfers, the normal case, are unchanged.
+
+**Verification.** `tests/host/stdio` (9 checks) builds the real `fread.c` and `fwrite.c` for the PC with a shim of UnixLib's `FILE`, against a device that moves 30 bytes per call. It covers:
+- an unbuffered read and write of 100 bytes;
+- a buffered stream's direct write;
+- a `write ()` that takes nothing.
+
+The old code fails 4.
 
 ## 3. Sound (`/dev/dsp`, `/dev/midi`)
 
