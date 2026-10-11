@@ -7,6 +7,7 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **`pthread_once` no longer deadlocks when an init routine waits for another thread that calls `pthread_once` (P3).** `std::async` does exactly that. Callers of an object whose init routine is running now wait for it, and an object already done costs no lock. Found by Rob Heaton (riscos-gcc16); his design, without the C++ exception handling. New Pi test `Once`.
 - **A program's .fini_array now runs at exit (I1).** It runs after the atexit functions and static destructors, last entry first, as in glibc. Before, C functions marked `__attribute__ ((destructor))` never ran, and `--coverage` never wrote its data. Found and fixed by Rob Heaton (riscos-gcc16). New Pi test `FiniArray`.
 - **A program started by vfork + exec no longer grows its heap over the copy of its parent (A4).** This only applies to a heap in the Wimp slot. Before, the parent died ("abort on data transfer") or came back with wrong data after the child ended normally. Found and fixed by Rob Heaton (riscos-gcc16). New Pi test `VforkHeap`.
 - **A fork or vfork child no longer inherits its parent's "started by exec" flag (K11).** With it, SharedUnixLibrary's exit deregistered the Shared Object Manager client the child shares with its parent, which froze the machine in a dynamically linked parent started by make or a shell. Fixed in UnixLib, so SharedUnixLibrary is unchanged. Found by Rob Heaton (riscos-gcc16).

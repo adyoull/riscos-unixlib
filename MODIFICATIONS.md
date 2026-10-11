@@ -71,6 +71,7 @@ the commits are named below.
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
+| `pthread/once.c` | P3 pthread_once without a global hold |
 | `stdlib/atexit.c`, `sys/_syslib.s`, `vscript` | I1 the program's .fini_array runs at exit |
 | `sys/stackalloc.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `incl-local/internal/asm_dec.s` | A4 a vfork + exec child's heap stays below its parent's copy |
 | `common/prefix.c` | C1 the DDEUtils prefix loop |
@@ -890,6 +891,29 @@ C++ static destructors were unaffected: on EABI they are registered with `__cxa_
 **Performance.** None outside exit.
 
 **Verification.** New Pi test `FiniArray` (`tests/riscos/finitest.cc`, C++). The exit order must be atexit, the static destructor, then two destructor functions (the default and priority 101), with a C++ exception thrown and caught before. It prints `ASFL` and PASS. The built test's `.fini_array` was checked: [priority 101, `__do_global_dtors_aux`, default], run last first. Not yet run on RISC OS.
+
+### P3. `pthread_once` without one global hold (`pthread/once.c`)
+
+**Problem.** Found by Rob Heaton (riscos-gcc16, his report 10): `std::async` deadlocked. Confirmed in our tree. One mutex, shared by every `pthread_once_t`, was held for the whole of the init routine. An init routine that waits for another thread which itself calls `pthread_once`, even on a different object, deadlocked. libstdc++'s `future::get` does that (`call_once (thread::join)` while the other thread runs `call_once (set result)`).
+
+**Change.** Rob Heaton's design:
+- Each `pthread_once_t` has a state: 0 = not run, 1 = done (as before), 2 = running.
+- The mutex only guards the state, and is not held while the init routine runs.
+- Callers that find the routine running wait on a condition variable.
+- A cancelled init routine (`pthread_exit`, or cancellation) resets the state and wakes the waiters, so the next call runs it again, as POSIX requires.
+
+Two differences from his patch:
+- **A fast path:** an object already done returns at once without taking the mutex. That is cheaper than before.
+- **No `-fexceptions`:** his version also undoes the state when a C++ exception leaves the init routine. That needs this file compiled with `-fexceptions`, which would pull the C++ unwinder into every C program that uses `pthread_once`. So exceptions are handled as before, i.e. not.
+
+**Performance and behaviour.** Faster for the common already-done case; otherwise the same work. `pthread_once_t` is unchanged (an `int`, 0 to start, 1 when done).
+
+**Verification.** New Pi test `Once` (`tests/riscos/oncetest.c`) covers:
+- an init routine that starts and joins a thread which calls `pthread_once` (the old library stops with "Deadlocked");
+- three callers of one slow init routine: one run, and all return after it;
+- a cancelled init routine, which runs again.
+
+Not yet run on RISC OS.
 
 ## 3. Sound (`/dev/dsp`, `/dev/midi`)
 

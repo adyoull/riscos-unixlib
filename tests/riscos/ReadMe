@@ -48,6 +48,10 @@ EABIExit    does ARMEABISupport still know the program when it exits?
             EABIExitRunning  exits with its threads still running
             After each, *ARMEABISupport_Info should list no App left by it.
 
+Once        pthread_once: an init routine that waits for another thread
+            in pthread_once (stopped with "Deadlocked" before 5.0.3.4-rc1),
+            three callers of one slow init routine, a cancelled init
+            routine. Must print PASS
 PageMove    a reproducer: claims the physical page at the program's own
             &8000, which RISC OS then replaces, and asks whether
             ARMEABISupport still finds the program. With ARMEABISupport
