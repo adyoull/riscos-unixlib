@@ -5,7 +5,13 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
-## Unreleased
+## 5.0.3.4-rc1 (2026-10-11, pre-release, tag v5.0.3.4-rc1)
+
+Fixes for problems found by Rob Heaton in his riscos-gcc16 UnixLib
+(2026-10), mostly with his patches, each peer-reviewed in two rounds. Not
+yet run on RISC OS. libtool `-version-info` 7:2:2 (no interface changes;
+`<unistd.h>` `_SC_` values after `_SC_PAGE_SIZE` change for programs
+rebuilt with it, see C2).
 
 - **`fread`/`fwrite` after a short transfer (C4).** After a `read ()` or `write ()` that moved fewer bytes than asked, the next one stored over the same bytes or wrote them again. Found and fixed by Rob Heaton (riscos-gcc16).
 - **`scanf` understands `ll`, `hh`, `j`, `q`, `z`, `t` and `%Lf` (C3).** `%lld` stored only 32 bits, `%hhd` wrote two bytes, `%jd`, `%zu`, `%td` and `%qd` weren't understood, and `%Lf` stored a float. `%p` with a length modifier still stores a pointer, and `%Ld` still stores an int. Found and fixed by Rob Heaton (riscos-gcc16). New emulator test of the real library.
