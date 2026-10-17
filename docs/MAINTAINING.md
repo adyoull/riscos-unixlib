@@ -60,7 +60,7 @@ built here. Three ways to get it:
 - **riscos-crossdev's container image** (`ghcr.io/adyoull/riscos-crossdev:<v>`,
   the version in `.riscos-deps`), which GitHub builds use. Its toolchain is
   at `$RISCOS_TOOLCHAIN` and the Makefile picks it up:
-  `docker run --rm -v "$PWD":/src ghcr.io/adyoull/riscos-crossdev:1.8 ci/build.sh`.
+  `docker run --rm -v "$PWD":/src ghcr.io/adyoull/riscos-crossdev:1.8.1 ci/build.sh`.
   It builds the same library as the toolchain below (2026-10-17: the code
   and data of every object match 5.0.3.3's; only the compiler's
   identification string and debug sizes differ).
@@ -92,10 +92,10 @@ Following riscos-crossdev's CI chain (its `docs/CI.md`):
   riscos-crossdev release and, when there is one, opens a pull request
   that moves the pin and says whether `ci/build.sh` passed with it. Nothing
   is merged or released by itself.
-- Both are crossdev's `ci/` templates with three changes, noted at their
-  top: `BUILD=ci/build.sh`, full-history checkouts (the patch checks need
-  them), and the update build run as root so `ci/build.sh` can install
-  `autoconf2.69` and `automake1.11`, which the 1.8 image lacks.
+- Both are crossdev's `ci/` templates with two changes, noted at their
+  top: `BUILD=ci/build.sh` and full-history checkouts (the patch checks
+  need them). The library build needs `autoconf2.69` and `automake1.11`,
+  which the image has from riscos-crossdev 1.8.1.
 - Needs, in the repository's Settings > Actions > General: "Workflow
   permissions: Read and write" and "Allow GitHub Actions to create and
   approve pull requests".

@@ -8,7 +8,7 @@ How to release: docs/MAINTAINING.md.
 ## Unreleased
 
 - **Builds on GitHub in the riscos-crossdev container image** (the
-  version pinned in `.riscos-deps`, now 1.8): library, checks and
+  version pinned in `.riscos-deps`, now 1.8.1): library, checks and
   `UnixLibTests.zip` from a clean checkout (`ci/build.sh`), on every push.
   A daily workflow opens a pull request when riscos-crossdev makes a new
   release, built and checked with it. From riscos-crossdev's CI chain;
