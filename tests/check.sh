@@ -45,6 +45,13 @@ else
   echo "SKIP (no build/work/build, cross toolchain or python3 unicorn module)"
 fi
 
+echo "== emulator: interval timer repeat delay (needs the cross assembler + unicorn)"
+if [ -x "$GCCSDK_ENV/bin/arm-riscos-gnueabihf-gcc" ] && python3 -c 'import unicorn' 2>/dev/null; then
+  python3 tests/emu/itimer_test.py
+else
+  echo "SKIP (no cross toolchain or python3 unicorn module)"
+fi
+
 echo "== ABI: large-file interface (needs a build + the cross compiler)"
 if [ -f build/work/build/.libs/libunixlib.a ] && [ -x "$GCCSDK_ENV/bin/arm-riscos-gnueabihf-gcc" ]; then
   tests/abi/check.sh
@@ -70,6 +77,6 @@ echo "== scripts parse"
 for s in build/*.sh tests/*.sh tests/abi/check.sh tests/host/*/run.sh tests/riscos/build.sh tools/*.sh; do
   sh -n "$s"
 done
-python3 -m py_compile tools/mkrozip.py tests/emu/ticker_test.py tests/emu/swi_test.py tests/emu/heap_test.py
+python3 -m py_compile tools/mkrozip.py tests/emu/ticker_test.py tests/emu/swi_test.py tests/emu/heap_test.py tests/emu/itimer_test.py
 rm -rf tools/__pycache__ tests/emu/__pycache__
 echo "== all checks passed"

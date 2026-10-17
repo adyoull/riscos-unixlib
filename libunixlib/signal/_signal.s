@@ -44,6 +44,29 @@
 	.endif
 	.endm
 
+	@ 2026: interval timers. In: a1 = tv_sec, a2 = tv_usec (< 1000000)
+	@ of it_interval. Out: a1 = that in centiseconds, the microseconds
+	@ rounded up as time/setitmr.c does for the first expiry; a2, a3
+	@ corrupted. tv_usec used to be added as if it were centiseconds, so
+	@ a 100 ms interval repeated every 100001 cs (about 17 minutes); whole
+	@ seconds were right and give the same value as before. No divide
+	@ instruction before ARMv7: (x * 0xD1B71759) >> 45 is x / 10000 for
+	@ x up to 1009998 (checked).
+	.macro	ITIMER_CS
+	STMFD	sp!, {a4}
+	ADD	a2, a2, #9984		@ + 9999, to round up
+	ADD	a2, a2, #15
+	MOV	a4, #0xD1000000
+	ORR	a4, a4, #0x00B70000
+	ORR	a4, a4, #0x00001700
+	ORR	a4, a4, #0x00000059
+	UMULL	a3, a4, a2, a4
+	MOV	a2, a4, LSR #13		@ (tv_usec + 9999) / 10000
+	LDMFD	sp!, {a4}
+	MOV	a3, #100
+	MLA	a1, a3, a1, a2
+	.endm
+
 	.syntax unified
 	.text
 
@@ -1020,8 +1043,7 @@ __h_sigalrm:
  PICEQ "LDMFDEQ	sp!, {a1, a2, a3, v4, pc}"
  PICNE "LDMFDEQ	sp!, {a1, a2, a3, pc}"
 	@ Calculate delay in csecs between successive calls
-	MOV	a3, #100
-	MLA	a1, a3, a1, a2
+	ITIMER_CS			@ a1 = it_interval in cs
 	ADD	a1, a1, #1
 	@ Function to call
 	ADR	a2, __h_sigalrm_init
@@ -1089,8 +1111,7 @@ __h_sigvtalrm:
 	TEQEQ	a2, #0
  PICEQ "LDMFDEQ	sp!, {a1, a2, a3, v4, pc}"
  PICNE "LDMFDEQ	sp!, {a1, a2, a3, pc}"
-	MOV	a3, #100
-	MLA	a1, a3, a1, a2
+	ITIMER_CS			@ a1 = it_interval in cs
 	ADD	a1, a1, #1
 	ADR	a2, __h_sigvtalrm_init
 	MOV	a3, ip
@@ -1157,8 +1178,7 @@ __h_sigprof:
 	TEQEQ	a2, #0
  PICEQ "LDMFDEQ	sp!, {a1, a2, a3, v4, pc}"
  PICNE "LDMFDEQ	sp!, {a1, a2, a3, pc}"
-	MOV	a3, #100
-	MLA	a1, a3, a1, a2
+	ITIMER_CS			@ a1 = it_interval in cs
 	ADD	a1, a1, #1
 	ADR	a2, __h_sigprof_init
 	MOV	a3, ip
