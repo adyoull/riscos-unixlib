@@ -19,9 +19,11 @@ __get_cpu_arch:
 	@ RISC OS for Linux (pvops.s): RISC OS runs in a Linux user-mode
 	@ process, where the CP15 ID registers can't be read (and MSR CPSR_c
 	@ wouldn't take us back out of OS_EnterOS). Say "unknown".
-	PIC_LOAD ip
+	@ a2 for the GOT, not ip: __main still uses ip as __ul_global's
+	@ address after calling us (a2 is corrupted below anyway).
+	PIC_LOAD a2
 	LDR	a1, .Lgbl
- PICEQ "LDR	a1, [ip, a1]"
+ PICEQ "LDR	a1, [a2, a1]"
 	LDR	a1, [a1, #GBL_PVOPS]
 	TEQ	a1, #0
 	MOVNE	a1, #0

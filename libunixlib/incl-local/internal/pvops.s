@@ -32,6 +32,10 @@
 @
 @ Each preserves the registers it doesn't name (lr is used for the call).
 @ PV_SETCPSR_C_UNSTACK does nothing in USR mode (use OS_EnterOS first).
+@
+@ Only the EABI build is converted: signal/_signal.s's non-EABI (APCS)
+@ exception handlers still use STM ^ and MRS SPSR, so an APCS program on
+@ the port would still hang on a fault there.
 
 .set	PV_DEVICE_TYPE, 0x30A	@ HAL device type: system peripheral, PSR
 .set	PV_DEVICE_ID, 1		@ the Linux port's
@@ -49,8 +53,8 @@
 	.endm
 
 	@ Change mode as CHGMODE does, through the descriptor in PV (not
-	@ sp or lr). Preserves r0-r3, ip and the flags; sp and lr become the
-	@ new mode's, as with MSR CPSR_c.
+	@ sp or lr). Preserves r0-r3 and ip (not, necessarily, the flags);
+	@ sp and lr become the new mode's, as with MSR CPSR_c.
 	.macro	PV_CHGMODE pv, mode
 	stmfd	sp!, {r0-r3, ip, lr}
 	mov	ip, \pv

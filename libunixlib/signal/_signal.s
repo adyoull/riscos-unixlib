@@ -935,7 +935,7 @@ __setup_signalhandler_stack:
 
 	@ RISC OS for Linux: the mode is virtual, and so is the USR bank
 	@ (pvops.s). a1 -> the new sp, a2 = __ul_global.pvops, a3 = __ul_global.
-	@ Preserves a1-a3 as the code above does; corrupts a4.
+	@ Preserves a1 and a3 (callers use a3 = __ul_global); corrupts a2, a4.
 	@ The current sp may be junk (__h_exit), so work on the new stack
 	@ (not in use yet: we're not in a signal handler).
 pv_setup_stack:
