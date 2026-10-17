@@ -3299,10 +3299,10 @@ index 0000000..09a1e5a
 +  return 0;
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/signal/_signal.s b/gcc4/recipe/files/gcc/libunixlib/signal/_signal.s
-index 2109ed1..ded0dfe 100644
+index 2109ed1..79507ff 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/signal/_signal.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/signal/_signal.s
-@@ -13,6 +13,60 @@
+@@ -13,6 +13,74 @@
  
  #include "internal/asm_dec.s"
  
@@ -3345,16 +3345,30 @@ index 2109ed1..ded0dfe 100644
 +	@ seconds were right and give the same value as before. No divide
 +	@ instruction before ARMv7: (x * 0xD1B71759) >> 45 is x / 10000 for
 +	@ x up to 1009998 (checked).
++	@ ARMv3 (ARM610/710) has no UMULL: there, subtract 10000 at most 100
++	@ times instead.
 +	.macro	ITIMER_CS
 +	STMFD	sp!, {a4}
 +	ADD	a2, a2, #9984		@ + 9999, to round up
 +	ADD	a2, a2, #15
++#if __ARM_ARCH__ >= 4
 +	MOV	a4, #0xD1000000
 +	ORR	a4, a4, #0x00B70000
 +	ORR	a4, a4, #0x00001700
 +	ORR	a4, a4, #0x00000059
 +	UMULL	a3, a4, a2, a4
 +	MOV	a2, a4, LSR #13		@ (tv_usec + 9999) / 10000
++#else
++	MOV	a4, #0x2700
++	ORR	a4, a4, #0x10		@ 10000
++	MOV	a3, #0
++.Litimer_cs\@:
++	CMP	a2, a4
++	SUBCS	a2, a2, a4
++	ADDCS	a3, a3, #1
++	BCS	.Litimer_cs\@
++	MOV	a2, a3			@ (tv_usec + 9999) / 10000
++#endif
 +	LDMFD	sp!, {a4}
 +	MOV	a3, #100
 +	MLA	a1, a3, a1, a2
@@ -3363,7 +3377,7 @@ index 2109ed1..ded0dfe 100644
  	.syntax unified
  	.text
  
-@@ -39,8 +93,20 @@ __raise:
+@@ -39,8 +107,20 @@ __raise:
  	STMFD	sp!, {lr}
  	@ Saves all USR registers on the SP_SVC stack.
  	SUB	sp, sp, #15*4
@@ -3386,7 +3400,7 @@ index 2109ed1..ded0dfe 100644
  
  	MOV	v1, a1
  	BL	__setup_signalhandler_stack
-@@ -48,7 +114,10 @@ __raise:
+@@ -48,7 +128,10 @@ __raise:
  	BL	__pthread_disable_ints
  
  	@ Drop into USR mode and raise the signal
@@ -3398,7 +3412,7 @@ index 2109ed1..ded0dfe 100644
  	MOV	a2, v1
  	MOV	a1, #0
  	BL	__unixlib_raise_signal
-@@ -64,8 +133,16 @@ __raise:
+@@ -64,8 +147,16 @@ __raise:
  	STR	a1, [a2, #GBL_EXECUTING_SIGNALHANDLER]
  
  	@ Restores all USR registers from the SP_SVC stack.
@@ -3417,7 +3431,7 @@ index 2109ed1..ded0dfe 100644
  	ADD	sp, sp, #15*4
  	LDMIA	sp!, {pc}
  .L0:
-@@ -119,16 +196,15 @@ __h_sigill:
+@@ -119,16 +210,15 @@ __h_sigill:
  	LDMFD	sp!, {r7, r8}
  
  	STMIA	lr!, {a1-ip}		@ store non-banked registers
@@ -3437,7 +3451,7 @@ index 2109ed1..ded0dfe 100644
  
  	B	__h_cback_common
  .L2:
-@@ -196,16 +272,15 @@ __h_sigsegv0:
+@@ -196,16 +286,15 @@ __h_sigsegv0:
  	LDMFD	sp!, {r7, r8}
  
  	STMIA	lr!, {a1-ip}		@ store non-banked registers
@@ -3457,7 +3471,7 @@ index 2109ed1..ded0dfe 100644
  
  	B	__h_cback_common
  .L4:
-@@ -265,16 +340,15 @@ __h_sigsegv1:
+@@ -265,16 +354,15 @@ __h_sigsegv1:
  	LDMFD	sp!, {r7, r8}
  
  	STMIA	lr!, {a1-ip}		@ store non-banked registers
@@ -3477,7 +3491,7 @@ index 2109ed1..ded0dfe 100644
  
  	B	__h_cback_common
  .L5:
-@@ -349,7 +423,10 @@ __h_error:
+@@ -349,7 +437,10 @@ __h_error:
  	BLNE	__pthread_disable_ints
  
  	BL	__setup_signalhandler_stack
@@ -3489,7 +3503,7 @@ index 2109ed1..ded0dfe 100644
  
  #ifdef __ARM_EABI__
  	STMFD	sp!, {v1, v3}
-@@ -631,15 +708,17 @@ __h_sigsys:
+@@ -631,15 +722,17 @@ __h_sigsys:
  	MOV	lr, ip			@ lr = callback register block
  
  	STMIA	lr!, {a1-ip}		@ store non-banked registers
@@ -3508,7 +3522,7 @@ index 2109ed1..ded0dfe 100644
  	DECLARE_FUNCTION __h_sigsys
  
  @-----------------------------------------------------------------------
-@@ -708,6 +787,11 @@ __h_cback:
+@@ -708,6 +801,11 @@ __h_cback:
  	B	__h_cback_common
  
  return_quickly:
@@ -3520,7 +3534,7 @@ index 2109ed1..ded0dfe 100644
  	MOV	lr, ip
  	LDR	a1, [lr, #16*4]
  	MSR	SPSR_cxsf, a1
-@@ -715,6 +799,14 @@ return_quickly:
+@@ -715,6 +813,14 @@ return_quickly:
  	MOV	a1, a1
  	LDR	lr, [lr, #15*4]
  	MOVS	pc, lr
@@ -3535,7 +3549,7 @@ index 2109ed1..ded0dfe 100644
  .L9:
  	WORD	__ul_memory
  	WORD	__ul_global
-@@ -735,7 +827,8 @@ __h_cback_common:
+@@ -735,7 +841,8 @@ __h_cback_common:
  	BL	__setup_signalhandler_stack
  
  	@ Back to USR mode now we have a stack, but with IRQs disabled.
@@ -3545,7 +3559,7 @@ index 2109ed1..ded0dfe 100644
  
  	@ The USR mode registers r0-r15 and CPSR are extracted from the
  	@ callback register block while IRQs are disabled. The registers
-@@ -807,11 +900,22 @@ __h_cback_common:
+@@ -807,11 +914,22 @@ __h_cback_common:
  				@ another callback
  	MOV	lr, a1
  	LDR	a1, [lr], #4	@ Get user PSR
@@ -3568,7 +3582,7 @@ index 2109ed1..ded0dfe 100644
  	DECLARE_FUNCTION __h_cback
  
  
-@@ -840,6 +944,9 @@ __setup_signalhandler_stack:
+@@ -840,6 +958,9 @@ __setup_signalhandler_stack:
  	MOVNE	pc, lr
  
  	ADD	a1, a3, #GBL_SIGNALHANDLER_SP
@@ -3578,7 +3592,7 @@ index 2109ed1..ded0dfe 100644
  	TEQ	pc, pc
  	MOVNE	a2, pc
  	MRSEQ	a2, CPSR
-@@ -848,6 +955,34 @@ __setup_signalhandler_stack:
+@@ -848,6 +969,34 @@ __setup_signalhandler_stack:
  	LDMIANE	a1, {sp}^	@ Not USR mode, set USR sp
  	LDREQ	sp, [a1, #0]	@ USR mode
  	MOV	pc, lr
@@ -3613,7 +3627,7 @@ index 2109ed1..ded0dfe 100644
  .L11:
  	WORD	__ul_global
  	DECLARE_FUNCTION __setup_signalhandler_stack
-@@ -908,8 +1043,7 @@ __h_sigalrm:
+@@ -908,8 +1057,7 @@ __h_sigalrm:
   PICEQ "LDMFDEQ	sp!, {a1, a2, a3, v4, pc}"
   PICNE "LDMFDEQ	sp!, {a1, a2, a3, pc}"
  	@ Calculate delay in csecs between successive calls
@@ -3623,7 +3637,7 @@ index 2109ed1..ded0dfe 100644
  	ADD	a1, a1, #1
  	@ Function to call
  	ADR	a2, __h_sigalrm_init
-@@ -977,8 +1111,7 @@ __h_sigvtalrm:
+@@ -977,8 +1125,7 @@ __h_sigvtalrm:
  	TEQEQ	a2, #0
   PICEQ "LDMFDEQ	sp!, {a1, a2, a3, v4, pc}"
   PICNE "LDMFDEQ	sp!, {a1, a2, a3, pc}"
@@ -3633,7 +3647,7 @@ index 2109ed1..ded0dfe 100644
  	ADD	a1, a1, #1
  	ADR	a2, __h_sigvtalrm_init
  	MOV	a3, ip
-@@ -1045,8 +1178,7 @@ __h_sigprof:
+@@ -1045,8 +1192,7 @@ __h_sigprof:
  	TEQEQ	a2, #0
   PICEQ "LDMFDEQ	sp!, {a1, a2, a3, v4, pc}"
   PICNE "LDMFDEQ	sp!, {a1, a2, a3, pc}"
