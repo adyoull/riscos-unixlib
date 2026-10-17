@@ -125,6 +125,27 @@ __main:
 	STR	a1, [ip, #GBL_TIME_LOW]		@ __ul_global.time (low word)
 	STR	a2, [ip, #GBL_TIME_HIGH]	@ __ul_global.time (high word)
 
+	@ RISC OS for Linux runs RISC OS in a Linux user-mode process, and
+	@ does privileged operations (mode changes, SPSR, the USR register
+	@ bank) through routines its HAL offers as a device: find it, or
+	@ store 0 (any other machine). See incl-local/internal/pvops.s.
+	MOV	a4, v5				@ (no stack yet)
+	MOV	a2, #0				@ start of the enumeration
+	MOV	v5, #5				@ OS_Hardware 5: find devices
+0:	MOV	a1, #PV_DEVICE_TYPE & 0xFF00
+	ORR	a1, a1, #PV_DEVICE_TYPE & 0xFF	@ this type, API version 0
+	SWI	XOS_Hardware
+	MOVVS	a2, #-1
+	CMN	a2, #1
+	MOVEQ	a3, #0				@ none (or no OS_Hardware 5)
+	BEQ	1f
+	LDR	a1, [a3]			@ type in bits 0-15, ID above
+	MOV	a1, a1, LSR #16
+	TEQ	a1, #PV_DEVICE_ID
+	BNE	0b				@ another PSR device: next
+1:	STR	a3, [ip, #GBL_PVOPS]		@ __ul_global.pvops
+	MOV	v5, a4
+
 	@ For the shared library, fill in the linker generated values that
 	@ are passed to us by crt1.o. These are only known at runtime.
  PICEQ "LDR	a1, [v1, #CRT1_EXEC_START]"

@@ -208,6 +208,9 @@ struct ul_global
   int vfp_regcount; /* Number of doubleword registers we should request for
     VFP contexts */
 #endif
+
+  const void *pvops; /* RISC OS for Linux: its HAL's PSR manipulation
+    device (see incl-local/internal/pvops.s), or NULL on other machines.  */
 };
 
 /* This structure must be kept in perfect synchronisation with:

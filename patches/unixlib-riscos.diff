@@ -215,10 +215,29 @@ index 7775d56..646a581 100644
  
  What
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
-index 7f01c57..f107e29 100644
+index 7f01c57..e851d26 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
-@@ -389,6 +389,30 @@ PTHREAD_CALLEVERY_RMA_TICKER_STARTED:		.skip 4
+@@ -45,6 +45,8 @@
+ #include "internal/defines.h"
+ 	@ Import the assembler helper macros.
+ #include "internal/elf-macros.s"
++	@ RISC OS for Linux: privileged operations through its HAL.
++#include "internal/pvops.s"
+ 
+ .set	EXIT_SUCCESS, 0
+ .set	EXIT_FAILURE, 1
+@@ -312,6 +314,9 @@
+ 
+ #if !defined(__SOFTFP__) && defined(__VFP_FP__)
+ .set	GBL_VFP_REGCOUNT, 120		@ = __ul_global.vfp_regcount
++.set	GBL_PVOPS, 124			@ = __ul_global.pvops
++#else
++.set	GBL_PVOPS, 120			@ = __ul_global.pvops
+ #endif
+ 
+ 	@ Entries in the __ul_memory table.  Must be kept in sync with
+@@ -389,6 +394,30 @@ PTHREAD_CALLEVERY_RMA_TICKER_STARTED:		.skip 4
  PTHREAD_CALLEVERY_RMA_WORKSEMAPHORE:		.skip 4
  PTHREAD_CALLEVERY_RMA_CALLBACK_SEMAPHORE:	.skip 4
  PTHREAD_CALLEVERY_RMA_FILTER_NAME:		.skip 20
@@ -559,6 +578,85 @@ index deb5f8d..592552f 100644
    return err;
  }
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/pvops.s b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/pvops.s
+new file mode 100644
+index 0000000..e34846f
+--- /dev/null
++++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/pvops.s
+@@ -0,0 +1,73 @@
++@ RISC OS for Linux (the Linux port of RISC OS) support.
++@ Copyright (c) 2026 UnixLib Developers
++@
++@ The Linux port runs RISC OS in a Linux user-mode process: the processor
++@ is always in USR mode, and RISC OS's own modes (SVC, IRQ, ABT, UND) and
++@ their banked registers are kept in software. So these instructions
++@ don't do what they do on a real machine:
++@
++@	MSR CPSR_c		ignored in USR mode: no mode or IRQ change
++@	MRS/MSR SPSR		undefined in USR mode
++@	STM/LDM {..}^		the "user bank" is the current bank
++@	MOVS pc, lr		no SPSR to restore from
++@
++@ The port's HAL registers a device (type &30A, ID 1, "Linux HAL PSR
++@ Manipulation") whose descriptor holds routines that do these jobs in
++@ software. sys/_syslib.s looks for it at start-up (OS_Hardware 5) and
++@ stores the descriptor's address in __ul_global.pvops; on any other
++@ machine there is no such device and pvops is 0. The code that needs
++@ these instructions checks pvops and calls the routines instead:
++@
++@  PV_GETCPSR		out: r0 = CPSR, with the virtual mode and I/F bits
++@  PV_GETSPSR		out: r0 = SPSR of the current (virtual) mode
++@  PV_LOADUSR		in: r1 -> 2 words; sets USR r13, r14
++@  PV_LOADUSRREGS	in: r1 -> r0-r12, r13_usr, r14_usr, pc;
++@			    r2 = sp to keep for the current mode; r3 = CPSR.
++@			Doesn't return: continues in the mode and at the pc
++@			given (as MSR SPSR + LDM ^ + MOVS pc, lr).
++@  PV_SETCPSR_C_UNSTACK	in: stack = {r0-r3, ip, lr} (just pushed), r1 = new
++@			CPSR_c byte. Returns to lr + 4 with r0-r3, ip
++@			restored, and sp, lr from the new mode's bank.
++@  PV_STOREUSR		in: r1 -> 2 words; stores USR r13, r14
++@
++@ Each preserves the registers it doesn't name (lr is used for the call).
++@ PV_SETCPSR_C_UNSTACK does nothing in USR mode (use OS_EnterOS first).
++
++.set	PV_DEVICE_TYPE, 0x30A	@ HAL device type: system peripheral, PSR
++.set	PV_DEVICE_ID, 1		@ the Linux port's
++.set	PV_GETCPSR, 80
++.set	PV_GETSPSR, 84
++.set	PV_LOADUSR, 92
++.set	PV_LOADUSRREGS, 96
++.set	PV_SETCPSR_C_UNSTACK, 108
++.set	PV_STOREUSR, 124
++
++	@ Call routine OFFSET of the descriptor in register PV. Corrupts lr.
++	.macro	PV_CALL pv, offset
++	mov	lr, pc
++	ldr	pc, [\pv, #\offset]
++	.endm
++
++	@ Change mode as CHGMODE does, through the descriptor in PV (not
++	@ sp or lr). Preserves r0-r3, ip and the flags; sp and lr become the
++	@ new mode's, as with MSR CPSR_c.
++	.macro	PV_CHGMODE pv, mode
++	stmfd	sp!, {r0-r3, ip, lr}
++	mov	ip, \pv
++	mov	r1, #(0x10 | ((\mode) & 0xf) | ((\mode) >> 20))
++	mov	lr, pc
++	ldr	pc, [ip, #PV_SETCPSR_C_UNSTACK]
++	nop				@ skipped: the routine returns to lr + 4
++	.endm
++
++	@ CHGMODE, or PV_CHGMODE if PV (a register) isn't 0. SCRATCH may be
++	@ the same register as PV. Corrupts the flags.
++	.macro	CHGMODE_PV scratch, mode, pv
++	teq	\pv, #0
++	bne	.Lpv_chg\@
++	CHGMODE	\scratch, \mode
++	b	.Lpv_chg_done\@
++.Lpv_chg\@:
++	PV_CHGMODE \pv, \mode
++.Lpv_chg_done\@:
++	.endm
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/ticker.s b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/ticker.s
 new file mode 100644
 index 0000000..fc1f0c9
@@ -775,10 +873,20 @@ index 0000000..fc1f0c9
 +\p\()_end:
 +.endm
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
-index 9f57871..fd30273 100644
+index 9f57871..c4aa8d4 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
-@@ -427,8 +427,12 @@ extern void __unixinit (void);
+@@ -208,6 +208,9 @@ struct ul_global
+   int vfp_regcount; /* Number of doubleword registers we should request for
+     VFP contexts */
+ #endif
++
++  const void *pvops; /* RISC OS for Linux: its HAL's PSR manipulation
++    device (see incl-local/internal/pvops.s), or NULL on other machines.  */
+ };
+ 
+ /* This structure must be kept in perfect synchronisation with:
+@@ -427,8 +430,12 @@ extern void __unixinit (void);
  extern void __free_process (struct __sul_process *process)
  	__nonnull ((1));
  
@@ -2068,7 +2176,7 @@ index 50bc9f2..62b80e4 100644
    return serv;
  }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s b/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
-index fada843..856bb59 100644
+index fada843..df7f5da 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
 @@ -28,251 +28,53 @@
@@ -2365,7 +2473,66 @@ index fada843..856bb59 100644
  
  @ This is called from _signal.s::__h_cback and pthread_yield.
  @ Entered in SVC or IRQ mode with IRQs disabled.
-@@ -506,11 +308,4 @@ __pthread_init_save_area:
+@@ -333,7 +135,10 @@ __pthread_callback:
+ 	@ back on, so they don't get overwritten by another callback,
+ 	@ but the floating point instructions should only be called
+ 	@ from user mode
+-	CHGMODE	a3, USR_Mode
++	LDR	a3, .L2			@=__ul_global
++ PICEQ "LDR	a3, [v1, a3]"
++	LDR	a3, [a3, #GBL_PVOPS]
++	CHGMODE_PV a3, USR_Mode, a3
+ 
+ #ifndef __SOFTFP__
+ #  ifdef __VFP_FP__
+@@ -396,7 +201,10 @@ __pthread_callback:
+ 
+ 	SWI	XOS_EnterOS	@ Back to supervisor mode
+ 
+-	CHGMODE	a2, SVC_Mode+IFlag	@ Force SVC mode, IRQs off
++	LDR	a2, .L2		@=__ul_global
++ PICEQ "LDR	a2, [v1, a2]"
++	LDR	a2, [a2, #GBL_PVOPS]
++	CHGMODE_PV a2, SVC_Mode+IFlag, a2	@ Force SVC mode, IRQs off
+ 
+ 	LDR	a2, .L2		@=__ul_global
+  PICEQ "LDR	a2, [v1, a2]"
+@@ -422,6 +230,9 @@ __pthread_callback:
+ 	LDR	r14, [r14, #__PTHREAD_CONTEXT_OFFSET]	@ __pthread_running_thread->saved_context
+ 
+ 	@ Restore thread's registers
++	LDR	ip, [a2, #GBL_PVOPS]
++	TEQ	ip, #0
++	BNE	pv_return_to_usr
+ 	LDR	a1, [r14, #16*4]	@ Get user PSR
+ 	MSR	SPSR_cxsf, a1		@ Put it into SPSR_SVC/IRQ (NOP on ARM2/3, shouldn't have any effect in 26bit mode)
+ 	LDMIA	r14, {r0-r14}^		@ Load USR mode regs
+@@ -430,6 +241,14 @@ __pthread_callback:
+ 
+ 	MOVS	pc, lr			@ Return (Valid for 26 and 32bit modes)
+ 
++	@ RISC OS for Linux: the same return through its HAL (see pvops.s).
++	@ r14 = r0-r15, CPSR to return with; ip = __ul_global.pvops
++pv_return_to_usr:
++	MOV	a2, r14
++	LDR	a4, [a2, #16*4]
++	MOV	a3, sp
++	LDR	pc, [ip, #PV_LOADUSRREGS]
++
+ 
+ 	@ Called because we are fast exiting from the context switcher
+ 	@ because some other context switching operation is already going on,
+@@ -445,6 +264,9 @@ skip_contextswitch:
+ 
+ 	@ Exiting from the CallBack handler requires us to reload all registers from the
+ 	@ register save area which is at the beginning of the fast access RMA block
++	LDR	ip, [a3, #GBL_PVOPS]
++	TEQ	ip, #0
++	BNE	pv_return_to_usr
+ 	LDR	a1, [r14, #16*4]	@ Get user PSR
+ 	MSR	SPSR_cxsf, a1		@ Put it into SPSR_SVC/IRQ (NOP on ARM2/3, shouldn't have any effect in 26bit mode)
+ 	LDMIA	r14, {r0-r14}^		@ Load USR mode regs
+@@ -506,11 +328,4 @@ __pthread_init_save_area:
  	DECLARE_FUNCTION __pthread_init_save_area
  
  
@@ -2377,6 +2544,41 @@ index fada843..856bb59 100644
 -	DECLARE_OBJECT filter_installed
 -
  	.end
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/_yield.s b/gcc4/recipe/files/gcc/libunixlib/pthread/_yield.s
+index 864aa87..5276a7c 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/_yield.s
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/_yield.s
+@@ -47,12 +47,13 @@ pthread_yield:
+ 	BLNE	__pthread_fatal_error
+ 0:
+ 	MOV	a1, a2	@ callback regs are located at the start of the fast access RMA block
++	LDR	a2, [a3, #GBL_PVOPS]	@ RISC OS for Linux? (see pvops.s)
+ 
+ 	MRS	a3, CPSR	@ Get a USR mode, IRQs enabled CPSR
+ 	@ Change to SVC mode, IRQs disabled to ensure the regs don't get
+ 	@ overwitten by a real callback
+ 	SWI	XOS_EnterOS
+-	CHGMODE	a4, SVC_Mode+IFlag
++	CHGMODE_PV a4, SVC_Mode+IFlag, a2
+ 
+ 	@ Save regs to callback save area
+ 	ADD	a1, a1, #13*4
+@@ -63,7 +64,14 @@ pthread_yield:
+ 	@ into two so that the banked registers are saved independently of the
+ 	@ others.
+ 	STMDB	a1, {r4-r12}
+-	STMIA	a1, {r13,r14}^
++	TEQ	a2, #0
++	STMIAEQ	a1, {r13,r14}^
++	BEQ	1f
++	@ RISC OS for Linux: the USR r13, r14 are in its virtual bank.
++	MOV	ip, a2
++	MOV	a2, a1
++	PV_CALL	ip, PV_STOREUSR
++1:
+ 	ADR	a2, __pthread_yield_return	@USR mode, IRQs enabled if in a 26bit mode
+ 	STR	a2, [a1, #8]
+ 	STR	a3, [a1, #12]	@ Save CPSR
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 index 4343190..cd8b1ce 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
@@ -3071,6 +3273,298 @@ index 0000000..09a1e5a
 +    return __set_errno (EINVAL);
 +  return 0;
 +}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/signal/_signal.s b/gcc4/recipe/files/gcc/libunixlib/signal/_signal.s
+index 2109ed1..18cd7e7 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/signal/_signal.s
++++ b/gcc4/recipe/files/gcc/libunixlib/signal/_signal.s
+@@ -13,6 +13,37 @@
+ 
+ #include "internal/asm_dec.s"
+ 
++	@ Exception handlers: store the USR sp and lr at [lr] and [lr, #4],
++	@ and (WITH_PSR) the SPSR at [lr, #12]. a1-ip are free (already
++	@ stored). LIT is a literal holding __ul_global's address (or its GOT
++	@ offset). On RISC OS for Linux this goes through its HAL (pvops.s).
++	.macro	STORE_USR_BANKED lit, with_psr
++	PIC_LOAD a3
++	LDR	a2, \lit
++ PICEQ "LDR	a2, [a3, a2]"
++	LDR	a2, [a2, #GBL_PVOPS]
++	TEQ	a2, #0
++	BNE	.Lsub_pv\@
++	STMIA	lr, {sp, lr}^		@ store banked registers
++	.if \with_psr
++	MRS	a1, SPSR
++	.endif
++	B	.Lsub_done\@
++.Lsub_pv\@:
++	MOV	ip, a2
++	MOV	a4, lr
++	MOV	a2, lr
++	PV_CALL	ip, PV_STOREUSR
++	.if \with_psr
++	PV_CALL	ip, PV_GETSPSR
++	.endif
++	MOV	lr, a4
++.Lsub_done\@:
++	.if \with_psr
++	STR	a1, [lr, #4*3]
++	.endif
++	.endm
++
+ 	.syntax unified
+ 	.text
+ 
+@@ -39,8 +70,20 @@ __raise:
+ 	STMFD	sp!, {lr}
+ 	@ Saves all USR registers on the SP_SVC stack.
+ 	SUB	sp, sp, #15*4
+-	STMIA	sp, {a1, a2, a3, a4, v1, v2, v3, v4, v5, v6, sl, fp, ip, sp, lr}^
+-	MOV	a1, a1
++	STMIA	sp, {a1, a2, a3, a4, v1, v2, v3, v4, v5, v6, sl, fp, ip}
++	LDR	ip, .L0	@=__ul_global
++ PICEQ "LDR	ip, [v4, ip]"
++	LDR	ip, [ip, #GBL_PVOPS]
++	TEQ	ip, #0
++	ADDEQ	lr, sp, #13*4
++	STMIAEQ	lr, {sp, lr}^
++	MOVEQ	a1, a1
++	BEQ	1f
++	@ RISC OS for Linux: the USR sp and lr are in its virtual bank.
++	ADD	a2, sp, #13*4
++	PV_CALL	ip, PV_STOREUSR
++	LDR	a2, [sp, #4]
++1:	LDR	ip, [sp, #12*4]
+ 
+ 	MOV	v1, a1
+ 	BL	__setup_signalhandler_stack
+@@ -48,7 +91,10 @@ __raise:
+ 	BL	__pthread_disable_ints
+ 
+ 	@ Drop into USR mode and raise the signal
+-	CHGMODE	a2, USR_Mode
++	LDR	a2, .L0	@=__ul_global
++ PICEQ "LDR	a2, [v4, a2]"
++	LDR	a2, [a2, #GBL_PVOPS]
++	CHGMODE_PV a2, USR_Mode, a2
+ 	MOV	a2, v1
+ 	MOV	a1, #0
+ 	BL	__unixlib_raise_signal
+@@ -64,8 +110,16 @@ __raise:
+ 	STR	a1, [a2, #GBL_EXECUTING_SIGNALHANDLER]
+ 
+ 	@ Restores all USR registers from the SP_SVC stack.
+-	LDMIA	sp, {a1, a2, a3, a4, v1, v2, v3, v4, v5, v6, sl, fp, ip, sp, lr}^
+-	MOV	a1, a1
++	LDR	a1, [a2, #GBL_PVOPS]
++	TEQ	a1, #0
++	LDMIAEQ	sp, {a1, a2, a3, a4, v1, v2, v3, v4, v5, v6, sl, fp, ip, sp, lr}^
++	BEQ	1f
++	@ RISC OS for Linux: through its HAL (pvops.s).
++	MOV	ip, a1
++	ADD	a2, sp, #13*4
++	PV_CALL	ip, PV_LOADUSR
++	LDMIA	sp, {a1, a2, a3, a4, v1, v2, v3, v4, v5, v6, sl, fp, ip}
++1:	MOV	a1, a1
+ 	ADD	sp, sp, #15*4
+ 	LDMIA	sp!, {pc}
+ .L0:
+@@ -119,16 +173,15 @@ __h_sigill:
+ 	LDMFD	sp!, {r7, r8}
+ 
+ 	STMIA	lr!, {a1-ip}		@ store non-banked registers
+-	STMIA	lr, {sp, lr}^		@ store banked registers
+-
+ #ifdef __ARM_EABI__
+-	MRS	a1, SPSR
++	STORE_USR_BANKED .L2, 1
+ #else
++	STMIA	lr, {sp, lr}^		@ store banked registers
+ 	TEQ	pc, pc			@ store CPSR at time of exception
+ 	LDRNE	a1, [lr, #4*2]
+ 	MRSEQ	a1, SPSR
+-#endif
+ 	STR	a1, [lr, #4*3]
++#endif
+ 
+ 	B	__h_cback_common
+ .L2:
+@@ -196,16 +249,15 @@ __h_sigsegv0:
+ 	LDMFD	sp!, {r7, r8}
+ 
+ 	STMIA	lr!, {a1-ip}		@ store non-banked registers
+-	STMIA	lr, {sp, lr}^		@ store banked registers
+-
+ #ifdef __ARM_EABI__
+-	MRS	a1, SPSR
++	STORE_USR_BANKED .L4, 1
+ #else
++	STMIA	lr, {sp, lr}^		@ store banked registers
+ 	TEQ	pc, pc			@ store CPSR at time of exception
+ 	LDRNE	a1, [lr, #4*2]
+ 	MRSEQ	a1, SPSR
+-#endif
+ 	STR	a1, [lr, #4*3]
++#endif
+ 
+ 	B	__h_cback_common
+ .L4:
+@@ -265,16 +317,15 @@ __h_sigsegv1:
+ 	LDMFD	sp!, {r7, r8}
+ 
+ 	STMIA	lr!, {a1-ip}		@ store non-banked registers
+-	STMIA	lr, {sp, lr}^		@ store banked registers
+-
+ #ifdef __ARM_EABI__
+-	MRS	a1, SPSR
++	STORE_USR_BANKED .L5, 1
+ #else
++	STMIA	lr, {sp, lr}^		@ store banked registers
+ 	TEQ	pc, pc			@ store CPSR at time of exception
+ 	LDRNE	a1, [lr, #4*2]
+ 	MRSEQ	a1, SPSR
+-#endif
+ 	STR	a1, [lr, #4*3]
++#endif
+ 
+ 	B	__h_cback_common
+ .L5:
+@@ -349,7 +400,10 @@ __h_error:
+ 	BLNE	__pthread_disable_ints
+ 
+ 	BL	__setup_signalhandler_stack
+-	CHGMODE	a1, USR_Mode	@ Back to USR mode now we have a stack
++	LDR	a1, .L6	@=__ul_global
++ PICEQ "LDR	a1, [v6, a1]"
++	LDR	a1, [a1, #GBL_PVOPS]
++	CHGMODE_PV a1, USR_Mode, a1	@ Back to USR mode now we have a stack
+ 
+ #ifdef __ARM_EABI__
+ 	STMFD	sp!, {v1, v3}
+@@ -631,15 +685,17 @@ __h_sigsys:
+ 	MOV	lr, ip			@ lr = callback register block
+ 
+ 	STMIA	lr!, {a1-ip}		@ store non-banked registers
+-	STMIA	lr, {sp, lr}^		@ store banked registers
++	STORE_USR_BANKED .L8, 0
+ 	MOV	a1, #0			@ No meaningful CPSR so null it.
+ 	STR	a1, [lr, #4*3]
+ 
++	SUB	ip, lr, #13*4		@ the block again (STORE_USR_BANKED used ip)
+ 	MOV	a1, #SIGSYS
+ 	STR	a1, [ip, #PTHREAD_CALLEVERY_CALLBACK_A1]
+ 
+ 	B	__h_cback_common
+ .L8:
++	WORD	__ul_global
+ 	DECLARE_FUNCTION __h_sigsys
+ 
+ @-----------------------------------------------------------------------
+@@ -708,6 +764,11 @@ __h_cback:
+ 	B	__h_cback_common
+ 
+ return_quickly:
++	LDR	a3, .L9+4		@=__ul_global
++ PICEQ "LDR	a3, [r11, a3]"
++	LDR	a1, [a3, #GBL_PVOPS]
++	TEQ	a1, #0
++	BNE	pv_return_quickly
+ 	MOV	lr, ip
+ 	LDR	a1, [lr, #16*4]
+ 	MSR	SPSR_cxsf, a1
+@@ -715,6 +776,14 @@ return_quickly:
+ 	MOV	a1, a1
+ 	LDR	lr, [lr, #15*4]
+ 	MOVS	pc, lr
++
++	@ RISC OS for Linux: return through its HAL (pvops.s).
++pv_return_quickly:
++	MOV	a2, ip			@ r0-r15, CPSR at the block's start
++	MOV	ip, a1
++	LDR	a4, [a2, #16*4]
++	MOV	a3, sp
++	LDR	pc, [ip, #PV_LOADUSRREGS]
+ .L9:
+ 	WORD	__ul_memory
+ 	WORD	__ul_global
+@@ -735,7 +804,8 @@ __h_cback_common:
+ 	BL	__setup_signalhandler_stack
+ 
+ 	@ Back to USR mode now we have a stack, but with IRQs disabled.
+-	CHGMODE	a1, USR_Mode+IFlag
++	LDR	a1, [a3, #GBL_PVOPS]	@ a3 = __ul_global still
++	CHGMODE_PV a1, USR_Mode+IFlag, a1
+ 
+ 	@ The USR mode registers r0-r15 and CPSR are extracted from the
+ 	@ callback register block while IRQs are disabled. The registers
+@@ -807,11 +877,22 @@ __h_cback_common:
+ 				@ another callback
+ 	MOV	lr, a1
+ 	LDR	a1, [lr], #4	@ Get user PSR
++	LDR	ip, [a3, #GBL_PVOPS]	@ a3 = __ul_global still
++	TEQ	ip, #0
++	BNE	pv_cback_return
+ 	MSR	SPSR_cxsf, a1	@ Put it into SPSR_SVC/IRQ
+ 	LDMIA	lr, {a1, a2, a3, a4, v1, v2, v3, v4, v5, v6, sl, fp, ip, sp, lr}^
+ 	MOV	a1, a1
+ 	LDR	lr, [lr, #15*4]	@ Load the old PC value
+ 	MOVS	pc, lr		@ Return (Valid for 26 and 32bit modes)
++
++	@ RISC OS for Linux: return through its HAL (pvops.s).
++	@ lr = r0-r15, a1 = CPSR, ip = __ul_global.pvops
++pv_cback_return:
++	MOV	a4, a1
++	MOV	a2, lr
++	MOV	a3, sp
++	LDR	pc, [ip, #PV_LOADUSRREGS]
+ 	DECLARE_FUNCTION __h_cback
+ 
+ 
+@@ -840,6 +921,9 @@ __setup_signalhandler_stack:
+ 	MOVNE	pc, lr
+ 
+ 	ADD	a1, a3, #GBL_SIGNALHANDLER_SP
++	LDR	a2, [a3, #GBL_PVOPS]
++	TEQ	a2, #0
++	BNE	pv_setup_stack
+ 	TEQ	pc, pc
+ 	MOVNE	a2, pc
+ 	MRSEQ	a2, CPSR
+@@ -848,6 +932,34 @@ __setup_signalhandler_stack:
+ 	LDMIANE	a1, {sp}^	@ Not USR mode, set USR sp
+ 	LDREQ	sp, [a1, #0]	@ USR mode
+ 	MOV	pc, lr
++
++	@ RISC OS for Linux: the mode is virtual, and so is the USR bank
++	@ (pvops.s). a1 -> the new sp, a2 = __ul_global.pvops, a3 = __ul_global.
++	@ Preserves a1-a3 as the code above does; corrupts a4.
++	@ The current sp may be junk (__h_exit), so work on the new stack
++	@ (not in use yet: we're not in a signal handler).
++pv_setup_stack:
++	MOV	a4, sp
++	LDR	sp, [a1, #0]
++	STMFD	sp!, {a1-a3, ip, lr}
++	MOV	ip, a2
++	PV_CALL	ip, PV_GETCPSR
++	TST	a1, #Mode_Bits
++	LDMFDEQ	sp!, {a1-a3, ip, lr}	@ USR mode: it's the real sp
++	LDREQ	sp, [a1, #0]
++	MOVEQ	pc, lr
++	SUB	sp, sp, #8		@ Not USR mode: USR sp = it, USR lr kept
++	MOV	a2, sp
++	PV_CALL	ip, PV_STOREUSR
++	LDR	a1, [sp, #8]
++	LDR	a1, [a1, #0]
++	STR	a1, [sp, #0]
++	MOV	a2, sp
++	PV_CALL	ip, PV_LOADUSR
++	ADD	sp, sp, #8
++	LDMFD	sp!, {a1-a3, ip, lr}
++	MOV	sp, a4			@ this mode's own stack again
++	MOV	pc, lr
+ .L11:
+ 	WORD	__ul_global
+ 	DECLARE_FUNCTION __setup_signalhandler_stack
 diff --git a/gcc4/recipe/files/gcc/libunixlib/signal/post.c b/gcc4/recipe/files/gcc/libunixlib/signal/post.c
 index cb0fc62..ae6e701 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/signal/post.c
@@ -4910,11 +5404,71 @@ index 79e92bd..266b0fc 100644
  }
  
  #ifndef __TARGET_SCL__
+diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s b/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s
+index 487d724..eb38fd6 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s
++++ b/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s
+@@ -16,6 +16,17 @@
+ 	.hidden	__get_cpu_arch
+ 	NAME	__get_cpu_arch
+ __get_cpu_arch:
++	@ RISC OS for Linux (pvops.s): RISC OS runs in a Linux user-mode
++	@ process, where the CP15 ID registers can't be read (and MSR CPSR_c
++	@ wouldn't take us back out of OS_EnterOS). Say "unknown".
++	PIC_LOAD ip
++	LDR	a1, .Lgbl
++ PICEQ "LDR	a1, [ip, a1]"
++	LDR	a1, [a1, #GBL_PVOPS]
++	TEQ	a1, #0
++	MOVNE	a1, #0
++	MOVNE	pc, lr
++
+ 	@ Read ARM ARM (B2.3) and ARM application note 99 if you want to
+ 	@ understand some of the following bits.
+ 	STMFD	R13!, {R14}
+@@ -70,6 +81,9 @@ __get_cpu_arch:
+ 	MOVEQ	a1, #6
+ 	LDMFD	R13!, {PC}
+ 
++.Lgbl:
++	WORD	__ul_global
++
+ cpu_is_arm7:
+ 	TST	a1, #1<<23
+ 	MOVEQ	a1, #3			@ ARM7, architecture 3
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
-index 3f7c274..879fad7 100644
+index 3f7c274..e5db23e 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
-@@ -835,6 +835,7 @@ __dynamic_area_exit:
+@@ -125,6 +125,27 @@ __main:
+ 	STR	a1, [ip, #GBL_TIME_LOW]		@ __ul_global.time (low word)
+ 	STR	a2, [ip, #GBL_TIME_HIGH]	@ __ul_global.time (high word)
+ 
++	@ RISC OS for Linux runs RISC OS in a Linux user-mode process, and
++	@ does privileged operations (mode changes, SPSR, the USR register
++	@ bank) through routines its HAL offers as a device: find it, or
++	@ store 0 (any other machine). See incl-local/internal/pvops.s.
++	MOV	a4, v5				@ (no stack yet)
++	MOV	a2, #0				@ start of the enumeration
++	MOV	v5, #5				@ OS_Hardware 5: find devices
++0:	MOV	a1, #PV_DEVICE_TYPE & 0xFF00
++	ORR	a1, a1, #PV_DEVICE_TYPE & 0xFF	@ this type, API version 0
++	SWI	XOS_Hardware
++	MOVVS	a2, #-1
++	CMN	a2, #1
++	MOVEQ	a3, #0				@ none (or no OS_Hardware 5)
++	BEQ	1f
++	LDR	a1, [a3]			@ type in bits 0-15, ID above
++	MOV	a1, a1, LSR #16
++	TEQ	a1, #PV_DEVICE_ID
++	BNE	0b				@ another PSR device: next
++1:	STR	a3, [ip, #GBL_PVOPS]		@ __ul_global.pvops
++	MOV	v5, a4
++
+ 	@ For the shared library, fill in the linker generated values that
+ 	@ are passed to us by crt1.o. These are only known at runtime.
+  PICEQ "LDR	a1, [v1, #CRT1_EXEC_START]"
+@@ -835,6 +856,7 @@ __dynamic_area_exit:
   PICEQ "LDMFDNE	sp!, {v4, pc}"
  
  	BL	__munmap_all
@@ -4922,7 +5476,7 @@ index 3f7c274..879fad7 100644
  
  	LDR	a2, .L1+4		@=__ul_global
   PICEQ "LDR	a2, [v4, a2]"
-@@ -1134,7 +1135,7 @@ raise_sigstak:
+@@ -1134,7 +1156,7 @@ raise_sigstak:
  	MOV	a1, #0
  	MOV	a2, #SIGSTAK
  	BL	__unixlib_raise_signal
@@ -4931,7 +5485,7 @@ index 3f7c274..879fad7 100644
  
  #if __UNIXLIB_EXTREMELY_PARANOID || __UNIXLIB_STACK_CHECK_MAGIC
  stack_corrupt_msg:
-@@ -1455,7 +1456,7 @@ __unixlib_fatal_got_msg:
+@@ -1455,7 +1477,7 @@ __unixlib_fatal_got_msg:
  	SWI	XOS_Write0
  	SWI	XOS_NewLine
  	MOV	a1, #1
@@ -4940,7 +5494,7 @@ index 3f7c274..879fad7 100644
  	@ Should never return
  #ifdef __ARM_EABI__
  	LDMIA	sp!, {v1, fp, pc}
-@@ -1537,3 +1538,12 @@ __ul_memory:
+@@ -1537,3 +1559,12 @@ __ul_memory:
  	.word	0			@ appspace_limit	offset = 44
  	.word	0			@ old_himem		offset = 48
  	DECLARE_OBJECT __ul_memory

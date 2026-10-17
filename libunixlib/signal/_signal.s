@@ -13,6 +13,37 @@
 
 #include "internal/asm_dec.s"
 
+	@ Exception handlers: store the USR sp and lr at [lr] and [lr, #4],
+	@ and (WITH_PSR) the SPSR at [lr, #12]. a1-ip are free (already
+	@ stored). LIT is a literal holding __ul_global's address (or its GOT
+	@ offset). On RISC OS for Linux this goes through its HAL (pvops.s).
+	.macro	STORE_USR_BANKED lit, with_psr
+	PIC_LOAD a3
+	LDR	a2, \lit
+ PICEQ "LDR	a2, [a3, a2]"
+	LDR	a2, [a2, #GBL_PVOPS]
+	TEQ	a2, #0
+	BNE	.Lsub_pv\@
+	STMIA	lr, {sp, lr}^		@ store banked registers
+	.if \with_psr
+	MRS	a1, SPSR
+	.endif
+	B	.Lsub_done\@
+.Lsub_pv\@:
+	MOV	ip, a2
+	MOV	a4, lr
+	MOV	a2, lr
+	PV_CALL	ip, PV_STOREUSR
+	.if \with_psr
+	PV_CALL	ip, PV_GETSPSR
+	.endif
+	MOV	lr, a4
+.Lsub_done\@:
+	.if \with_psr
+	STR	a1, [lr, #4*3]
+	.endif
+	.endm
+
 	.syntax unified
 	.text
 
@@ -39,8 +70,20 @@ __raise:
 	STMFD	sp!, {lr}
 	@ Saves all USR registers on the SP_SVC stack.
 	SUB	sp, sp, #15*4
-	STMIA	sp, {a1, a2, a3, a4, v1, v2, v3, v4, v5, v6, sl, fp, ip, sp, lr}^
-	MOV	a1, a1
+	STMIA	sp, {a1, a2, a3, a4, v1, v2, v3, v4, v5, v6, sl, fp, ip}
+	LDR	ip, .L0	@=__ul_global
+ PICEQ "LDR	ip, [v4, ip]"
+	LDR	ip, [ip, #GBL_PVOPS]
+	TEQ	ip, #0
+	ADDEQ	lr, sp, #13*4
+	STMIAEQ	lr, {sp, lr}^
+	MOVEQ	a1, a1
+	BEQ	1f
+	@ RISC OS for Linux: the USR sp and lr are in its virtual bank.
+	ADD	a2, sp, #13*4
+	PV_CALL	ip, PV_STOREUSR
+	LDR	a2, [sp, #4]
+1:	LDR	ip, [sp, #12*4]
 
 	MOV	v1, a1
 	BL	__setup_signalhandler_stack
@@ -48,7 +91,10 @@ __raise:
 	BL	__pthread_disable_ints
 
 	@ Drop into USR mode and raise the signal
-	CHGMODE	a2, USR_Mode
+	LDR	a2, .L0	@=__ul_global
+ PICEQ "LDR	a2, [v4, a2]"
+	LDR	a2, [a2, #GBL_PVOPS]
+	CHGMODE_PV a2, USR_Mode, a2
 	MOV	a2, v1
 	MOV	a1, #0
 	BL	__unixlib_raise_signal
@@ -64,8 +110,16 @@ __raise:
 	STR	a1, [a2, #GBL_EXECUTING_SIGNALHANDLER]
 
 	@ Restores all USR registers from the SP_SVC stack.
-	LDMIA	sp, {a1, a2, a3, a4, v1, v2, v3, v4, v5, v6, sl, fp, ip, sp, lr}^
-	MOV	a1, a1
+	LDR	a1, [a2, #GBL_PVOPS]
+	TEQ	a1, #0
+	LDMIAEQ	sp, {a1, a2, a3, a4, v1, v2, v3, v4, v5, v6, sl, fp, ip, sp, lr}^
+	BEQ	1f
+	@ RISC OS for Linux: through its HAL (pvops.s).
+	MOV	ip, a1
+	ADD	a2, sp, #13*4
+	PV_CALL	ip, PV_LOADUSR
+	LDMIA	sp, {a1, a2, a3, a4, v1, v2, v3, v4, v5, v6, sl, fp, ip}
+1:	MOV	a1, a1
 	ADD	sp, sp, #15*4
 	LDMIA	sp!, {pc}
 .L0:
@@ -119,16 +173,15 @@ __h_sigill:
 	LDMFD	sp!, {r7, r8}
 
 	STMIA	lr!, {a1-ip}		@ store non-banked registers
-	STMIA	lr, {sp, lr}^		@ store banked registers
-
 #ifdef __ARM_EABI__
-	MRS	a1, SPSR
+	STORE_USR_BANKED .L2, 1
 #else
+	STMIA	lr, {sp, lr}^		@ store banked registers
 	TEQ	pc, pc			@ store CPSR at time of exception
 	LDRNE	a1, [lr, #4*2]
 	MRSEQ	a1, SPSR
-#endif
 	STR	a1, [lr, #4*3]
+#endif
 
 	B	__h_cback_common
 .L2:
@@ -196,16 +249,15 @@ __h_sigsegv0:
 	LDMFD	sp!, {r7, r8}
 
 	STMIA	lr!, {a1-ip}		@ store non-banked registers
-	STMIA	lr, {sp, lr}^		@ store banked registers
-
 #ifdef __ARM_EABI__
-	MRS	a1, SPSR
+	STORE_USR_BANKED .L4, 1
 #else
+	STMIA	lr, {sp, lr}^		@ store banked registers
 	TEQ	pc, pc			@ store CPSR at time of exception
 	LDRNE	a1, [lr, #4*2]
 	MRSEQ	a1, SPSR
-#endif
 	STR	a1, [lr, #4*3]
+#endif
 
 	B	__h_cback_common
 .L4:
@@ -265,16 +317,15 @@ __h_sigsegv1:
 	LDMFD	sp!, {r7, r8}
 
 	STMIA	lr!, {a1-ip}		@ store non-banked registers
-	STMIA	lr, {sp, lr}^		@ store banked registers
-
 #ifdef __ARM_EABI__
-	MRS	a1, SPSR
+	STORE_USR_BANKED .L5, 1
 #else
+	STMIA	lr, {sp, lr}^		@ store banked registers
 	TEQ	pc, pc			@ store CPSR at time of exception
 	LDRNE	a1, [lr, #4*2]
 	MRSEQ	a1, SPSR
-#endif
 	STR	a1, [lr, #4*3]
+#endif
 
 	B	__h_cback_common
 .L5:
@@ -349,7 +400,10 @@ __h_error:
 	BLNE	__pthread_disable_ints
 
 	BL	__setup_signalhandler_stack
-	CHGMODE	a1, USR_Mode	@ Back to USR mode now we have a stack
+	LDR	a1, .L6	@=__ul_global
+ PICEQ "LDR	a1, [v6, a1]"
+	LDR	a1, [a1, #GBL_PVOPS]
+	CHGMODE_PV a1, USR_Mode, a1	@ Back to USR mode now we have a stack
 
 #ifdef __ARM_EABI__
 	STMFD	sp!, {v1, v3}
@@ -631,15 +685,17 @@ __h_sigsys:
 	MOV	lr, ip			@ lr = callback register block
 
 	STMIA	lr!, {a1-ip}		@ store non-banked registers
-	STMIA	lr, {sp, lr}^		@ store banked registers
+	STORE_USR_BANKED .L8, 0
 	MOV	a1, #0			@ No meaningful CPSR so null it.
 	STR	a1, [lr, #4*3]
 
+	SUB	ip, lr, #13*4		@ the block again (STORE_USR_BANKED used ip)
 	MOV	a1, #SIGSYS
 	STR	a1, [ip, #PTHREAD_CALLEVERY_CALLBACK_A1]
 
 	B	__h_cback_common
 .L8:
+	WORD	__ul_global
 	DECLARE_FUNCTION __h_sigsys
 
 @-----------------------------------------------------------------------
@@ -708,6 +764,11 @@ __h_cback:
 	B	__h_cback_common
 
 return_quickly:
+	LDR	a3, .L9+4		@=__ul_global
+ PICEQ "LDR	a3, [r11, a3]"
+	LDR	a1, [a3, #GBL_PVOPS]
+	TEQ	a1, #0
+	BNE	pv_return_quickly
 	MOV	lr, ip
 	LDR	a1, [lr, #16*4]
 	MSR	SPSR_cxsf, a1
@@ -715,6 +776,14 @@ return_quickly:
 	MOV	a1, a1
 	LDR	lr, [lr, #15*4]
 	MOVS	pc, lr
+
+	@ RISC OS for Linux: return through its HAL (pvops.s).
+pv_return_quickly:
+	MOV	a2, ip			@ r0-r15, CPSR at the block's start
+	MOV	ip, a1
+	LDR	a4, [a2, #16*4]
+	MOV	a3, sp
+	LDR	pc, [ip, #PV_LOADUSRREGS]
 .L9:
 	WORD	__ul_memory
 	WORD	__ul_global
@@ -735,7 +804,8 @@ __h_cback_common:
 	BL	__setup_signalhandler_stack
 
 	@ Back to USR mode now we have a stack, but with IRQs disabled.
-	CHGMODE	a1, USR_Mode+IFlag
+	LDR	a1, [a3, #GBL_PVOPS]	@ a3 = __ul_global still
+	CHGMODE_PV a1, USR_Mode+IFlag, a1
 
 	@ The USR mode registers r0-r15 and CPSR are extracted from the
 	@ callback register block while IRQs are disabled. The registers
@@ -807,11 +877,22 @@ __h_cback_common:
 				@ another callback
 	MOV	lr, a1
 	LDR	a1, [lr], #4	@ Get user PSR
+	LDR	ip, [a3, #GBL_PVOPS]	@ a3 = __ul_global still
+	TEQ	ip, #0
+	BNE	pv_cback_return
 	MSR	SPSR_cxsf, a1	@ Put it into SPSR_SVC/IRQ
 	LDMIA	lr, {a1, a2, a3, a4, v1, v2, v3, v4, v5, v6, sl, fp, ip, sp, lr}^
 	MOV	a1, a1
 	LDR	lr, [lr, #15*4]	@ Load the old PC value
 	MOVS	pc, lr		@ Return (Valid for 26 and 32bit modes)
+
+	@ RISC OS for Linux: return through its HAL (pvops.s).
+	@ lr = r0-r15, a1 = CPSR, ip = __ul_global.pvops
+pv_cback_return:
+	MOV	a4, a1
+	MOV	a2, lr
+	MOV	a3, sp
+	LDR	pc, [ip, #PV_LOADUSRREGS]
 	DECLARE_FUNCTION __h_cback
 
 
@@ -840,6 +921,9 @@ __setup_signalhandler_stack:
 	MOVNE	pc, lr
 
 	ADD	a1, a3, #GBL_SIGNALHANDLER_SP
+	LDR	a2, [a3, #GBL_PVOPS]
+	TEQ	a2, #0
+	BNE	pv_setup_stack
 	TEQ	pc, pc
 	MOVNE	a2, pc
 	MRSEQ	a2, CPSR
@@ -847,6 +931,34 @@ __setup_signalhandler_stack:
 
 	LDMIANE	a1, {sp}^	@ Not USR mode, set USR sp
 	LDREQ	sp, [a1, #0]	@ USR mode
+	MOV	pc, lr
+
+	@ RISC OS for Linux: the mode is virtual, and so is the USR bank
+	@ (pvops.s). a1 -> the new sp, a2 = __ul_global.pvops, a3 = __ul_global.
+	@ Preserves a1-a3 as the code above does; corrupts a4.
+	@ The current sp may be junk (__h_exit), so work on the new stack
+	@ (not in use yet: we're not in a signal handler).
+pv_setup_stack:
+	MOV	a4, sp
+	LDR	sp, [a1, #0]
+	STMFD	sp!, {a1-a3, ip, lr}
+	MOV	ip, a2
+	PV_CALL	ip, PV_GETCPSR
+	TST	a1, #Mode_Bits
+	LDMFDEQ	sp!, {a1-a3, ip, lr}	@ USR mode: it's the real sp
+	LDREQ	sp, [a1, #0]
+	MOVEQ	pc, lr
+	SUB	sp, sp, #8		@ Not USR mode: USR sp = it, USR lr kept
+	MOV	a2, sp
+	PV_CALL	ip, PV_STOREUSR
+	LDR	a1, [sp, #8]
+	LDR	a1, [a1, #0]
+	STR	a1, [sp, #0]
+	MOV	a2, sp
+	PV_CALL	ip, PV_LOADUSR
+	ADD	sp, sp, #8
+	LDMFD	sp!, {a1-a3, ip, lr}
+	MOV	sp, a4			@ this mode's own stack again
 	MOV	pc, lr
 .L11:
 	WORD	__ul_global

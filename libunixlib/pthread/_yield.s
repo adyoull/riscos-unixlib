@@ -47,12 +47,13 @@ pthread_yield:
 	BLNE	__pthread_fatal_error
 0:
 	MOV	a1, a2	@ callback regs are located at the start of the fast access RMA block
+	LDR	a2, [a3, #GBL_PVOPS]	@ RISC OS for Linux? (see pvops.s)
 
 	MRS	a3, CPSR	@ Get a USR mode, IRQs enabled CPSR
 	@ Change to SVC mode, IRQs disabled to ensure the regs don't get
 	@ overwitten by a real callback
 	SWI	XOS_EnterOS
-	CHGMODE	a4, SVC_Mode+IFlag
+	CHGMODE_PV a4, SVC_Mode+IFlag, a2
 
 	@ Save regs to callback save area
 	ADD	a1, a1, #13*4
@@ -63,7 +64,14 @@ pthread_yield:
 	@ into two so that the banked registers are saved independently of the
 	@ others.
 	STMDB	a1, {r4-r12}
-	STMIA	a1, {r13,r14}^
+	TEQ	a2, #0
+	STMIAEQ	a1, {r13,r14}^
+	BEQ	1f
+	@ RISC OS for Linux: the USR r13, r14 are in its virtual bank.
+	MOV	ip, a2
+	MOV	a2, a1
+	PV_CALL	ip, PV_STOREUSR
+1:
 	ADR	a2, __pthread_yield_return	@USR mode, IRQs enabled if in a 26bit mode
 	STR	a2, [a1, #8]
 	STR	a3, [a1, #12]	@ Save CPSR

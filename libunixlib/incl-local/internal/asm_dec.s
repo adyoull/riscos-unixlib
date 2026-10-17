@@ -45,6 +45,8 @@
 #include "internal/defines.h"
 	@ Import the assembler helper macros.
 #include "internal/elf-macros.s"
+	@ RISC OS for Linux: privileged operations through its HAL.
+#include "internal/pvops.s"
 
 .set	EXIT_SUCCESS, 0
 .set	EXIT_FAILURE, 1
@@ -312,6 +314,9 @@
 
 #if !defined(__SOFTFP__) && defined(__VFP_FP__)
 .set	GBL_VFP_REGCOUNT, 120		@ = __ul_global.vfp_regcount
+.set	GBL_PVOPS, 124			@ = __ul_global.pvops
+#else
+.set	GBL_PVOPS, 120			@ = __ul_global.pvops
 #endif
 
 	@ Entries in the __ul_memory table.  Must be kept in sync with

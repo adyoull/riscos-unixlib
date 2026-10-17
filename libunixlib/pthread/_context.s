@@ -135,7 +135,10 @@ __pthread_callback:
 	@ back on, so they don't get overwritten by another callback,
 	@ but the floating point instructions should only be called
 	@ from user mode
-	CHGMODE	a3, USR_Mode
+	LDR	a3, .L2			@=__ul_global
+ PICEQ "LDR	a3, [v1, a3]"
+	LDR	a3, [a3, #GBL_PVOPS]
+	CHGMODE_PV a3, USR_Mode, a3
 
 #ifndef __SOFTFP__
 #  ifdef __VFP_FP__
@@ -198,7 +201,10 @@ __pthread_callback:
 
 	SWI	XOS_EnterOS	@ Back to supervisor mode
 
-	CHGMODE	a2, SVC_Mode+IFlag	@ Force SVC mode, IRQs off
+	LDR	a2, .L2		@=__ul_global
+ PICEQ "LDR	a2, [v1, a2]"
+	LDR	a2, [a2, #GBL_PVOPS]
+	CHGMODE_PV a2, SVC_Mode+IFlag, a2	@ Force SVC mode, IRQs off
 
 	LDR	a2, .L2		@=__ul_global
  PICEQ "LDR	a2, [v1, a2]"
@@ -224,6 +230,9 @@ __pthread_callback:
 	LDR	r14, [r14, #__PTHREAD_CONTEXT_OFFSET]	@ __pthread_running_thread->saved_context
 
 	@ Restore thread's registers
+	LDR	ip, [a2, #GBL_PVOPS]
+	TEQ	ip, #0
+	BNE	pv_return_to_usr
 	LDR	a1, [r14, #16*4]	@ Get user PSR
 	MSR	SPSR_cxsf, a1		@ Put it into SPSR_SVC/IRQ (NOP on ARM2/3, shouldn't have any effect in 26bit mode)
 	LDMIA	r14, {r0-r14}^		@ Load USR mode regs
@@ -231,6 +240,14 @@ __pthread_callback:
 	LDR	r14, [r14, #15*4]	@ Load the old PC value
 
 	MOVS	pc, lr			@ Return (Valid for 26 and 32bit modes)
+
+	@ RISC OS for Linux: the same return through its HAL (see pvops.s).
+	@ r14 = r0-r15, CPSR to return with; ip = __ul_global.pvops
+pv_return_to_usr:
+	MOV	a2, r14
+	LDR	a4, [a2, #16*4]
+	MOV	a3, sp
+	LDR	pc, [ip, #PV_LOADUSRREGS]
 
 
 	@ Called because we are fast exiting from the context switcher
@@ -247,6 +264,9 @@ skip_contextswitch:
 
 	@ Exiting from the CallBack handler requires us to reload all registers from the
 	@ register save area which is at the beginning of the fast access RMA block
+	LDR	ip, [a3, #GBL_PVOPS]
+	TEQ	ip, #0
+	BNE	pv_return_to_usr
 	LDR	a1, [r14, #16*4]	@ Get user PSR
 	MSR	SPSR_cxsf, a1		@ Put it into SPSR_SVC/IRQ (NOP on ARM2/3, shouldn't have any effect in 26bit mode)
 	LDMIA	r14, {r0-r14}^		@ Load USR mode regs

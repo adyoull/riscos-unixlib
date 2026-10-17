@@ -16,6 +16,17 @@
 	.hidden	__get_cpu_arch
 	NAME	__get_cpu_arch
 __get_cpu_arch:
+	@ RISC OS for Linux (pvops.s): RISC OS runs in a Linux user-mode
+	@ process, where the CP15 ID registers can't be read (and MSR CPSR_c
+	@ wouldn't take us back out of OS_EnterOS). Say "unknown".
+	PIC_LOAD ip
+	LDR	a1, .Lgbl
+ PICEQ "LDR	a1, [ip, a1]"
+	LDR	a1, [a1, #GBL_PVOPS]
+	TEQ	a1, #0
+	MOVNE	a1, #0
+	MOVNE	pc, lr
+
 	@ Read ARM ARM (B2.3) and ARM application note 99 if you want to
 	@ understand some of the following bits.
 	STMFD	R13!, {R14}
@@ -69,6 +80,9 @@ __get_cpu_arch:
 	MOVNE	a1, #7
 	MOVEQ	a1, #6
 	LDMFD	R13!, {PC}
+
+.Lgbl:
+	WORD	__ul_global
 
 cpu_is_arm7:
 	TST	a1, #1<<23
