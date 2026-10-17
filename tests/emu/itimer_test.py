@@ -9,7 +9,8 @@ with a multiply by a reciprocal (no divide instruction before ARMv7).
 
 This takes the macro from the real _signal.s, assembles it with the cross
 assembler, and runs it in Unicorn for tv_usec 0..20000, the edges and a
-sample of the rest, checking the result and that a4 and sp are kept.
+sample of the rest, checking the result and that a4 and sp are kept. Both
+versions: UMULL (ARMv4 and later) and the subtraction loop (ARMv3).
 
   tests/emu/itimer_test.py
 """
@@ -34,10 +35,21 @@ def main():
     if not m:
         print("FAIL: no ITIMER_CS macro in signal/_signal.s")
         return 1
+    checks = fails = 0
+    for arch in (4, 3):
+        c, f = run(m.group(0), arch)
+        checks += c
+        fails += f
+    print("itimer_test: %d checks, %d failed" % (checks, fails))
+    return 1 if fails else 0
+
+
+def run(macro, arch):
     d = tempfile.mkdtemp()
     with open(os.path.join(d, "t.S"), "w") as f:
         f.write("\t.syntax unified\n#define a1 r0\n#define a2 r1\n#define a3 r2\n#define a4 r3\n")
-        f.write(m.group(0))
+        f.write("#define __ARM_ARCH__ %d\n" % arch)
+        f.write(macro)
         f.write("\t.text\nf:\n\tITIMER_CS\n\tbkpt\n")
     subprocess.run([TOOL + "gcc", "-c", "-o", os.path.join(d, "t.o"), os.path.join(d, "t.S")], check=True)
     subprocess.run([TOOL + "objcopy", "-O", "binary", "-j", ".text",
@@ -67,9 +79,9 @@ def main():
                     or uc.reg_read(UC_ARM_REG_SP) != 0x88000):
                 fails += 1
                 if fails <= 5:
-                    print("FAIL: %d s %d us -> %d cs (want %d)" % (sec, usec, got, want))
-    print("itimer_test: %d checks, %d failed" % (checks, fails))
-    return 1 if fails else 0
+                    print("FAIL (ARMv%d): %d s %d us -> %d cs (want %d)"
+                          % (arch, sec, usec, got, want))
+    return checks, fails
 
 
 if __name__ == "__main__":

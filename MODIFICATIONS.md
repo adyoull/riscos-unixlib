@@ -312,11 +312,17 @@ does, in the three handlers. There's no divide instruction before ARMv7,
 so it multiplies by a reciprocal: `(x * 0xD1B71759) >> 45` is `x / 10000`
 for every x it can be given (checked for 0 to 1009998). The extra 1 cs
 the handlers add is left as it was, so a whole-second interval gives the
-same value as before.
+same value as before. ARMv3 (ARM610/710) has no `UMULL`, so the APCS
+build for it subtracts 10000 at most 100 times instead (found in the
+second review round; our EABI build uses `UMULL`).
+
+Left as they were (review notes): `OS_CallEvery` calls every R0+1 cs, so
+with the extra 1 each repeat is 2 cs longer than asked; and `setitimer`
+doesn't reject a negative `tv_usec` (POSIX says `EINVAL`).
 
 **Verification.** `tests/emu/itimer_test.py` assembles the macro from
-`_signal.s` and runs it in Unicorn for 88,000 inputs (exact, and a4 and
-sp are kept). New Pi test `ITimer`: a 100 ms interval must give 6 alarms
+`_signal.s` and runs both versions in Unicorn for 88,000 inputs each
+(exact, and a4 and sp are kept). New Pi test `ITimer`: a 100 ms interval must give 6 alarms
 in under 2 s. Not yet run on RISC OS.
 
 **Not changed.** The handoff also found that UnixLib resets a handler to

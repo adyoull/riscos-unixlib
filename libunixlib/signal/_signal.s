@@ -52,16 +52,30 @@
 	@ seconds were right and give the same value as before. No divide
 	@ instruction before ARMv7: (x * 0xD1B71759) >> 45 is x / 10000 for
 	@ x up to 1009998 (checked).
+	@ ARMv3 (ARM610/710) has no UMULL: there, subtract 10000 at most 100
+	@ times instead.
 	.macro	ITIMER_CS
 	STMFD	sp!, {a4}
 	ADD	a2, a2, #9984		@ + 9999, to round up
 	ADD	a2, a2, #15
+#if __ARM_ARCH__ >= 4
 	MOV	a4, #0xD1000000
 	ORR	a4, a4, #0x00B70000
 	ORR	a4, a4, #0x00001700
 	ORR	a4, a4, #0x00000059
 	UMULL	a3, a4, a2, a4
 	MOV	a2, a4, LSR #13		@ (tv_usec + 9999) / 10000
+#else
+	MOV	a4, #0x2700
+	ORR	a4, a4, #0x10		@ 10000
+	MOV	a3, #0
+.Litimer_cs\@:
+	CMP	a2, a4
+	SUBCS	a2, a2, a4
+	ADDCS	a3, a3, #1
+	BCS	.Litimer_cs\@
+	MOV	a2, a3			@ (tv_usec + 9999) / 10000
+#endif
 	LDMFD	sp!, {a4}
 	MOV	a3, #100
 	MLA	a1, a3, a1, a2
