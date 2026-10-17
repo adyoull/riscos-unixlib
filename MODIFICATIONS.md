@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 63 modified files and 9 added files).
+diff against unchanged GCCSDK UnixLib: 67 modified files and 10 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -31,13 +31,13 @@ the commits are named below.
 | SharedUnixLibrary there | 1.16 |
 | Import commit here | `13eea91` "Import UnixLib from GCCSDK (jhamby/riscos-gccsdk 64c6f81)", the tree unchanged |
 
-### File inventory (1336 files in `libunixlib/`)
+### File inventory (1337 files in `libunixlib/`)
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1264 |
-| Modified (listed below) | 63 |
-| Added | 9 |
+| Byte-identical to GCCSDK `64c6f81` | 1260 |
+| Modified (listed below) | 67 |
+| Added | 10 |
 | Removed relative to upstream | 0 |
 
 | File | Change |
@@ -71,6 +71,8 @@ the commits are named below.
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
+| `incl-local/internal/pvops.s` (**new**), `incl-local/internal/asm_dec.s`, `incl-local/internal/unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s` | O1 threads and signals on RISC OS for Linux |
+| `signal/_signal.s` | T5 sub-second interval timers repeat |
 | `unix/eventfd.c` | E1 counter updated with thread switching held off, Y1 waits |
 | `pthread/heldwait.c` (**new**) | Y1 waiting inside a held call |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
@@ -100,6 +102,8 @@ library:
 - riscos-mesa (SDL2, OpenAL Soft): P1, P2.
 - Sound (S1-S5) and large files (L1-L4) were written here.
 - An independent review of all the changes (2026-10-01): K5, S6-S9, W2, L5.
+- The ROL-Testbed project (RISC OS for Linux as a test bed, 2026-10-17):
+  O1, and the bug behind T5.
 
 L1-L4 were written from UnixLib's own existing LFS declarations and stubs,
 following the glibc conventions UnixLib's headers already use. The only
@@ -289,6 +293,37 @@ mixed value, which could make the clock jump ahead and stick there.
 SharedCLibrary build, which has no threads.
 
 **Verification.** By reading; the SharedCLibrary build compiled by hand.
+
+### T5. Sub-second interval timers repeat (`signal/_signal.s`)
+
+**Problem.** Found by the ROL-Testbed project (2026-10-17). An interval
+timer (`setitimer`) with an interval under a second fired once and then,
+in effect, never again. Whole-second intervals worked.
+
+**Cause.** `time/setitmr.c` converts the first expiry correctly
+(`(tv_usec + 9999) / 10000` centiseconds). The SIGALRM, SIGVTALRM and
+SIGPROF handlers in `_signal.s` then re-arm `OS_CallEvery` with
+`100 * tv_sec + tv_usec + 1`, adding tv_usec as if it were centiseconds:
+a 100 ms interval repeated every 100001 cs, about 17 minutes. GCCSDK has
+the same code.
+
+**Change.** A macro, `ITIMER_CS`, converts the interval as `setitmr.c`
+does, in the three handlers. There's no divide instruction before ARMv7,
+so it multiplies by a reciprocal: `(x * 0xD1B71759) >> 45` is `x / 10000`
+for every x it can be given (checked for 0 to 1009998). The extra 1 cs
+the handlers add is left as it was, so a whole-second interval gives the
+same value as before.
+
+**Verification.** `tests/emu/itimer_test.py` assembles the macro from
+`_signal.s` and runs it in Unicorn for 88,000 inputs (exact, and a4 and
+sp are kept). New Pi test `ITimer`: a 100 ms interval must give 6 alarms
+in under 2 s. Not yet run on RISC OS.
+
+**Not changed.** The handoff also found that UnixLib resets a handler to
+`SIG_DFL` when a signal is delivered even when it was installed with
+`sigaction` without `SA_RESETHAND` (`signal/post.c`), which POSIX
+doesn't do. That is long-standing behaviour, so it's left for a decision
+(section 8). `ITimer` re-installs its handler.
 
 ### A1. No `mmap` for large blocks on EABI (`stdlib/alloc.c`) - commit `98a9287`
 
@@ -1434,6 +1469,85 @@ line. Cosmetic.)
 
 Peer review confirmed the test would fail on the code before K10, and on K10's first version. The library builds and `make check` passes. Not yet run on RISC OS.
 
+### O1. Threads and signals on RISC OS for Linux (`incl-local/internal/pvops.s` (new), `asm_dec.s`, `unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s`)
+
+**Problem.** Found and fixed by the ROL-Testbed project (2026-10-17),
+which uses the Linux port of RISC OS (Timothy Baldwin's RISC OS 5 that
+runs as a Linux program) as a test bed. On the port, a UnixLib program
+hung the first time a second thread ran, and hung on a fault instead of
+printing "Fatal signal received". Single-threaded programs worked.
+
+**Cause.** The port runs all of RISC OS in a Linux user-mode process: the
+processor never leaves USR mode, and RISC OS's modes and their banked
+registers are kept in software. So `MSR CPSR_c` is ignored, `MRS/MSR SPSR`
+are undefined, `STM/LDM {..}^` use the current bank and `MOVS pc, lr` has
+no SPSR to return through. The thread switcher (`_context.s`, `_yield.s`)
+and the signal code (`_signal.s`) use all four.
+
+**Change** (the project's patch, `1f6d646`, with review fixes `b3e15e9`).
+- The port's HAL offers these operations as routines in a HAL device
+  (type &30A, ID 1, "Linux HAL PSR Manipulation"). At start-up
+  `_syslib.s` looks for it with `OS_Hardware 5` and stores its descriptor
+  in a new last field of the internal `struct ul_global`, `pvops`
+  (`GBL_PVOPS`: 124 with VFP, 120 without; a `_Static_assert` in
+  `common/global.c` keeps the C and assembler offsets in step). On every
+  other machine there's no such device and `pvops` is 0.
+- `incl-local/internal/pvops.s` describes the routines (offsets and
+  register contracts) and has the macros `PV_CALL`, `PV_CHGMODE` and
+  `CHGMODE_PV` (a CHGMODE, or the HAL routine when `pvops` is set).
+- Each site that used those instructions tests `pvops` and, when it is
+  set, calls the routines instead: the mode changes and the return to a
+  thread in `_context.s`; the mode change and USR r13/r14 store in
+  `_yield.s`; `__raise`, `__h_error`, the EABI exception handlers (a new
+  macro, `STORE_USR_BANKED`), `__h_sigsys`, `__h_cback`'s returns and
+  `__setup_signalhandler_stack` in `_signal.s`.
+- `__get_cpu_arch` returns 0 ("unknown", which start-up accepts) on the
+  port, where the CP15 ID registers can't be read.
+- **Only the EABI build is converted.** The APCS exception handlers still
+  use `STM ^`/`MRS SPSR`, so an APCS program on the port would still hang
+  on a fault. The Wimp filters' `MSR CPSR_c` (`ticker.s`), profiling and
+  `DRender.s` are unchanged; on the port the filters' IRQ masking is
+  simply ignored.
+
+**Where the interface came from.** The device's type, ID, offsets and
+register contracts come from the port's HAL (Timothy Baldwin's own code,
+Apache-2.0) and were confirmed on the running port, which lists the
+device and its table. No code was copied. (The project also cross-checked
+them against a RISC OS Open header; we didn't read that, as we don't read
+ROOL source.)
+
+**Performance and behaviour.** On a real machine every site takes the old
+instructions after a load, a `TEQ` and a branch: about 15 instructions
+more per thread switch, which is negligible. Start-up makes one more SWI.
+`__raise` now stores r0-r12 and then the USR sp and lr with a second
+`STM ^` (the same 15 words). Programs behave as before.
+
+**Peer review** (two reviewers, native paths and port paths). Both found
+the same real bug in the patch: in the PIC (shared library) build,
+`__get_cpu_arch` loaded the GOT into ip, which `__main` still uses as
+`__ul_global`'s address after the call, so start-up wrote its globals
+into the GOT on every machine. The static library wasn't affected. Fixed
+(`b3e15e9`) by using a2. Otherwise both confirmed that every native
+site is unchanged (registers, flags, PIC GOT registers, the `STM ^`
+block layout, literal pools), and that the port paths match the
+routines' contracts. A remaining risk they noted: if a real machine's HAL
+ever registered a device of type &30A with ID 1, it would take the port
+paths.
+
+**Verification.**
+- On the port (the project's tests, QEMU 8.2.2): threads (create, yield,
+  join), 4 threads with VFP state through context switches, preemptive
+  switching, alarms raised through `__raise`, and a fault that prints
+  "Fatal signal received" and exits non-zero all pass, with 13 other
+  checks still passing.
+- Here: the library builds (same warnings as before), `make check`
+  passes, and a disassembly of the changed objects in the static, PIC,
+  APCS and soft-float builds shows only the intended differences.
+- New Pi tests `Preempt`, `ITimer` and `Fault`, plus the existing thread
+  and signal tests (`Ticker`, `TickerEarly`, `TickerStartTask`,
+  `ForkThreads`, `Sched`, `ExitJoin`, `EventFD`), check the native paths.
+  Not yet run on RISC OS.
+
 ## 5. Files over 2GB (L1-L5)
 
 Background and the compatibility table are in `docs/LARGE-FILES.md`.
@@ -1629,6 +1743,18 @@ behaved as expected.
 - R1 and R2 (on the machine where Warzone 2100 crashed).
 - S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
   from the 2026-10-01 review).
+- O1 and T5: `Preempt`, `ITimer`, `Fault`, and the existing thread and
+  signal tests (`Ticker`, `TickerEarly`, `TickerStartTask`,
+  `ForkThreads`, `Sched`, `ExitJoin`, `EventFD`) to check that a Pi
+  behaves as before.
+
+**A decision to make:** `signal/post.c` resets a handler to `SIG_DFL` on
+delivery even when it was installed with `sigaction` without
+`SA_RESETHAND` (System V `signal()` behaviour, applied to both). POSIX
+keeps the handler. A program that relies on that dies at its second
+signal ("Termination signal received"). Changing it alters long-standing
+behaviour, so it's left as it is for now. Found by the ROL-Testbed
+project (2026-10-17).
 
 **Done on RISC OS (Pi 4, 5.0.3.1-rc8 and rc9; released as 5.0.3.1 with
 the sound tests still to run):** `ForkOnly`, `ForkThreads`,

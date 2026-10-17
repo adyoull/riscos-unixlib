@@ -7,6 +7,9 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **Threads and signals work on RISC OS for Linux (O1).** On the Linux port of RISC OS, which runs RISC OS in a Linux user-mode process, a UnixLib program hung the first time a second thread ran, and on any fault. The thread switcher and signal code now do their mode changes and USR-register work through the routines the port's HAL provides, when it has them. On other machines nothing changes: the old instructions run after one extra test. EABI build only. From the ROL-Testbed project; peer-reviewed (the review found and fixed a start-up bug the patch had in the shared-library build). New Pi tests `Preempt` and `Fault`.
+- **Sub-second interval timers repeat (T5).** An `setitimer` interval under a second fired once and then not for about 17 minutes: the repeat delay took microseconds as centiseconds. Found by the ROL-Testbed project. New emulator test and Pi test `ITimer`.
+
 - **Builds on GitHub in the riscos-crossdev container image** (the
   version pinned in `.riscos-deps`, now 1.8.1): library, checks and
   `UnixLibTests.zip` from a clean checkout (`ci/build.sh`), on every push.
