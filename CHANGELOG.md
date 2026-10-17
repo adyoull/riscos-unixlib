@@ -5,6 +5,17 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## Unreleased
+
+- **Builds on GitHub in the riscos-crossdev container image** (the
+  version pinned in `.riscos-deps`, now 1.8): library, checks and
+  `UnixLibTests.zip` from a clean checkout (`ci/build.sh`), on every push.
+  A daily workflow opens a pull request when riscos-crossdev makes a new
+  release, built and checked with it. From riscos-crossdev's CI chain;
+  docs/MAINTAINING.md "Building on GitHub". The library is unchanged.
+- The Makefile uses the image's toolchain (`$RISCOS_TOOLCHAIN`) when
+  `GCCSDK_ENV` isn't set.
+
 ## 5.0.3.4-rc1 (2026-10-11, pre-release, withdrawn)
 
 Withdrawn the same day, before it ran on RISC OS; the tree is back to

@@ -47,14 +47,23 @@ make install                 # also copies lib + headers into $GCCSDK_ENV
 make riscos-tests            # -> tests/riscos/out/UnixLibTests.zip
 ```
 
-`GCCSDK_ENV` is the installed cross toolchain (default `~/gccsdk/env`).
+`GCCSDK_ENV` is the installed cross toolchain (default: the riscos-crossdev
+image's `$RISCOS_TOOLCHAIN` inside that image, otherwise `~/gccsdk/env`).
 Host packages: `autoconf2.69`, `automake1.11`, `perl`, `python3`, a host
 `gcc` (Debian/Ubuntu names).
 
 ### Toolchain
 
 The cross compiler (GCCSDK GCC 10.2.0, `arm-riscos-gnueabihf`) is **not**
-built here. Two ways to get it:
+built here. Three ways to get it:
+
+- **riscos-crossdev's container image** (`ghcr.io/adyoull/riscos-crossdev:<v>`,
+  the version in `.riscos-deps`), which GitHub builds use. Its toolchain is
+  at `$RISCOS_TOOLCHAIN` and the Makefile picks it up:
+  `docker run --rm -v "$PWD":/src ghcr.io/adyoull/riscos-crossdev:1.8 ci/build.sh`.
+  It builds the same library as the toolchain below (2026-10-17: the code
+  and data of every object match 5.0.3.3's; only the compiler's
+  identification string and debug sizes differ).
 
 - Build it with riscos-warzone2100's `build/build-toolchain.sh`, which
   follows riscos-mesa's `build/TOOLCHAIN.md` (about 10 minutes on 2 cores).
@@ -67,6 +76,33 @@ built here. Two ways to get it:
 A library built from this repo is the same, object for object, as the one in
 that toolchain as it was before the sound work (checked: code and data of
 all 894 objects).
+
+## Building on GitHub
+
+Following riscos-crossdev's CI chain (its `docs/CI.md`):
+
+- `.riscos-deps` names the riscos-crossdev release we build with (it also
+  picks the container image).
+- `.github/workflows/riscos-build.yml` runs `ci/build.sh` in that image on
+  every push and pull request: `make sources`, `lib`, `check` and
+  `riscos-tests` from a clean checkout. It keeps `libunixlib.a` and
+  `UnixLibTests.zip` as downloads on the run's page. `check.yml` still runs
+  `make check` alone, without a cross compiler.
+- `.github/workflows/riscos-deps-update.yml` checks every day for a newer
+  riscos-crossdev release and, when there is one, opens a pull request
+  that moves the pin and says whether `ci/build.sh` passed with it. Nothing
+  is merged or released by itself.
+- Both are crossdev's `ci/` templates with three changes, noted at their
+  top: `BUILD=ci/build.sh`, full-history checkouts (the patch checks need
+  them), and the update build run as root so `ci/build.sh` can install
+  `autoconf2.69` and `automake1.11`, which the 1.8 image lacks.
+- Needs, in the repository's Settings > Actions > General: "Workflow
+  permissions: Read and write" and "Allow GitHub Actions to create and
+  approve pull requests".
+- **Downstream:** riscos-crossdev builds its toolchain from our release's
+  `unixlib-riscos.diff` and `PThreadTicker-<v>.zip`, found through the
+  release's `SHA256SUMS`, and only follows releases marked latest. Keep
+  those file names, and always mark an rc as a pre-release.
 
 ## Testing
 
