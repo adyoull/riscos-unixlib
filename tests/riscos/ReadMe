@@ -131,6 +131,16 @@ HeapProbe   a probe, not a pass/fail test: can one heap block be bigger
             256 MB, 512 MB and 1 GB with 140 MB mapped in. Removes every
             area it makes. Please send DAProbeLog (written next to it).
             Needs about 300 MB free.
+Preempt     two threads that never yield, and a main thread that never
+            yields either: only the thread ticker switches them. Both must
+            count past 200000; must print PASS.
+ITimer      interval timers: a 100 ms interval must give 6 alarms in under
+            2 s (before 5.0.3.4 only the first came), and a 1 s interval 3
+            alarms about 1 s apart. Must print PASS.
+Fault       a SIGILL caught by a handler ("caught SIGILL: ok"), then an
+            uncaught one: must print "Fatal signal received: Illegal
+            instruction" and a backtrace, and end the program. Nothing else
+            on the machine should be affected.
 
 Please report: what each one printed, whether it sounded right, any
 clicks or gaps, and the "max queued" figure.

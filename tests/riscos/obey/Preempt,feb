@@ -1,0 +1,5 @@
+| Two threads that never yield: only the ticker switches them.
+| Must say PASS (both counts past 200000).
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.preempttest

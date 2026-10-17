@@ -1,0 +1,5 @@
+| Exception handlers: a caught SIGILL, then an uncaught one, which must
+| print "Fatal signal received: Illegal instruction" and end the program.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.faulttest

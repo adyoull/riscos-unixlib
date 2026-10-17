@@ -1,0 +1,4 @@
+| Interval timers: 100 ms and 1 s intervals. Must say PASS.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.itimertest
