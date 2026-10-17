@@ -25,11 +25,8 @@
 #
 # From riscos-crossdev's ci/ (docs/CI.md). MIT licence.
 #
-# riscos-unixlib: BUILD is ci/build.sh, as in riscos-build.yml. The checkout
-# takes the whole history (make check's patch checks need it), and the
-# build runs as root in the image, not as the runner's user, so that
-# ci/build.sh can install autoconf2.69 and automake1.11, which the image
-# lacks. It runs in a throwaway copy, so root-owned files there don't matter.
+# riscos-unixlib: BUILD is ci/build.sh, as in riscos-build.yml, and the
+# checkout takes the whole history (make check's patch checks need it).
 name: Dependency updates
 
 on:
@@ -91,7 +88,7 @@ jobs:
           IMAGE: ghcr.io/adyoull/riscos-crossdev:${{ steps.deps.outputs.crossdev }}
         run: |
           cp -a . "$RUNNER_TEMP/build"
-          docker run --rm -v "$RUNNER_TEMP/build":/src "$IMAGE" \
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$RUNNER_TEMP/build":/src "$IMAGE" \
             sh -c "$BUILD" 2>&1 | tee "$RUNNER_TEMP/build.log"
 
       - name: The pull request's text
