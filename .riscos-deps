@@ -1,0 +1,4 @@
+# NAME TAG: the releases of github.com/adyoull repositories this one is
+# built with (riscos-crossdev's docs/CI.md). The riscos-crossdev line also
+# chooses the container image the GitHub builds run in.
+riscos-crossdev v1.8
