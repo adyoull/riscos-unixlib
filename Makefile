@@ -1,7 +1,10 @@
 # riscos-unixlib: shortcuts for the scripts in build/, tests/ and tools/.
 # See docs/MAINTAINING.md.
 
-GCCSDK_ENV ?= $(HOME)/gccsdk/env
+# The cross toolchain: GCCSDK_ENV if set; in the riscos-crossdev container
+# image, its toolchain ($RISCOS_TOOLCHAIN, the same GCCSDK GCC 10.2);
+# otherwise ~/gccsdk/env.
+GCCSDK_ENV ?= $(or $(RISCOS_TOOLCHAIN),$(HOME)/gccsdk/env)
 export GCCSDK_ENV
 
 .PHONY: help check check-lib sources lib install patches riscos-tests elf2aif release clean
