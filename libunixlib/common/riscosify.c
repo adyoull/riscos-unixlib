@@ -957,6 +957,13 @@ __riscosify (const char *name, int create_dir,
          /usr/xxx                    xxx
          /xxx                        xxx */
 
+      /* 2026: a run of leading slashes means one, as on Unix ("//" may
+	 mean something else under POSIX, but means nothing else here).
+	 "///RAM::RamDisc0.$/x" (a file:/// URI with only "file:" taken
+	 off) used to become "$.RAM__RamDisc0/_.x". Found by riscos-gtk
+	 (Claws Mail).  */
+      while (in[1] == '/')
+	in++;
       in++;			/* Skip the '/' */
 
       if (*in == '<')
