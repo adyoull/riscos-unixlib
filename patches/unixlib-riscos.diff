@@ -197,6 +197,24 @@ index 261be72..0c136f3 100644
 +_Static_assert (offsetof (struct ul_global, pvops) == 120, "GBL_PVOPS");
 +#endif
 +
+diff --git a/gcc4/recipe/files/gcc/libunixlib/common/riscosify.c b/gcc4/recipe/files/gcc/libunixlib/common/riscosify.c
+index b5e931d..0825bef 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/common/riscosify.c
++++ b/gcc4/recipe/files/gcc/libunixlib/common/riscosify.c
+@@ -957,6 +957,13 @@ __riscosify (const char *name, int create_dir,
+          /usr/xxx                    xxx
+          /xxx                        xxx */
+ 
++      /* 2026: a run of leading slashes means one, as on Unix ("//" may
++	 mean something else under POSIX, but means nothing else here).
++	 "///RAM::RamDisc0.$/x" (a file:/// URI with only "file:" taken
++	 off) used to become "$.RAM__RamDisc0/_.x". Found by riscos-gtk
++	 (Claws Mail).  */
++      while (in[1] == '/')
++	in++;
+       in++;			/* Skip the '/' */
+ 
+       if (*in == '<')
 diff --git a/gcc4/recipe/files/gcc/libunixlib/configure.ac b/gcc4/recipe/files/gcc/libunixlib/configure.ac
 index 53fe31c..fc57bef 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/configure.ac
@@ -235,6 +253,146 @@ index 7775d56..63dce3d 100644
  
  
  What
+diff --git a/gcc4/recipe/files/gcc/libunixlib/grp/getgrgid_r.c b/gcc4/recipe/files/gcc/libunixlib/grp/getgrgid_r.c
+index 36f5b79..d9490d0 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/grp/getgrgid_r.c
++++ b/gcc4/recipe/files/gcc/libunixlib/grp/getgrgid_r.c
+@@ -6,6 +6,7 @@
+ 
+ #include <stddef.h>
+ #include <stdio.h>
++#include <string.h>
+ #include <errno.h>
+ #include <grp.h>
+ #include <sys/types.h>
+@@ -13,18 +14,46 @@
+ #include <pthread.h>
+ #include <internal/unix.h>
+ 
++/* After the search loop: why __grpread stopped. A line too long for
++   BUFFER leaves the stream short of its end and the buffer full (ERANGE,
++   so the caller can try a bigger buffer); a read error is EIO; at the
++   end of the file there's no such entry (0).  */
++static int
++search_end (FILE *stream, const char *buffer, size_t buflen)
++{
++  if (ferror (stream))
++    return __set_errno (EIO), EIO;
++  if (feof (stream))
++    return 0;
++  /* Stopped early. ERANGE only if the line filled the buffer (the reader
++     asks fgets for buflen - 1 bytes); otherwise it's a line the reader
++     can't take (a NUL in it), which a bigger buffer wouldn't help.  */
++  if (buflen <= 2 || strlen (buffer) >= buflen - 2)
++    return __set_errno (ERANGE), ERANGE;
++  return __set_errno (EIO), EIO;
++}
++
++/* 2026: POSIX: *result is NULL unless an entry is returned, and the
++   return value is 0 (found, or no such entry) or an error number. These
++   used to return -1 with *result left unset, so callers that check
++   *result (GLib does) read an uninitialised pointer: on RISC OS there's
++   no /etc/group, so every group lookup did. Found by riscos-gtk
++   (Gnumeric's File > Properties).  */
+ int
+ getgrgid_r (gid_t gid, struct group *resbuf, char *buffer, size_t buflen,
+ 	    struct group **result)
+ {
+   PTHREAD_SAFE_CANCELLATION
+ 
++  if (result != NULL)
++    *result = NULL;
++
+   if (resbuf == NULL || buffer == NULL)
+-    return __set_errno (EINVAL);
++    return __set_errno (EINVAL), EINVAL;
+ 
+   FILE *stream = fopen ("/etc/group", "r");
+   if (stream == NULL)
+-    return -1;
++    return errno == ENOENT ? 0 : errno;	/* no group file: no entries */
+ 
+   struct group *grp;
+   while ((grp = __grpread (stream, resbuf, buffer, buflen)) != NULL)
+@@ -33,10 +62,11 @@ getgrgid_r (gid_t gid, struct group *resbuf, char *buffer, size_t buflen,
+         break;
+     }
+ 
++  int err = grp == NULL ? search_end (stream, buffer, buflen) : 0;
+   fclose (stream);
+ 
+   if (grp == NULL)
+-    return -1;
++    return err;
+ 
+   if (result != NULL)
+     *result = resbuf;
+diff --git a/gcc4/recipe/files/gcc/libunixlib/grp/getgrnam_r.c b/gcc4/recipe/files/gcc/libunixlib/grp/getgrnam_r.c
+index 2813d02..5fe9487 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/grp/getgrnam_r.c
++++ b/gcc4/recipe/files/gcc/libunixlib/grp/getgrnam_r.c
+@@ -14,18 +14,46 @@
+ #include <internal/unix.h>
+ 
+ /* Search for an entry with a matching name.  */
++/* After the search loop: why __grpread stopped. A line too long for
++   BUFFER leaves the stream short of its end and the buffer full (ERANGE,
++   so the caller can try a bigger buffer); a read error is EIO; at the
++   end of the file there's no such entry (0).  */
++static int
++search_end (FILE *stream, const char *buffer, size_t buflen)
++{
++  if (ferror (stream))
++    return __set_errno (EIO), EIO;
++  if (feof (stream))
++    return 0;
++  /* Stopped early. ERANGE only if the line filled the buffer (the reader
++     asks fgets for buflen - 1 bytes); otherwise it's a line the reader
++     can't take (a NUL in it), which a bigger buffer wouldn't help.  */
++  if (buflen <= 2 || strlen (buffer) >= buflen - 2)
++    return __set_errno (ERANGE), ERANGE;
++  return __set_errno (EIO), EIO;
++}
++
++/* 2026: POSIX: *result is NULL unless an entry is returned, and the
++   return value is 0 (found, or no such entry) or an error number. These
++   used to return -1 with *result left unset, so callers that check
++   *result (GLib does) read an uninitialised pointer: on RISC OS there's
++   no /etc/group, so every group lookup did. Found by riscos-gtk
++   (Gnumeric's File > Properties).  */
+ int
+ getgrnam_r (const char *name, struct group *result_buf, char *buffer,
+ 	    size_t buflen, struct group **result)
+ {
+   PTHREAD_SAFE_CANCELLATION
+ 
++  if (result != NULL)
++    *result = NULL;
++
+   if (result_buf == NULL || buffer == NULL)
+-    return __set_errno (EINVAL);
++    return __set_errno (EINVAL), EINVAL;
+ 
+   FILE *stream = fopen ("/etc/group", "r");
+   if (stream == NULL)
+-    return -1;
++    return errno == ENOENT ? 0 : errno;	/* no group file: no entries */
+ 
+   struct group *grp;
+   while ((grp = __grpread (stream, result_buf, buffer, buflen)) != NULL)
+@@ -34,10 +62,11 @@ getgrnam_r (const char *name, struct group *result_buf, char *buffer,
+         break;
+     }
+ 
++  int err = grp == NULL ? search_end (stream, buffer, buflen) : 0;
+   fclose (stream);
+ 
+   if (grp == NULL)
+-    return -1;
++    return err;
+ 
+   if (result != NULL)
+     *result = result_buf;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
 index 7f01c57..e851d26 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/asm_dec.s
@@ -3219,6 +3377,184 @@ index 0000000..130b336
 +  if (created)
 +    _swix (OS_File, _INR(0,2), 18, file, 0xFFF);	/* Text */
 +}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pwd/getlogin.c b/gcc4/recipe/files/gcc/libunixlib/pwd/getlogin.c
+index 63cfdd7..48ba739 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pwd/getlogin.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pwd/getlogin.c
+@@ -23,7 +23,8 @@ getlogin (void)
+ 
+   PTHREAD_UNSAFE_CANCELLATION
+ 
+-  if (getpwuid_r (geteuid (), &pwent, buf, sizeof (buf), &pwptr))
++  if (getpwuid_r (geteuid (), &pwent, buf, sizeof (buf), &pwptr) != 0
++      || pwptr == NULL)	/* 2026: 0 and NULL is "no such user" */
+     return NULL;
+ 
+   strncpy (name, pwptr->pw_name, L_cuserid);
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pwd/getpwnam_r.c b/gcc4/recipe/files/gcc/libunixlib/pwd/getpwnam_r.c
+index b9a3ebe..d4e9801 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pwd/getpwnam_r.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pwd/getpwnam_r.c
+@@ -13,6 +13,31 @@
+ #include <pthread.h>
+ #include <internal/unix.h>
+ 
++/* After the search loop: why __pwdread stopped. A line too long for
++   BUFFER leaves the stream short of its end and the buffer full (ERANGE,
++   so the caller can try a bigger buffer); a read error is EIO; at the
++   end of the file there's no such entry (0).  */
++static int
++search_end (FILE *stream, const char *buffer, size_t buflen)
++{
++  if (ferror (stream))
++    return __set_errno (EIO), EIO;
++  if (feof (stream))
++    return 0;
++  /* Stopped early. ERANGE only if the line filled the buffer (the reader
++     asks fgets for buflen - 1 bytes); otherwise it's a line the reader
++     can't take (a NUL in it), which a bigger buffer wouldn't help.  */
++  if (buflen <= 2 || strlen (buffer) >= buflen - 2)
++    return __set_errno (ERANGE), ERANGE;
++  return __set_errno (EIO), EIO;
++}
++
++/* 2026: POSIX: *result is NULL unless an entry is returned, and the
++   return value is 0 (found, or no such entry) or an error number. These
++   used to return -1 with *result left unset, so callers that check
++   *result (GLib does) read an uninitialised pointer when /etc/passwd
++   had no such entry. Found by riscos-gtk
++   (Gnumeric's File > Properties).  */
+ /* Search for an entry with a matching name.  */
+ int
+ getpwnam_r (const char *name, struct passwd *result_buf, char *buffer,
+@@ -20,18 +45,22 @@ getpwnam_r (const char *name, struct passwd *result_buf, char *buffer,
+ {
+   PTHREAD_SAFE_CANCELLATION
+ 
++  if (result != NULL)
++    *result = NULL;
++
+   if (result_buf == NULL || buffer == NULL)
+-    return __set_errno (EINVAL);
++    return __set_errno (EINVAL), EINVAL;
+ 
+   FILE *stream = fopen ("/etc/passwd", "r");
+ 
+   struct passwd *p;
++  int err = 0;
+   if (stream == NULL)
+     {
++      /* No /etc/passwd (the usual case on RISC OS): the default entry,
++	 whatever the name, as before.  */
+       p = __pwddefault ();
+-
+-      if (result_buf)
+-	memcpy (result_buf, p, sizeof(struct passwd));
++      memcpy (result_buf, p, sizeof(struct passwd));
+     }
+   else
+     {
+@@ -41,14 +70,19 @@ getpwnam_r (const char *name, struct passwd *result_buf, char *buffer,
+             break;
+         }
+ 
++      if (p == NULL)
++	err = search_end (stream, buffer, buflen);
+       fclose (stream);
+    }
+ 
+   if (p == NULL)
+-    return -1;
++    return err;
+   if (result != NULL)
+     *result = result_buf;
+-  strncpy (buffer, result ? (*result)->pw_passwd : p->pw_passwd, buflen);
++  /* 2026: this used to copy pw_passwd to the start of BUFFER, where an
++     entry read from /etc/passwd keeps pw_name, overwriting the name it
++     had just found. Nothing needs the copy: the default entry's strings
++     are static.  */
+ 
+   return 0;
+ }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pwd/getpwuid_r.c b/gcc4/recipe/files/gcc/libunixlib/pwd/getpwuid_r.c
+index 535b199..9cb5a81 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pwd/getpwuid_r.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pwd/getpwuid_r.c
+@@ -48,24 +48,53 @@ static int copy_default (struct passwd *to,
+   return 0;
+ }
+ 
++/* After the search loop: why __pwdread stopped. A line too long for
++   BUFFER leaves the stream short of its end and the buffer full (ERANGE,
++   so the caller can try a bigger buffer); a read error is EIO; at the
++   end of the file there's no such entry (0).  */
++static int
++search_end (FILE *stream, const char *buffer, size_t buflen)
++{
++  if (ferror (stream))
++    return __set_errno (EIO), EIO;
++  if (feof (stream))
++    return 0;
++  /* Stopped early. ERANGE only if the line filled the buffer (the reader
++     asks fgets for buflen - 1 bytes); otherwise it's a line the reader
++     can't take (a NUL in it), which a bigger buffer wouldn't help.  */
++  if (buflen <= 2 || strlen (buffer) >= buflen - 2)
++    return __set_errno (ERANGE), ERANGE;
++  return __set_errno (EIO), EIO;
++}
++
++/* 2026: POSIX: *result is NULL unless an entry is returned, and the
++   return value is 0 (found, or no such entry) or an error number. These
++   used to return -1 with *result left unset, so callers that check
++   *result (GLib does) read an uninitialised pointer when /etc/passwd
++   had no such entry. Found by riscos-gtk
++   (Gnumeric's File > Properties).  */
+ int
+ getpwuid_r (uid_t uid, struct passwd *resbuf, char *buffer, size_t buflen,
+ 	    struct passwd **result)
+ {
+   PTHREAD_SAFE_CANCELLATION
+ 
+-  if (resbuf == NULL)
+-    return __set_errno (EINVAL);
++  if (result != NULL)
++    *result = NULL;
++
++  if (resbuf == NULL || buffer == NULL)
++    return __set_errno (EINVAL), EINVAL;
+ 
+   FILE *stream = fopen ("/etc/passwd", "r");
+   if (stream == NULL)
+     {
+-      /* FIXME: Should result point to the user buffer as below?
+-                Can result be NULL? (It's tested for below, but not here) */
+-      *result = __pwddefault ();
+-
+-      /* Fill the user supplied buffer with the default values.  */
+-      return copy_default (resbuf, buffer, buflen, *result);
++      /* No /etc/passwd (the usual case on RISC OS): the default entry,
++	 copied into the caller's buffer.  */
++      if (copy_default (resbuf, buffer, buflen, __pwddefault ()) != 0)
++	return ERANGE;
++      if (result != NULL)
++	*result = resbuf;
++      return 0;
+     }
+ 
+   struct passwd *p;
+@@ -75,10 +104,11 @@ getpwuid_r (uid_t uid, struct passwd *resbuf, char *buffer, size_t buflen,
+         break;
+     }
+ 
++  int err = p == NULL ? search_end (stream, buffer, buflen) : 0;
+   fclose (stream);
+ 
+   if (p == NULL)
+-    return -1;
++    return err;
+ 
+   if (result != NULL)
+     *result = resbuf;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/resolv/scl_gethostbyname.c b/gcc4/recipe/files/gcc/libunixlib/resolv/scl_gethostbyname.c
 index 1f425ed..441a6d8 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/resolv/scl_gethostbyname.c
@@ -6392,6 +6728,20 @@ index 4290c5f..452f22a 100644
        /* Reset the DDEUtils' Prefix variable to the value before the fork,
           in case the child has changed it. */
        if (dde_prefix)
+diff --git a/gcc4/recipe/files/gcc/libunixlib/termios/cuserid.c b/gcc4/recipe/files/gcc/libunixlib/termios/cuserid.c
+index 9b84e27..bcb94e6 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/termios/cuserid.c
++++ b/gcc4/recipe/files/gcc/libunixlib/termios/cuserid.c
+@@ -21,7 +21,8 @@ cuserid (char *s)
+   struct passwd pwent;
+   struct passwd *pwptr;
+ 
+-  if (getpwuid_r (geteuid (), &pwent, buf, sizeof (buf), &pwptr))
++  if (getpwuid_r (geteuid (), &pwent, buf, sizeof (buf), &pwptr) != 0
++      || pwptr == NULL)	/* 2026: 0 and NULL is "no such user" */
+     {
+       if (s != NULL)
+ 	s[0] = '\0';
 diff --git a/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c b/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c
 index 9927105..a16be4e 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c
