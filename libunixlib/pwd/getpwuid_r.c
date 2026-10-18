@@ -49,17 +49,22 @@ static int copy_default (struct passwd *to,
 }
 
 /* After the search loop: why __pwdread stopped. A line too long for
-   BUFFER leaves the stream short of its end (ERANGE, so the caller can
-   try a bigger buffer); a read error is EIO; otherwise there's no such
-   entry (0).  */
+   BUFFER leaves the stream short of its end and the buffer full (ERANGE,
+   so the caller can try a bigger buffer); a read error is EIO; at the
+   end of the file there's no such entry (0).  */
 static int
-search_end (FILE *stream)
+search_end (FILE *stream, const char *buffer, size_t buflen)
 {
   if (ferror (stream))
     return __set_errno (EIO), EIO;
-  if (!feof (stream))
+  if (feof (stream))
+    return 0;
+  /* Stopped early. ERANGE only if the line filled the buffer (the reader
+     asks fgets for buflen - 1 bytes); otherwise it's a line the reader
+     can't take (a NUL in it), which a bigger buffer wouldn't help.  */
+  if (buflen <= 2 || strlen (buffer) >= buflen - 2)
     return __set_errno (ERANGE), ERANGE;
-  return 0;
+  return __set_errno (EIO), EIO;
 }
 
 /* 2026: POSIX: *result is NULL unless an entry is returned, and the
@@ -77,7 +82,7 @@ getpwuid_r (uid_t uid, struct passwd *resbuf, char *buffer, size_t buflen,
   if (result != NULL)
     *result = NULL;
 
-  if (resbuf == NULL)
+  if (resbuf == NULL || buffer == NULL)
     return __set_errno (EINVAL), EINVAL;
 
   FILE *stream = fopen ("/etc/passwd", "r");
@@ -99,7 +104,7 @@ getpwuid_r (uid_t uid, struct passwd *resbuf, char *buffer, size_t buflen,
         break;
     }
 
-  int err = p == NULL ? search_end (stream) : 0;
+  int err = p == NULL ? search_end (stream, buffer, buflen) : 0;
   fclose (stream);
 
   if (p == NULL)

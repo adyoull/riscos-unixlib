@@ -1,7 +1,7 @@
 /* Host test for grp/getgrgid_r.c, grp/getgrnam_r.c, pwd/getpwuid_r.c and
    pwd/getpwnam_r.c (2026): *result is NULL unless an entry is returned;
    0 for "no such entry", an error number otherwise (ERANGE when a line
-   doesn't fit the buffer); getpwnam_r keeps the name it found. Before,
+   doesn't fit the buffer, EIO for one the reader can't take); getpwnam_r keeps the name it found. Before,
    they returned -1 and left *result unset, and getpwnam_r overwrote
    pw_name with pw_passwd.  */
 #undef fopen
@@ -73,6 +73,16 @@ main (void)
   r = getgrgid_r (0, NULL, buf, sizeof buf, &gr);
   CHECK (r == EINVAL && gr == NULL);
 
+  /* A NUL in a line: an error, not ERANGE (no buffer would fit it).  */
+  f = fopen ("out/group", "w");
+  fputs ("wheel:x:0:root\n", f);
+  fputc ('\0', f);
+  fputs ("bad:x:7:\nstaff:x:50:\n", f);
+  fclose (f);
+  gr = junk;
+  r = getgrgid_r (50, &g, buf, sizeof buf, &gr);
+  CHECK (r == EIO && gr == NULL);
+
   /* No /etc/passwd: the default entry, in the caller's buffer.  */
   passwd_file = NULL;
   pr = junk;
@@ -105,6 +115,9 @@ main (void)
   pr = junk;
   r = getpwnam_r ("alice", &p, tiny, sizeof tiny, &pr);
   CHECK (r == ERANGE && pr == NULL);
+  pr = junk;
+  r = getpwuid_r (0, &p, NULL, sizeof buf, &pr);
+  CHECK (r == EINVAL && pr == NULL);
 
   printf ("getpwgr: %d checks, %d failed\n", checks, failures);
   return failures != 0;

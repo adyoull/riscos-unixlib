@@ -11,5 +11,5 @@ gcc -O1 -g -w -Ifake -include fake/shim.h -c $L/grp/grpread.c -o out/grpread.o
 gcc -O1 -g -w -Ifake -include fake/shim.h -c $L/pwd/getpwuid_r.c -o out/getpwuid_r.o
 gcc -O1 -g -w -Ifake -include fake/shim.h -c $L/pwd/getpwnam_r.c -o out/getpwnam_r.o
 gcc -O1 -g -w -Ifake -include fake/shim.h -c $L/pwd/pwdread.c -o out/pwdread.o
-gcc -O1 -g -Wall -Ifake test_getpwgr.c out/*.o -o out/test_getpwgr
+gcc -O1 -g -Wall -Wno-nonnull -Ifake test_getpwgr.c out/*.o -o out/test_getpwgr
 ./out/test_getpwgr
