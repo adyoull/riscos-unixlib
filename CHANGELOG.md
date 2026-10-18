@@ -5,7 +5,10 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
-## Unreleased
+## 5.0.3.4-rc3 (2026-10-18, pre-release, tag v5.0.3.4-rc3)
+
+rc2 plus G1 and U1, from the GTK port. Not yet run on RISC OS. libtool
+`-version-info` 7:2:2 (no interface changes).
 
 - **`getgrgid_r`, `getgrnam_r`, `getpwuid_r` and `getpwnam_r` follow POSIX (G1).** On failure, or with no such entry, they returned -1 and left `*result` unset. GLib reads `*result`, so with no `/etc/group` (always, on RISC OS) every group lookup read an uninitialised pointer: Gnumeric's File > Properties showed rubbish. `*result` is now NULL unless an entry is returned; "not found" is 0, and errors are error numbers (`ERANGE` when the buffer is too small). Also: `getpwnam_r` no longer overwrites the name it found when `/etc/passwd` exists. Found by riscos-gtk. New host test.
 - **A name starting with several slashes works (U1).** `///RAM::RamDisc0.$/Textfile.txt` (Claws Mail, from a `file:///` URI) became `$.RAM__RamDisc0/_.Textfile/txt`. Any run of leading slashes now means one, as on Unix. Found by riscos-gtk. New host test.
