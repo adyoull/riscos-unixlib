@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 67 modified files and 10 added files).
+diff against unchanged GCCSDK UnixLib: 74 modified files and 10 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1260 |
-| Modified (listed below) | 67 |
+| Byte-identical to GCCSDK `64c6f81` | 1253 |
+| Modified (listed below) | 74 |
 | Added | 10 |
 | Removed relative to upstream | 0 |
 
@@ -73,6 +73,8 @@ the commits are named below.
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
 | `incl-local/internal/pvops.s` (**new**), `incl-local/internal/asm_dec.s`, `incl-local/internal/unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s` | O1 threads and signals on RISC OS for Linux |
 | `signal/_signal.s` | T5 sub-second interval timers repeat |
+| `grp/getgrgid_r.c`, `grp/getgrnam_r.c`, `pwd/getpwuid_r.c`, `pwd/getpwnam_r.c`, `pwd/getlogin.c`, `termios/cuserid.c` | G1 group and password lookups: `*result` and return values |
+| `common/riscosify.c` | U1 a run of leading slashes is one `/` |
 | `unix/eventfd.c` | E1 counter updated with thread switching held off, Y1 waits |
 | `pthread/heldwait.c` (**new**) | Y1 waiting inside a held call |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
@@ -100,6 +102,7 @@ library:
 - Warzone 2100 2.3.9: F1, X1, the problem behind K1-K4, and the crashes
   behind R1 and R2.
 - riscos-mesa (SDL2, OpenAL Soft): P1, P2.
+- riscos-gtk (Gnumeric, Claws Mail, 2026-10-17/18): G1, U1.
 - Sound (S1-S5) and large files (L1-L4) were written here.
 - An independent review of all the changes (2026-10-01): K5, S6-S9, W2, L5.
 - The ROL-Testbed project (RISC OS for Linux as a test bed, 2026-10-17):
@@ -866,6 +869,83 @@ Socket reads, OS_File loads, OS_Args/OS_FSControl results, and `readlink`.
 See section 8.
 
 ---
+
+### G1. Group and password lookups: `*result` and return values (`grp/getgrgid_r.c`, `grp/getgrnam_r.c`, `pwd/getpwuid_r.c`, `pwd/getpwnam_r.c`, `pwd/getlogin.c`, `termios/cuserid.c`)
+
+**Problem.** Reported by the GTK port (2026-10-18): Gnumeric's File >
+Properties showed rubbish for the group on the Pi.
+- On failure, or when there was no such entry, the four functions
+  returned -1 and left `*result` unset. POSIX says `*result` is then NULL
+  and the return value is 0 ("not found") or an error number.
+- GLib (`gio/glocalfileinfo.c`), like most callers, checks `*result`, so
+  it read an uninitialised pointer. RISC OS has no `/etc/group`, so every
+  group lookup did this.
+- Found while fixing it: when `/etc/passwd` exists, `getpwnam_r` copied
+  `pw_passwd` to the start of the caller's buffer. That's where the entry's
+  `pw_name` is, so it overwrote the name it had just found, and the
+  padding cleared the other fields.
+
+**Change.**
+- `*result` is set to NULL on entry, and points at the caller's struct
+  only when an entry is returned.
+- The return value is 0 (found, or no such entry), or an error number:
+  - `EINVAL`: a NULL struct or buffer. `getpwuid_r` now checks the buffer
+    too.
+  - `ERANGE`: a line filled the buffer, so a caller can try a bigger one.
+  - `EIO`: a read error, or a line the reader can't take (a NUL in it).
+    That isn't `ERANGE`, which a caller retrying with ever bigger buffers
+    would never get past.
+  - fopen's error, other than `ENOENT`, for the group file.
+- With no `/etc/group`: no entries (0 and NULL). With no `/etc/passwd`:
+  the default entry, as before. `getpwuid_r` now points `*result` at the
+  caller's struct (it pointed at the static default), and gives `ERANGE`
+  if the buffer is too small for it.
+- `getpwnam_r` no longer makes the copy. The default entry's strings are
+  static, so nothing needed it.
+- `getlogin` and `cuserid`, the only callers in the library, also treat 0
+  with a NULL result as "no such user".
+
+**Compatibility.** "Not found" now returns 0 instead of -1. Code that
+looks only at the return value and then reads its own struct would read
+an unset struct. Such code is already broken on Linux, where this is how
+glibc behaves, and ported code (GLib, libgfortran) checks `*result`.
+
+**Verification.** `tests/host/getpwgr` (18 checks) builds the real files
+for the PC, with `/etc/group` and `/etc/passwd` redirected to files the
+test writes. It covers found, not found, no file, a buffer too small, a
+NUL in a line and NULL arguments, and that `getpwnam_r` keeps the name.
+The old code fails 12 of the first 16. Peer-reviewed; the review's one
+finding (the NUL case gave `ERANGE`) is fixed. Not yet run on RISC OS.
+
+### U1. A run of leading slashes is one `/` (`common/riscosify.c`)
+
+**Problem.** Reported by the GTK port (2026-10-17, from a Claws Mail
+report). Claws Mail took only `file:` off a `file:///` URI, leaving
+`///RAM::RamDisc0.$/Textfile.txt`. On Unix, any run of leading slashes
+means `/`. `__riscosify` skipped one slash, so the rest of the name went
+down the plain Unix path branch and became `$.RAM__RamDisc0/_.Textfile/txt`,
+which doesn't exist.
+
+**Change.** In `__riscosify`'s branch for names starting with `/`, the
+whole run of slashes is skipped, not just the first. POSIX lets exactly
+two leading slashes mean something implementation-defined, but they mean
+nothing else here.
+
+**Compatibility.** Plain Unix paths are unchanged: that branch already
+canonicalised the whole name. Only names whose first part after the
+slashes is a filing system (`RAM::`), path variable (`gcc:`), system
+variable (`<GCC$Dir>`) or special field (`#`) change, and their old
+results were mangled names that couldn't have worked. `__riscosify_std`
+and the SharedCLibrary and loader builds all go through `__riscosify`, so
+they get the fix too. (The review noted that `unix/dev.c` still matches
+`/dev/` on the raw name, so `//dev/null` opens RISC OS `null:` rather than
+UnixLib's own null device. That's unchanged.)
+
+**Verification.** `tests/host/riscosify` (18 vectors) builds the real
+`riscosify.c` for the PC, with every SWI failing (no special directories,
+no MimeMap, no files). The examples in `riscosify.c`'s own comments give
+the same results as before. Of the 9 leading-slash cases, the old code
+fails 6. Peer-reviewed: no findings. Not yet run on RISC OS.
 
 ## 3. Sound (`/dev/dsp`, `/dev/midi`)
 
