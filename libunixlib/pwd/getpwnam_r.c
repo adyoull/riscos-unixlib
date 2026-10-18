@@ -13,6 +13,26 @@
 #include <pthread.h>
 #include <internal/unix.h>
 
+/* After the search loop: why __pwdread stopped. A line too long for
+   BUFFER leaves the stream short of its end (ERANGE, so the caller can
+   try a bigger buffer); a read error is EIO; otherwise there's no such
+   entry (0).  */
+static int
+search_end (FILE *stream)
+{
+  if (ferror (stream))
+    return __set_errno (EIO), EIO;
+  if (!feof (stream))
+    return __set_errno (ERANGE), ERANGE;
+  return 0;
+}
+
+/* 2026: POSIX: *result is NULL unless an entry is returned, and the
+   return value is 0 (found, or no such entry) or an error number. These
+   used to return -1 with *result left unset, so callers that check
+   *result (GLib does) read an uninitialised pointer when /etc/passwd
+   had no such entry. Found by riscos-gtk
+   (Gnumeric's File > Properties).  */
 /* Search for an entry with a matching name.  */
 int
 getpwnam_r (const char *name, struct passwd *result_buf, char *buffer,
@@ -20,18 +40,22 @@ getpwnam_r (const char *name, struct passwd *result_buf, char *buffer,
 {
   PTHREAD_SAFE_CANCELLATION
 
+  if (result != NULL)
+    *result = NULL;
+
   if (result_buf == NULL || buffer == NULL)
-    return __set_errno (EINVAL);
+    return __set_errno (EINVAL), EINVAL;
 
   FILE *stream = fopen ("/etc/passwd", "r");
 
   struct passwd *p;
+  int err = 0;
   if (stream == NULL)
     {
+      /* No /etc/passwd (the usual case on RISC OS): the default entry,
+	 whatever the name, as before.  */
       p = __pwddefault ();
-
-      if (result_buf)
-	memcpy (result_buf, p, sizeof(struct passwd));
+      memcpy (result_buf, p, sizeof(struct passwd));
     }
   else
     {
@@ -41,14 +65,19 @@ getpwnam_r (const char *name, struct passwd *result_buf, char *buffer,
             break;
         }
 
+      if (p == NULL)
+	err = search_end (stream);
       fclose (stream);
    }
 
   if (p == NULL)
-    return -1;
+    return err;
   if (result != NULL)
     *result = result_buf;
-  strncpy (buffer, result ? (*result)->pw_passwd : p->pw_passwd, buflen);
+  /* 2026: this used to copy pw_passwd to the start of BUFFER, where an
+     entry read from /etc/passwd keeps pw_name, overwriting the name it
+     had just found. Nothing needs the copy: the default entry's strings
+     are static.  */
 
   return 0;
 }

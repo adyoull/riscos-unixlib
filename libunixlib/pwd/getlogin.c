@@ -23,7 +23,8 @@ getlogin (void)
 
   PTHREAD_UNSAFE_CANCELLATION
 
-  if (getpwuid_r (geteuid (), &pwent, buf, sizeof (buf), &pwptr))
+  if (getpwuid_r (geteuid (), &pwent, buf, sizeof (buf), &pwptr) != 0
+      || pwptr == NULL)	/* 2026: 0 and NULL is "no such user" */
     return NULL;
 
   strncpy (name, pwptr->pw_name, L_cuserid);

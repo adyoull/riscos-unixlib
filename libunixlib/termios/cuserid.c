@@ -21,7 +21,8 @@ cuserid (char *s)
   struct passwd pwent;
   struct passwd *pwptr;
 
-  if (getpwuid_r (geteuid (), &pwent, buf, sizeof (buf), &pwptr))
+  if (getpwuid_r (geteuid (), &pwent, buf, sizeof (buf), &pwptr) != 0
+      || pwptr == NULL)	/* 2026: 0 and NULL is "no such user" */
     {
       if (s != NULL)
 	s[0] = '\0';

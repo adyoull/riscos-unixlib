@@ -48,24 +48,48 @@ static int copy_default (struct passwd *to,
   return 0;
 }
 
+/* After the search loop: why __pwdread stopped. A line too long for
+   BUFFER leaves the stream short of its end (ERANGE, so the caller can
+   try a bigger buffer); a read error is EIO; otherwise there's no such
+   entry (0).  */
+static int
+search_end (FILE *stream)
+{
+  if (ferror (stream))
+    return __set_errno (EIO), EIO;
+  if (!feof (stream))
+    return __set_errno (ERANGE), ERANGE;
+  return 0;
+}
+
+/* 2026: POSIX: *result is NULL unless an entry is returned, and the
+   return value is 0 (found, or no such entry) or an error number. These
+   used to return -1 with *result left unset, so callers that check
+   *result (GLib does) read an uninitialised pointer when /etc/passwd
+   had no such entry. Found by riscos-gtk
+   (Gnumeric's File > Properties).  */
 int
 getpwuid_r (uid_t uid, struct passwd *resbuf, char *buffer, size_t buflen,
 	    struct passwd **result)
 {
   PTHREAD_SAFE_CANCELLATION
 
+  if (result != NULL)
+    *result = NULL;
+
   if (resbuf == NULL)
-    return __set_errno (EINVAL);
+    return __set_errno (EINVAL), EINVAL;
 
   FILE *stream = fopen ("/etc/passwd", "r");
   if (stream == NULL)
     {
-      /* FIXME: Should result point to the user buffer as below?
-                Can result be NULL? (It's tested for below, but not here) */
-      *result = __pwddefault ();
-
-      /* Fill the user supplied buffer with the default values.  */
-      return copy_default (resbuf, buffer, buflen, *result);
+      /* No /etc/passwd (the usual case on RISC OS): the default entry,
+	 copied into the caller's buffer.  */
+      if (copy_default (resbuf, buffer, buflen, __pwddefault ()) != 0)
+	return ERANGE;
+      if (result != NULL)
+	*result = resbuf;
+      return 0;
     }
 
   struct passwd *p;
@@ -75,10 +99,11 @@ getpwuid_r (uid_t uid, struct passwd *resbuf, char *buffer, size_t buflen,
         break;
     }
 
+  int err = p == NULL ? search_end (stream) : 0;
   fclose (stream);
 
   if (p == NULL)
-    return -1;
+    return err;
 
   if (result != NULL)
     *result = resbuf;
