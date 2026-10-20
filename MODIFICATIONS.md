@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 74 modified files and 10 added files).
+diff against unchanged GCCSDK UnixLib: 76 modified files and 10 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1253 |
-| Modified (listed below) | 74 |
+| Byte-identical to GCCSDK `64c6f81` | 1251 |
+| Modified (listed below) | 76 |
 | Added | 10 |
 | Removed relative to upstream | 0 |
 
@@ -75,6 +75,7 @@ the commits are named below.
 | `signal/_signal.s` | T5 sub-second interval timers repeat |
 | `grp/getgrgid_r.c`, `grp/getgrnam_r.c`, `pwd/getpwuid_r.c`, `pwd/getpwnam_r.c`, `pwd/getlogin.c`, `termios/cuserid.c` | G1 group and password lookups: `*result` and return values |
 | `common/riscosify.c` | U1 a run of leading slashes is one `/` |
+| `include/pthread.h`, `pthread/attr.c` | P6 `pthread_attr_setscope`, `setinheritsched`, `setschedpolicy` and the get functions |
 | `unix/eventfd.c` | E1 counter updated with thread switching held off, Y1 waits |
 | `pthread/heldwait.c` (**new**) | Y1 waiting inside a held call |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
@@ -103,6 +104,7 @@ library:
   behind R1 and R2.
 - riscos-mesa (SDL2, OpenAL Soft): P1, P2.
 - riscos-gtk (Gnumeric, Claws Mail, 2026-10-17/18): G1, U1.
+- riscos-reeledit (MLT, 2026-10-20): P6.
 - Sound (S1-S5) and large files (L1-L4) were written here.
 - An independent review of all the changes (2026-10-01): K5, S6-S9, W2, L5.
 - The ROL-Testbed project (RISC OS for Linux as a test bed, 2026-10-17):
@@ -727,6 +729,40 @@ the single priority 0. An unknown policy gives -1 with `EINVAL`.
 and still do; it is now the right error.
 
 **Verification.** Pi test `Sched` (not yet run).
+
+### P6. Thread scope, scheduling inheritance and policy attributes (`include/pthread.h`, `pthread/attr.c`)
+
+**Problem.** Reported by riscos-reeledit (2026-10-20): MLT's
+`mlt_consumer.c` didn't compile, because `PTHREAD_SCOPE_SYSTEM` and
+`PTHREAD_EXPLICIT_SCHED` were undeclared, and so were
+`pthread_attr_setscope`, `pthread_attr_setinheritsched` and
+`pthread_attr_setschedpolicy`. All are POSIX (Thread Execution
+Scheduling), and other ported code that sets thread priorities uses them.
+
+**Change.**
+- `<pthread.h>` defines `PTHREAD_SCOPE_SYSTEM` (0), `PTHREAD_SCOPE_PROCESS`
+  (1), `PTHREAD_INHERIT_SCHED` (0) and `PTHREAD_EXPLICIT_SCHED` (1), with
+  glibc's values.
+- It declares the three set functions and their get functions, which are
+  defined in `pthread/attr.c`.
+- UnixLib's threads have one scope and no scheduling policies, and
+  `pthread_attr_t` has no room for these settings (its layout is public,
+  so it isn't changed).
+- So the set functions accept the values POSIX defines (`SCHED_OTHER`,
+  `SCHED_FIFO` and `SCHED_RR` for the policy), give `EINVAL` for anything
+  else, and change nothing.
+- The get functions give what UnixLib does: system scope, inherited
+  scheduling and `SCHED_OTHER`.
+
+**Compatibility.** New functions and macros only; the library's libtool
+interface number goes up. Code that defined these itself (riscos-reeledit's
+`build/riscos-compat.h` checks `#ifndef PTHREAD_SCOPE_SYSTEM`) keeps
+compiling, because the constants are macros.
+
+**Verification.** `tests/abi/check.sh` step 6 compiles MLT-style use of
+all six functions with implicit declarations as errors, and links it with
+the library. Not yet run on RISC OS (there's nothing to see there: the
+functions return 0).
 
 ### R1. Inline SWI wrappers: every register and memory the SWI changes - commit `c98c781`
 
