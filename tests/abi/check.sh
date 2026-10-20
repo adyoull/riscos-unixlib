@@ -57,4 +57,12 @@ else
   cat out/limits.log; fail=1
 fi
 
+# 6. <pthread.h>: scope, inherit-sched and policy attributes (MLT).
+if $P-gcc -std=c99 -Werror=implicit-function-declaration -static -isystem $I \
+     -L"$LIB" pattr.c -o out/pattr.elf 2>out/pattr.log; then
+  echo "pthread attributes: OK"
+else
+  cat out/pattr.log; fail=1
+fi
+
 exit $fail

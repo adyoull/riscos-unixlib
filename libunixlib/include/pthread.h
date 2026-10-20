@@ -263,6 +263,27 @@ extern int pthread_attr_getstack(const pthread_attr_t *attr,
 				 void **stackaddr,
 				 size_t *stacksize);
 
+/* 2026: contention scope, scheduling inheritance and policy (POSIX
+   Thread Execution Scheduling). UnixLib's threads have one scope and no
+   scheduling policies, so these accept the values POSIX defines and
+   change nothing; the get functions give what UnixLib does (system
+   scope, inherited scheduling, SCHED_OTHER). For ported code that sets
+   them, such as MLT.  */
+#define PTHREAD_SCOPE_SYSTEM 0
+#define PTHREAD_SCOPE_PROCESS 1
+#define PTHREAD_INHERIT_SCHED 0
+#define PTHREAD_EXPLICIT_SCHED 1
+
+extern int pthread_attr_setscope (pthread_attr_t *attr, int scope);
+extern int pthread_attr_getscope (const pthread_attr_t *__restrict attr,
+				  int *__restrict scope);
+extern int pthread_attr_setinheritsched (pthread_attr_t *attr, int inherit);
+extern int pthread_attr_getinheritsched (const pthread_attr_t *__restrict attr,
+					 int *__restrict inherit);
+extern int pthread_attr_setschedpolicy (pthread_attr_t *attr, int policy);
+extern int pthread_attr_getschedpolicy (const pthread_attr_t *__restrict attr,
+					int *__restrict policy);
+
 /* Mutexes */
 
 /* Static default initialiser for a pthread_mutex_t */
