@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 76 modified files and 10 added files).
+diff against unchanged GCCSDK UnixLib: 75 modified files and 11 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -31,13 +31,13 @@ the commits are named below.
 | SharedUnixLibrary there | 1.16 |
 | Import commit here | `13eea91` "Import UnixLib from GCCSDK (jhamby/riscos-gccsdk 64c6f81)", the tree unchanged |
 
-### File inventory (1337 files in `libunixlib/`)
+### File inventory (1338 files in `libunixlib/`)
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1251 |
-| Modified (listed below) | 76 |
-| Added | 10 |
+| Byte-identical to GCCSDK `64c6f81` | 1252 |
+| Modified (listed below) | 75 |
+| Added | 11 |
 | Removed relative to upstream | 0 |
 
 | File | Change |
@@ -75,7 +75,7 @@ the commits are named below.
 | `signal/_signal.s` | T5 sub-second interval timers repeat |
 | `grp/getgrgid_r.c`, `grp/getgrnam_r.c`, `pwd/getpwuid_r.c`, `pwd/getpwnam_r.c`, `pwd/getlogin.c`, `termios/cuserid.c` | G1 group and password lookups: `*result` and return values |
 | `common/riscosify.c` | U1 a run of leading slashes is one `/` |
-| `include/pthread.h`, `pthread/attr.c` | P6 `pthread_attr_setscope`, `setinheritsched`, `setschedpolicy` and the get functions |
+| `include/pthread.h`, `pthread/attrsched.c` (**new**), `Makefile.am` | P6 `pthread_attr_setscope`, `setinheritsched`, `setschedpolicy` and the get functions |
 | `unix/eventfd.c` | E1 counter updated with thread switching held off, Y1 waits |
 | `pthread/heldwait.c` (**new**) | Y1 waiting inside a held call |
 | `Makefile.am`, `vscript` | B1 build rules and symbol visibility for the above |
@@ -730,7 +730,7 @@ and still do; it is now the right error.
 
 **Verification.** Pi test `Sched` (not yet run).
 
-### P6. Thread scope, scheduling inheritance and policy attributes (`include/pthread.h`, `pthread/attr.c`)
+### P6. Thread scope, scheduling inheritance and policy attributes (`include/pthread.h`, `pthread/attrsched.c` (new), `Makefile.am`)
 
 **Problem.** Reported by riscos-reeledit (2026-10-20): MLT's
 `mlt_consumer.c` didn't compile, because `PTHREAD_SCOPE_SYSTEM` and
@@ -744,13 +744,17 @@ Scheduling), and other ported code that sets thread priorities uses them.
   (1), `PTHREAD_INHERIT_SCHED` (0) and `PTHREAD_EXPLICIT_SCHED` (1), with
   glibc's values.
 - It declares the three set functions and their get functions, which are
-  defined in `pthread/attr.c`.
+  defined in a new file, `pthread/attrsched.c`. They aren't in `attr.c`,
+  `pthread_attr_init`'s object, so a program that defines one of them
+  itself still links with the static library.
 - UnixLib's threads have one scope and no scheduling policies, and
   `pthread_attr_t` has no room for these settings (its layout is public,
   so it isn't changed).
 - So the set functions accept the values POSIX defines (`SCHED_OTHER`,
   `SCHED_FIFO` and `SCHED_RR` for the policy), give `EINVAL` for anything
-  else, and change nothing.
+  else, and change nothing. The one exception is process scope: it is
+  valid but isn't what UnixLib's threads have, so it gives `ENOTSUP`, as
+  glibc and musl do.
 - The get functions give what UnixLib does: system scope, inherited
   scheduling and `SCHED_OTHER`.
 
@@ -761,8 +765,11 @@ compiling, because the constants are macros.
 
 **Verification.** `tests/abi/check.sh` step 6 compiles MLT-style use of
 all six functions with implicit declarations as errors, and links it with
-the library. Not yet run on RISC OS (there's nothing to see there: the
-functions return 0).
+the library. It also links a program that defines its own
+`pthread_attr_setinheritsched`. Peer-reviewed; the review's two
+suggestions (`ENOTSUP` for process scope, a file of their own) are
+applied. Not yet run on RISC OS, though there's nothing to see there: the
+functions only check their arguments.
 
 ### R1. Inline SWI wrappers: every register and memory the SWI changes - commit `c98c781`
 

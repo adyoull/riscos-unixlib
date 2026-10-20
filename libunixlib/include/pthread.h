@@ -266,9 +266,9 @@ extern int pthread_attr_getstack(const pthread_attr_t *attr,
 /* 2026: contention scope, scheduling inheritance and policy (POSIX
    Thread Execution Scheduling). UnixLib's threads have one scope and no
    scheduling policies, so these accept the values POSIX defines and
-   change nothing; the get functions give what UnixLib does (system
-   scope, inherited scheduling, SCHED_OTHER). For ported code that sets
-   them, such as MLT.  */
+   change nothing (process scope is ENOTSUP, as with glibc); the get
+   functions give what UnixLib does (system scope, inherited scheduling,
+   SCHED_OTHER). For ported code that sets them, such as MLT.  */
 #define PTHREAD_SCOPE_SYSTEM 0
 #define PTHREAD_SCOPE_PROCESS 1
 #define PTHREAD_INHERIT_SCHED 0

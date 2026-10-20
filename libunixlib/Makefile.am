@@ -649,6 +649,7 @@ else
 pthread_src = \
 	pthread/atfork.c \
 	pthread/attr.c \
+	pthread/attrsched.c \
 	pthread/cancel.c \
 	pthread/cleanup.c \
 	pthread/cleanupcall.c \
