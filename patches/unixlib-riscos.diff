@@ -1,5 +1,5 @@
 diff --git a/gcc4/recipe/files/gcc/libunixlib/Makefile.am b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-index e887b17..2dca135 100644
+index e887b17..71e53a4 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 +++ b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 @@ -622,6 +622,7 @@ netlib_src = \
@@ -93,7 +93,7 @@ index e887b17..2dca135 100644
 +unixlib_asm_objs = $(patsubst %.s,%.lo,$(notdir $(filter %.s,$(libunixlib_la_SOURCES))))
 +$(unixlib_asm_objs) crt0.o gcrt0.o sul.o pthticker.o: $(unixlib_asm_deps)
 +
-+libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 7:2:2 -Wl,--version-script -Wl,$(top_srcdir)/vscript
++libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 8:0:3 -Wl,--version-script -Wl,$(top_srcdir)/vscript
  
  libm_la_SOURCES = libm-support/libm.c
  

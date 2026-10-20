@@ -5,7 +5,10 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
-## Unreleased
+## 5.0.3.4-rc4 (2026-10-20, pre-release, tag v5.0.3.4-rc4)
+
+rc3 plus P6, from riscos-reeledit. Not yet run on RISC OS. libtool
+`-version-info` 8:0:3 (interfaces added).
 
 - **`pthread_attr_setscope`, `pthread_attr_setinheritsched` and `pthread_attr_setschedpolicy` (P6),** with their get functions and the `PTHREAD_SCOPE_*` and `PTHREAD_*_SCHED` constants. MLT didn't compile without them. UnixLib's threads have one scope and no scheduling policies, so the set functions accept POSIX's values and change nothing (process scope gives `ENOTSUP`, as with glibc). Requested by riscos-reeledit. New ABI check.
 
