@@ -68,4 +68,15 @@ else
   cat out/pattr.log; fail=1
 fi
 
+# 7. <string.h>: the XPG7 string functions without _GNU_SOURCE; strict
+# ISO C still leaves the names free.
+if $P-gcc -Werror=implicit-function-declaration -static -isystem $I \
+     -L"$LIB" xpg7str.c -o out/xpg7str.elf 2>out/xpg7str.log &&
+   $P-gcc -std=c99 -Wall -Werror -isystem $I -c xpg7strict.c \
+     -o out/xpg7strict.o 2>>out/xpg7str.log; then
+  echo "string.h XPG7: OK"
+else
+  cat out/xpg7str.log; fail=1
+fi
+
 exit $fail

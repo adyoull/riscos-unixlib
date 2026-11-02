@@ -163,7 +163,11 @@ extern size_t strlen (const char *__s)
      __THROW __attribute_pure__ __nonnull ((1)) __wur;
 
 #ifndef __TARGET_SCL__
-#ifdef __USE_GNU
+/* 2026: strnlen, strndup, stpcpy and stpncpy are POSIX.1-2008 (XPG7), so,
+   as in glibc, they're declared by default and with _POSIX_C_SOURCE
+   200809L or _XOPEN_SOURCE 700, not only with _GNU_SOURCE. Gnumeric's
+   plug-ins call strnlen with nothing but <string.h> (riscos-gtk).  */
+#if defined __USE_XOPEN2K8 || defined __USE_GNU
 /* Find the length of STRING, but scan at most MAXLEN characters.
    If no '\0' terminator is found in that many characters, return MAXLEN.  */
 extern size_t strnlen (const char *__string, size_t __maxlen)
@@ -182,7 +186,7 @@ extern int strnicmp (const char *, const char *, size_t) __THROW __wur;
 extern char *strichr (const char *, int) __THROW __wur;
 extern char *strrichr (const char *, int) __THROW __wur;
 
-#ifdef __USE_GNU
+#if defined __USE_XOPEN2K8 || defined __USE_GNU
 /* Copy src to dest return a pointer to the terminating null
    character of dest.  */
 extern char *stpcpy (char *__restrict __dest, const char *__restrict __src)
@@ -222,7 +226,7 @@ extern char *strsep (char **__restrict __stringp,
 /* GNU enhancements.  */
 
 #ifndef __TARGET_SCL__
-#ifdef __USE_GNU
+#if defined __USE_XOPEN2K8 || defined __USE_GNU
 /* This function is similar to `strdup' but always copies at most
    __n characters into the newly allocated string.
 
