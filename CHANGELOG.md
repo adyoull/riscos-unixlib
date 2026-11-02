@@ -5,6 +5,22 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.4 (2026-11-02, tag v5.0.3.4)
+
+The same code as 5.0.3.4-rc5: 5.0.3.3 plus O1, T5, G1, U1, P6 and H2
+(see the rc entries below). libtool `-version-info` 8:0:3. On a Pi 4
+(RISC OS 5) with rc5, `Preempt` (with and without PThreadTicker),
+`ITimer`, `Fault`, `Ticker`, `TickerEarly`, `TickerStartTask`,
+`ForkThreads`, `Sched`, `ExitJoin` and `EventFD` all pass. G1, U1, P6 and
+H2 are checked by the host and ABI tests; they have no Pi tests of their
+own.
+
+One unexplained event: the first `Preempt` run (which passed) was
+followed by Pinboard's backdrop conversion failing with "Attempt to use
+badly nested error handler". It didn't happen again in four more runs
+(rc5 with and without PThreadTicker, rc5 without floating point in the
+threads, and the same test linked with 5.0.3.3). Reports welcome.
+
 ## 5.0.3.4-rc5 (2026-11-02, pre-release, tag v5.0.3.4-rc5)
 
 rc4 plus H2, from the GTK port. Not yet run on RISC OS. libtool

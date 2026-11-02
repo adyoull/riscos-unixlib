@@ -1906,6 +1906,25 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 
 ## 8. Still to be done
 
+**Run on RISC OS (Pi 4, 5.0.3.4-rc5, 2026-11-02):** `Preempt` (O1's
+native path; with and without PThreadTicker), `ITimer` (T5: 6 alarms in
+0.81 s, 3 in 2.06 s), `Fault` (O1), `Ticker`, `TickerEarly`,
+`TickerStartTask`, `ForkThreads` (without the module), `Sched`,
+`ExitJoin` and `EventFD` all pass. Two notes:
+- After the first `Preempt` run (which passed), Pinboard's backdrop
+  conversion failed repeatedly with "Attempt to use badly nested error
+  handler (or corrupt R13)" / "Not found". It didn't happen again: rc5
+  `Preempt` without and with PThreadTicker, rc5 `Preempt` without
+  floating point in the threads, and `Preempt` linked with 5.0.3.3 were
+  all clean. Not explained. One idea to check if it recurs: a thread
+  ticker callback left pending when a program exits, landing in the next
+  task (Pinboard's converter may have been running at the time).
+- `Fault`'s backtrace after the fatal signal stops with "Stack frame has
+  gone out of bounds". The walker follows APCS frame pointers, which
+  `-O2` EABI code doesn't keep, so it reads junk after a frame or two
+  (`post.c` is unchanged). Probably cosmetic; to compare with 5.0.3.3
+  (`Fault533` in the review folder's `UnixLibAB.zip`).
+
 **Run on RISC OS (Pi 4, 5.0.3.3-rc1, 2026-10-06):** `ForkWorker` (K10),
 `EventFD` with its cancel part (Y1, E1), `ToneStdio` and `ToneStdioDR`
 (Y1, S12, through SharedSoundBuffer and DigitalRenderer) all pass and
@@ -1913,14 +1932,10 @@ behaved as expected.
 
 **Not yet run on RISC OS:**
 - the sound tests (`Tone*`, `Mix`, `ExitBug`, `ExitBugSSB`);
-- a threaded program without PThreadTicker;
 - R1 and R2 (on the machine where Warzone 2100 crashed).
 - S6-S11, W2-W4, T3, T4, L5 and the L4/R1/R2 follow-ups (the fixes
   from the 2026-10-01 review).
-- O1 and T5: `Preempt`, `ITimer`, `Fault`, and the existing thread and
-  signal tests (`Ticker`, `TickerEarly`, `TickerStartTask`,
-  `ForkThreads`, `Sched`, `ExitJoin`, `EventFD`) to check that a Pi
-  behaves as before.
+- O1 on RISC OS for Linux itself (the ROL-Testbed project's tests).
 
 **A decision to make:** `signal/post.c` resets a handler to `SIG_DFL` on
 delivery even when it was installed with `sigaction` without
