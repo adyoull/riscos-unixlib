@@ -587,6 +587,12 @@ and `strchrnul` (GNU only) is unchanged.
   `_DEFAULT_SOURCE`; in every mode nothing else changes. Strict
   c99/c11/ansi, POSIX 2001, XOPEN 600, `_GNU_SOURCE` and C++ (g++ always
   defines `_GNU_SOURCE`) see exactly the same header as before.
+  (This `features.h` doesn't know `_DEFAULT_SOURCE`; defining it alone is
+  the same as the default mode.)
+- With `__TARGET_SCL__`, `stpcpy` and `stpncpy` are now declared in the
+  default mode too: unlike `strnlen` and `strndup` they were never inside
+  `#ifndef __TARGET_SCL__`. Both are built for the SCL library as well
+  (`string_src` in `Makefile.am`), so that is safe.
 - A program that defines its own `strnlen` with the standard prototype
   still compiles with `-Wall -Werror` and links (`strnlen` and `strndup`
   are weak in the library). One with a different prototype would now get
@@ -596,8 +602,8 @@ and `strchrnul` (GNU only) is unchanged.
 - The library, which is built with `_GNU_SOURCE`, compiles to identical
   code: all 902 objects match 5.0.3.4-rc4.
 
-**Verification.** `tests/abi/check.sh` step 7 compiles a program calling
-all four with `-Werror=implicit-function-declaration` and links it, and a
+**Verification.** Peer-reviewed. `tests/abi/check.sh` step 7 compiles a
+program calling all four with `-Werror=implicit-function-declaration` and links it, and a
 strict `-std=c99 -Wall -Werror` program with its own static `strnlen`. The
 first fails with the old header.
 
