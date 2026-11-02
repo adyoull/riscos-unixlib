@@ -5,6 +5,10 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## Unreleased
+
+- The GitHub builds use riscos-crossdev 1.8.2 (`.riscos-deps`, from the daily workflow's pull request #1). No library change.
+
 ## 5.0.3.4 (2026-11-02, tag v5.0.3.4)
 
 The same code as 5.0.3.4-rc5: 5.0.3.3 plus O1, T5, G1, U1, P6 and H2
