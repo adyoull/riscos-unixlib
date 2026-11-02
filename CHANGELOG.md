@@ -5,6 +5,13 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.4-rc5 (2026-11-02, pre-release, tag v5.0.3.4-rc5)
+
+rc4 plus H2, from the GTK port. Not yet run on RISC OS. libtool
+`-version-info` 8:0:3 (header change only).
+
+- **`strnlen`, `strndup`, `stpcpy` and `stpncpy` are declared without `_GNU_SOURCE` (H2).** They are POSIX.1-2008 functions, but `string.h` declared them only for `_GNU_SOURCE`, so Gnumeric's plug-ins failed with an implicit declaration of `strnlen`. As in glibc, they're now declared by default and for `_POSIX_C_SOURCE 200809L` or `_XOPEN_SOURCE 700`. Strict C, older POSIX modes and C++ see the same header as before, and the library itself is unchanged. Found by riscos-gtk. New ABI check.
+
 ## 5.0.3.4-rc4 (2026-10-20, pre-release, tag v5.0.3.4-rc4)
 
 rc3 plus P6, from riscos-reeledit. Not yet run on RISC OS. libtool

@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 75 modified files and 11 added files).
+diff against unchanged GCCSDK UnixLib: 76 modified files and 11 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1252 |
-| Modified (listed below) | 75 |
+| Byte-identical to GCCSDK `64c6f81` | 1251 |
+| Modified (listed below) | 76 |
 | Added | 11 |
 | Removed relative to upstream | 0 |
 
@@ -69,6 +69,7 @@ the commits are named below.
 | `configure.ac`, `doc/UnixLib/Help` | V1 version number, D1 unofficial fork |
 | `unix/unix.c`, `signal/post.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `vscript` | X2 `_exit` takes an exit code |
 | `include/limits.h` | H1 `LLONG_MIN` type |
+| `include/string.h` | H2 POSIX.1-2008 string functions declared without `_GNU_SOURCE` |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
 | `incl-local/internal/pvops.s` (**new**), `incl-local/internal/asm_dec.s`, `incl-local/internal/unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s` | O1 threads and signals on RISC OS for Linux |
@@ -103,7 +104,7 @@ library:
 - Warzone 2100 2.3.9: F1, X1, the problem behind K1-K4, and the crashes
   behind R1 and R2.
 - riscos-mesa (SDL2, OpenAL Soft): P1, P2.
-- riscos-gtk (Gnumeric, Claws Mail, 2026-10-17/18): G1, U1.
+- riscos-gtk (Gnumeric, Claws Mail, 2026-10-17/18, 2026-11-02): G1, U1, H2.
 - riscos-reeledit (MLT, 2026-10-20): P6.
 - Sound (S1-S5) and large files (L1-L4) were written here.
 - An independent review of all the changes (2026-10-01): K5, S6-S9, W2, L5.
@@ -562,6 +563,43 @@ lines above already was and as GCC's own `limits.h` does.
 **Verification.** `tests/abi/check.sh` compiles static assertions on the
 type, sign and value of the long long limits in C (`-std=c99`) and the
 harfbuzz construct in C++; both fail with the old header.
+
+### H2. `strnlen`, `strndup`, `stpcpy`, `stpncpy` declared for POSIX.1-2008 (`include/string.h`)
+
+**Problem.** Reported by the GTK port (2026-11-02): Gnumeric 1.12.62's
+plug-ins call `strnlen` with only `<string.h>` included, and failed to
+compile with an implicit declaration. The port worked around it by
+defining `_GNU_SOURCE`.
+
+**Cause.** The four functions are in the library, but `string.h` declared
+them only under `__USE_GNU` (`_GNU_SOURCE`). They are POSIX.1-2008 (XPG7)
+functions, and glibc declares them by default and with
+`_POSIX_C_SOURCE 200809L` or `_XOPEN_SOURCE 700` as well.
+
+**Change.** Their guards are now `#if defined __USE_XOPEN2K8 || defined
+__USE_GNU`, as in glibc. `strsignal` was already declared unconditionally,
+and `strchrnul` (GNU only) is unchanged.
+
+**Compatibility.** Header only; the library is unchanged.
+- The preprocessed header was compared, old against new, in 17 modes. The
+  four declarations are added in the default mode, gnu99, gnu11,
+  `_POSIX_C_SOURCE=200809L`, `_XOPEN_SOURCE=700`, `_BSD_SOURCE` and
+  `_DEFAULT_SOURCE`; in every mode nothing else changes. Strict
+  c99/c11/ansi, POSIX 2001, XOPEN 600, `_GNU_SOURCE` and C++ (g++ always
+  defines `_GNU_SOURCE`) see exactly the same header as before.
+- A program that defines its own `strnlen` with the standard prototype
+  still compiles with `-Wall -Werror` and links (`strnlen` and `strndup`
+  are weak in the library). One with a different prototype would now get
+  a conflicting-types error in the default mode, as it would with glibc.
+  No such definition or `#define` was found in the sources of the ports in
+  `RiscOS/` (including OpenTTD and riscos-mesa).
+- The library, which is built with `_GNU_SOURCE`, compiles to identical
+  code: all 902 objects match 5.0.3.4-rc4.
+
+**Verification.** `tests/abi/check.sh` step 7 compiles a program calling
+all four with `-Werror=implicit-function-declaration` and links it, and a
+strict `-std=c99 -Wall -Werror` program with its own static `strnlen`. The
+first fails with the old header.
 
 ### N1. `getservbyname_r`, `getservbyport_r`, `getservent_r` (new `netlib/getserv_r.c`, `Makefile.am`)
 
