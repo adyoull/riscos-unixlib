@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 76 modified files and 11 added files).
+diff against unchanged GCCSDK UnixLib: 77 modified files and 11 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1251 |
-| Modified (listed below) | 76 |
+| Byte-identical to GCCSDK `64c6f81` | 1250 |
+| Modified (listed below) | 77 |
 | Added | 11 |
 | Removed relative to upstream | 0 |
 
@@ -70,6 +70,7 @@ the commits are named below.
 | `unix/unix.c`, `signal/post.c`, `sys/_syslib.s`, `incl-local/internal/unix.h`, `vscript` | X2 `_exit` takes an exit code |
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `include/string.h` | H2 POSIX.1-2008 string functions declared without `_GNU_SOURCE` |
+| `stdio/rename.c` | M1 `rename()` and file types |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
 | `incl-local/internal/pvops.s` (**new**), `incl-local/internal/asm_dec.s`, `incl-local/internal/unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s` | O1 threads and signals on RISC OS for Linux |
@@ -104,7 +105,7 @@ library:
 - Warzone 2100 2.3.9: F1, X1, the problem behind K1-K4, and the crashes
   behind R1 and R2.
 - riscos-mesa (SDL2, OpenAL Soft): P1, P2.
-- riscos-gtk (Gnumeric, Claws Mail, 2026-10-17/18, 2026-11-02): G1, U1, H2.
+- riscos-gtk (Gnumeric, Claws Mail, 2026-10-17/18, 2026-11-02/03): G1, U1, H2, M1.
 - riscos-reeledit (MLT, 2026-10-20): P6.
 - Sound (S1-S5) and large files (L1-L4) were written here.
 - An independent review of all the changes (2026-10-01): K5, S6-S9, W2, L5.
@@ -606,6 +607,56 @@ and `strchrnul` (GNU only) is unchanged.
 program calling all four with `-Werror=implicit-function-declaration` and links it, and a
 strict `-std=c99 -Wall -Werror` program with its own static `strnlen`. The
 first fails with the old header.
+
+### M1. `rename()` and file types (`stdio/rename.c`)
+
+**Problem.** Reported by the GTK port (2026-11-03, RISC OS 5.31-6 test
+bed): Claws Mail couldn't save its folder list. It renames
+`folderlist.xml` to `folderlist.xml.bak` first, and `rename()` failed with
+"No such file or directory" although the file existed. The file was Text
+(&FFF). Without MimeMap (no desktop) the same rename worked.
+
+**Cause.** `__riscosify_std()` returns a type for the name, and in the
+desktop that includes MimeMap's guess for the extension (&F80 for
+`.xml`). `rename()` (unchanged from GCCSDK) said ENOENT when that type
+differed from the file's real one, and ENOTDIR when renaming a directory
+to any name MimeMap knows. So any file whose type isn't the one MimeMap
+gives its extension (a `.xml`, `.html` or `.csv` left as Text or Data by
+a copy, another program or the Filer), and any directory with such an
+extension, couldn't be renamed. `stat()` and `open()` already avoid this:
+`get_attrs` (`common/objattr.c`) gets the name's type with
+`__RISCOSIFY_FILETYPE_NOT_SET`, so only a stated `,xyz` counts.
+
+**Change.**
+- The "doesn't exist" and ENOTDIR checks use only a type the name states
+  (`,xyz` with `__RISCOSIFY_FILETYPE_EXT`), from a second `__riscosify()`
+  call with `__RISCOSIFY_FILETYPE_NOT_SET`, and the first only for files
+  (and image files the imagefs feature treats as files), as `get_attrs`
+  does.
+- The type written to the renamed file: when the old name implies no
+  type, or the type the file already has, the old rule applies (it gets
+  the new name's type if that's different). A file whose type isn't its
+  name's (these used to fail) keeps its type, and an untyped file keeps
+  its load and execution addresses, unless the new name states a type.
+- No type is ever written to a directory.
+
+**Compatibility.** Every rename the old code accepted gives the same
+result and the same type; the cases that change all failed before with
+ENOENT or ENOTDIR (checked by running the new test against the old code:
+all 19 differences are such errors). The error for a stated `,xyz` that
+doesn't match stays ENOENT, as with `stat()` and `open()`: in UnixLib's
+view `data,ffd` and `data,fff` are different names. Only `rename.o`
+changes in the library. Two extra name translations per call (no
+directories are created by them).
+
+**Verification.** Peer-reviewed in two rounds; the review added the type
+rule (the first version would have retyped Data and untyped files) and
+the image-file check. New host test `tests/host/rename` (60 checks): the
+real `rename.c` and `riscosify.c` over a fake filing system and MimeMap,
+with `__riscosify_control` 0, `FILETYPE_EXT`, `FFF_EXT`, `NOT_SET` and
+`NO_PROCESS`; Text/Data/untyped files, directories, an image file,
+suffix swapping and replacing an existing file. The old code fails 19.
+Not yet run on RISC OS.
 
 ### N1. `getservbyname_r`, `getservbyport_r`, `getservent_r` (new `netlib/getserv_r.c`, `Makefile.am`)
 

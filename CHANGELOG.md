@@ -7,6 +7,7 @@ How to release: docs/MAINTAINING.md.
 
 ## Unreleased
 
+- **`rename()` works on a file whose type isn't the one its extension implies (M1).** In the desktop, renaming a Text `folderlist.xml` gave "No such file or directory", because MimeMap maps `.xml` to &F80 and `rename()` compared that with the file's real type; Claws Mail couldn't save its folder list. Directories with such an extension couldn't be renamed either. Now only a type the name states (`,xyz`) is checked, as `stat()` and `open()` do, and such a file keeps its own type. Renames that worked before give the same result. Found by riscos-gtk. New host test.
 - The GitHub builds use riscos-crossdev 1.8.2 (`.riscos-deps`, from the daily workflow's pull request #1). No library change.
 
 ## 5.0.3.4 (2026-11-02, tag v5.0.3.4)
