@@ -65,6 +65,11 @@ typedef	struct
 #define	SEM_VALUE_MAX	(~0U)
 
 #include <sys/cdefs.h>
+#include <features.h>
+#ifdef __USE_XOPEN2K
+#  define __need_timespec
+#  include <time.h>
+#endif
 
 __BEGIN_DECLS
 extern int sem_close (sem_t *) __THROW;
@@ -77,6 +82,13 @@ extern int sem_unlink (const char *) __THROW;
 
 /* This function is a cancellation point.  */
 extern int sem_wait (sem_t *__sem);
+
+#ifdef __USE_XOPEN2K
+/* Wait as sem_wait does, but only until the CLOCK_REALTIME time __abstime:
+   then -1, errno ETIMEDOUT.  This function is a cancellation point.  */
+extern int sem_timedwait (sem_t *__restrict __sem,
+			  const struct timespec *__restrict __abstime);
+#endif
 
 extern sem_t *sem_open (const char *, int, ...) __THROW;
 __END_DECLS

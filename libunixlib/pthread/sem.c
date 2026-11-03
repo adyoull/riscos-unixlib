@@ -77,6 +77,9 @@
 #include <semaphore.h>
 #include <stdarg.h>
 
+#include <stddef.h>
+#include <time.h>
+
 #include <pthread.h>
 #include <internal/unix.h>
 
@@ -84,11 +87,43 @@
 #include <internal/os.h>
 #endif
 
-struct pthread_queue_t
+/* 2026 (riscos-mesa): waiting threads block, as on a condition variable.
+
+   The threads waiting on a semaphore are kept the way a condition
+   variable keeps its waiters: the first in usem_waiters, the rest linked
+   through their nextwait, each in STATE_COND_TIMED_WAIT with its cond
+   pointing at the queue.  usem_waiters is viewed as the `waiting' member
+   of a pthread_cond_t, so the context switcher (pthread/context.c), which
+   unlinks a thread whose wait has timed out, and fork (sys/vfork.c),
+   which unlinks threads that don't exist in the child, both work on it
+   unchanged.  Only `waiting' is ever used through that view; sem_t's
+   layout doesn't change.
+
+   A waiter always has a timeout: its deadline, or at most SEM_RECHECK_CS
+   from now.  So a sem_post from a signal handler, or a pending
+   cancellation, is seen within that time, and a program whose threads
+   all wait on semaphores doesn't stop with "Deadlocked", as with the old
+   polling sem_wait.  Waking to check costs next to nothing.
+
+   The queue is only changed by threads, with context switches off
+   (__pthread_disable_ints), as in cond.c, and by the context switcher.
+   A signal handler can run at any point in a thread, even with context
+   switches off, so a sem_post from a handler doesn't touch the queue: it
+   only adds to the count, atomically, and the waiters see it at their
+   next check.  The count is taken with a compare-and-swap.  */
+
+#define SEM_RECHECK_CS 10
+
+_Static_assert (offsetof (pthread_cond_t, waiting) == 0,
+		"a semaphore's queue is a pthread_cond_t's waiting member");
+_Static_assert (sizeof (((sem_t *) 0)->usem_waiters) == sizeof (pthread_t),
+		"usem_waiters holds a pthread_t");
+
+static __inline pthread_cond_t *
+sem_queue (sem_t *sem)
 {
-  pthread_t thread; /* this thread */
-  struct pthread_queue_t *next;    /* next element */
-};
+  return (pthread_cond_t *) (void *) &sem->usem_waiters;
+}
 
 #define	USEM_MAGIC	0x09fa4012
 #define	USEM_USER	0	/* assumes kernel does not use NULL */
@@ -137,40 +172,25 @@ int sem_init (sem_t *sem, int pshared, unsigned int value)
 #endif
   sem->usem_magic = USEM_MAGIC;
   pthread_rwlock_init(&sem->usem_interlock, NULL);
-  /*PTQ_INIT(&sem->usem_waiters);*/
-  sem->usem_waiters = NULL;
+  sem_queue (sem)->waiting = NULL;
   sem->usem_count = value;
   sem->usem_semid = semid;
   return 0;
 }
 
 int
-sem_destroy(sem_t *sem)
+sem_destroy (sem_t *sem)
 {
   if (sem_check_validity (sem))
     return -1;
 
-#ifdef PTHREAD_DEBUG_SEMS
-  __os_print("-- sem_destroy: Attempting to destroy semaphore (");
-  __os_prhex((int)sem);
-  __os_print(")..........");
-#endif
-
-  pthread_rwlock_rdlock(&sem->usem_interlock);
-  if (/*!PTQ_EMPTY(&(*sem)->usem_waiters)*/
-      sem->usem_waiters != NULL)
+  __pthread_disable_ints ();
+  if (sem_queue (sem)->waiting != NULL)
     {
-      pthread_rwlock_unlock(&sem->usem_interlock);
-#ifdef PTHREAD_DEBUG_SEMS
-      __os_print("failed\r\n");
-#endif
+      __pthread_enable_ints ();
       return __set_errno (EBUSY);
     }
-  pthread_rwlock_unlock(&sem->usem_interlock);
-
-#ifdef PTHREAD_DEBUG_SEMS
-  __os_print("succeeded\r\n");
-#endif
+  __pthread_enable_ints ();
 
   sem_free (sem);
   return 0;
@@ -199,176 +219,249 @@ sem_unlink(const char *name)
   return (-1);
 }
 
-int sem_wait (sem_t *sem)
+/* Can this thread let others run (pthread_yield)?  Not without the
+   thread system, nor in a signal handler or with context switching held
+   off (pthread_yield would stop the program with "pthread_yield called
+   with context switching disabled"): then a waiter polls, and sem_post
+   doesn't yield.  sem_post is async-signal-safe in POSIX.  */
+static __inline int
+sem_can_switch (void)
 {
-  pthread_t self;
-  struct pthread_queue_t *queue_entry, *tmp;
+  const struct ul_global *gbl = &__ul_global;
 
+  return gbl->pthread_system_running
+    && !gbl->executing_signalhandler
+    && gbl->pthread_callevery_rma->pthread_worksemaphore == 0;
+}
+
+/* Add N to the count, atomically even against a signal handler.  */
+static __inline void
+sem_add (sem_t *sem, int n)
+{
+#if __GCC_HAVE_SYNC_COMPARE_AND_SWAP_4
+  __atomic_fetch_add (&sem->usem_count, n, __ATOMIC_SEQ_CST);
+#else
+  __atomic_modify (&sem->usem_count, n);	/* IRQs off around it */
+#endif
+}
+
+/* Take the semaphore if its count is above 0: 1 if taken.  A
+   compare-and-swap where there is one, so even a handler's sem_trywait
+   (not async-signal-safe, but programs do it) can't make the count wrap.
+   Otherwise, check then decrement: right as long as only threads, with
+   context switches off, lower the count.  */
+static __inline int
+sem_take (sem_t *sem)
+{
+#if __GCC_HAVE_SYNC_COMPARE_AND_SWAP_4
+  unsigned int v = __atomic_load_n (&sem->usem_count, __ATOMIC_SEQ_CST);
+  while (v != 0)
+    if (__atomic_compare_exchange_n (&sem->usem_count, &v, v - 1, 0,
+				     __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+      return 1;
+  return 0;
+#else
+  if (sem->usem_count == 0)
+    return 0;
+  sem_add (sem, -1);
+  return 1;
+#endif
+}
+
+/* Remove SELF from the semaphore's queue if it is still there.  Called
+   with context switches off.  */
+static void
+sem_unqueue (sem_t *sem, pthread_t self)
+{
+  pthread_t *link;
+
+  for (link = &sem_queue (sem)->waiting; *link; link = &(*link)->nextwait)
+    if (*link == self)
+      {
+	*link = self->nextwait;
+	break;
+      }
+  self->nextwait = NULL;
+  self->cond = NULL;
+}
+
+/* Wait for the semaphore, until ABSTIME (CLOCK_REALTIME) if not NULL.
+   0, or -1 with errno ETIMEDOUT.  */
+static int
+sem_wait_until (sem_t *sem, const struct timespec *abstime)
+{
+  for (;;)
+    {
+      __pthread_disable_ints ();
+      if (sem_take (sem))
+	{
+	  __pthread_enable_ints ();
+	  return 0;
+	}
+      __pthread_enable_ints ();
+
+      /* A cancellation point, acted on only while the count is 0, so a
+	 post meant for this thread isn't lost.  */
+      if (__ul_global.pthread_system_running)
+	pthread_testcancel ();
+
+      clock_t wait_cs = SEM_RECHECK_CS;
+      if (abstime != NULL)
+	{
+	  struct timespec now;
+	  if (clock_gettime (CLOCK_REALTIME, &now) != 0)
+	    return -1;
+	  if (now.tv_sec > abstime->tv_sec
+	      || (now.tv_sec == abstime->tv_sec
+		  && now.tv_nsec >= abstime->tv_nsec))
+	    return __set_errno (ETIMEDOUT);
+	  /* The time left, in centiseconds rounded up (at least 1), when
+	     it's under 2 s (so it fits a long); SEM_RECHECK_CS is less.  */
+	  if (abstime->tv_sec - now.tv_sec < 2)
+	    {
+	      long left_ns = (long) (abstime->tv_sec - now.tv_sec) * 1000000000L
+			     + (abstime->tv_nsec - now.tv_nsec);
+	      long left_cs = (left_ns + 9999999) / 10000000;
+	      if (left_cs < wait_cs)
+		wait_cs = (clock_t) left_cs;
+	    }
+	}
+
+      if (!sem_can_switch ())
+	{
+	  /* With the thread system running, waiting with context
+	     switching held off (or in a signal handler) can't end: stop
+	     with "pthread_yield called with context switching disabled",
+	     as before.  A timed wait just checks again until its time is
+	     up.  Without the thread system, only a signal handler can
+	     post: check again.  */
+	  if (__ul_global.pthread_system_running && abstime == NULL)
+	    pthread_yield ();
+	  continue;
+	}
+
+      pthread_t self = __pthread_running_thread;
+      __pthread_disable_ints ();
+      if (sem_take (sem))
+	{
+	  __pthread_enable_ints ();
+	  return 0;
+	}
+      /* Join the end of the queue and sleep until sem_post wakes this
+	 thread or WAIT_CS have passed (the context switcher then takes
+	 it off the queue).  */
+      pthread_t *link = &sem_queue (sem)->waiting;
+      while (*link)
+	link = &(*link)->nextwait;
+      *link = self;
+      self->nextwait = NULL;
+      self->cond = sem_queue (sem);
+      /* The context switcher wakes a thread when clock () is past
+	 condtimeout, so this is WAIT_CS from now.  */
+      self->condtimeout = clock () + wait_cs - 1;
+      self->state = STATE_COND_TIMED_WAIT;
+      __pthread_enable_ints ();
+
+      pthread_yield ();
+
+      __pthread_disable_ints ();
+      sem_unqueue (sem, self);
+      __pthread_enable_ints ();
+    }
+}
+
+int
+sem_wait (sem_t *sem)
+{
   if (sem_check_validity (sem))
     return -1;
 
   PTHREAD_SAFE_CANCELLATION
 
-  self = __pthread_running_thread;
-  queue_entry = malloc(sizeof(struct pthread_queue_t));
-  queue_entry->thread = self;
-  queue_entry->next = NULL;
-
-#ifdef PTHREAD_DEBUG_SEMS
-  __os_print("-- sem_wait: waiting on semaphore (");
-  __os_prhex((int)sem);
-  __os_print(")\r\n");
-#endif
-
-  for (;;)
-    {
-      pthread_rwlock_wrlock(&sem->usem_interlock);
-      __pthread_disable_ints();
-      /* pthread_spinlock(self, &self->pt_statelock); */
-      if (self->cancelpending)
-	{
-	  /* pthread_spinunlock(self, &self->pt_statelock); */
-	  __pthread_enable_ints();
-	  pthread_rwlock_unlock(&sem->usem_interlock);
-	  pthread_exit(PTHREAD_CANCELED);
-	}
-
-      if (sem->usem_count > 0)
-	{
-	  /* pthread_spinunlock(self, &self->pt_statelock); */
-	  __pthread_enable_ints();
-	  sem->usem_count--;
-	  pthread_rwlock_unlock(&sem->usem_interlock);
-	  return 0;
-	}
-
-      if (sem->usem_waiters)
-	{
-	  /* PTQ_INSERT_TAIL(&(*sem)->usem_waiters, self, pt_sleep); */
-	  for (tmp = sem->usem_waiters;
-	       tmp->next && tmp != queue_entry; tmp = tmp->next)
-	    ;
-	  if (tmp != queue_entry)
-	    tmp->next = queue_entry;
-      
-	  self->state = STATE_BLOCKED;
-	  /* self->pt_sleepobj = *sem;
-	     self->pt_sleepq = &(*sem)->usem_waiters;
-	     self->pt_sleeplock = &(*sem)->usem_interlock;
-	     pthread_spinunlock(self, &self->pt_statelock); */
-	}
-
-      __pthread_enable_ints();
-      /* XXX What about signals? */
-
-      pthread_rwlock_unlock(&sem->usem_interlock);
-
-      /* pthread__block(self, &(*sem)->usem_interlock); */
-      /* interlock is not held when we return */
-      pthread_yield();
-    }
-  return 0;
-}
-
-int
-sem_trywait(sem_t *sem)
-{
-  int retval = 0;
-
-  if (sem_check_validity (sem))
-    return -1;
-
-#ifdef PTHREAD_DEBUG_SEMS
-  __os_print("-- sem_trywait: trying to acquire semaphore (");
-  __os_prhex((int)sem);
-  __os_print(")..........");
-#endif
-
-  pthread_rwlock_wrlock(&sem->usem_interlock);
-
-  if (sem->usem_count == 0)
-    {
-      errno = EAGAIN;
-      retval = -1;
-    }
-  else
-    {
-      sem->usem_count --;
-    }
-
-  pthread_rwlock_unlock(&sem->usem_interlock);
-#ifdef PTHREAD_DEBUG_SEMS
-  __os_print ((retval == 0) ? "succeeded\r\n" : "failed\r\n");
-#endif
-  return retval;
-}
-
-int
-sem_post(sem_t *sem)
-{
-  pthread_t self, blocked;
-  struct pthread_queue_t *tmp;
-
-  if (sem_check_validity (sem))
-    return -1;
-
-  self = __pthread_running_thread;
-
-#ifdef PTHREAD_DEBUG_SEMS
-  __os_print("-- sem_post: releasing semaphore (");
-  __os_prhex((int)sem);
-  __os_print(")\r\n");
-#endif
-
-  pthread_rwlock_wrlock(&sem->usem_interlock);
-  sem->usem_count++;
-
-  if (sem->usem_waiters != NULL)
-    blocked = sem->usem_waiters->thread;
-  else
-    blocked = NULL;
-  if (blocked)
-    {
-      /* PTQ_REMOVE(&(*sem)->usem_waiters, blocked, pt_sleep); */
-      tmp = sem->usem_waiters;
-      sem->usem_waiters = sem->usem_waiters->next;
-      tmp->thread = tmp->thread = NULL;
-      free(tmp);
-
-      /* Give the head of the blocked queue another try. */
-      /* pthread__sched(self, blocked); */
-      __pthread_disable_ints();
-      blocked->state = STATE_RUNNING;
-      __pthread_enable_ints();
-    }
-  pthread_rwlock_unlock(&sem->usem_interlock);
-  pthread_yield();
-  return 0;
-}
-
-int
-sem_getvalue(sem_t * __restrict sem, int * __restrict sval)
-{
-  if (sem_check_validity (sem))
-    return -1;
-
-#ifdef PTHREAD_DEBUG_SEMS
-  __os_print("-- sem_getvalue: Retrieving value of semaphore\r\n");
-#endif
-
-  pthread_rwlock_rdlock(&sem->usem_interlock);
-  *sval = (int) sem->usem_count;
-  pthread_rwlock_unlock(&sem->usem_interlock);
-
-  return 0;
+  return sem_wait_until (sem, NULL);
 }
 
 int
 sem_timedwait (sem_t *sem, const struct timespec *abstime)
 {
-#ifdef PTHREAD_DEBUG_SEMS
-  __os_print(" -- sem_timedwait: Not supported\r\n");
-#endif
+  if (sem_check_validity (sem))
+    return -1;
 
-  return __set_errno (ENOSYS);
+  PTHREAD_SAFE_CANCELLATION
+
+  /* POSIX: abstime isn't checked when the semaphore can be taken.  */
+  __pthread_disable_ints ();
+  if (sem_take (sem))
+    {
+      __pthread_enable_ints ();
+      return 0;
+    }
+  __pthread_enable_ints ();
+
+  if (abstime == NULL || abstime->tv_nsec < 0
+      || abstime->tv_nsec >= 1000000000)
+    return __set_errno (EINVAL);
+
+  return sem_wait_until (sem, abstime);
+}
+
+int
+sem_trywait (sem_t *sem)
+{
+  if (sem_check_validity (sem))
+    return -1;
+
+  __pthread_disable_ints ();
+  int taken = sem_take (sem);
+  __pthread_enable_ints ();
+
+  return taken ? 0 : __set_errno (EAGAIN);
+}
+
+int
+sem_post (sem_t *sem)
+{
+  if (sem_check_validity (sem))
+    return -1;
+
+  if (__ul_global.executing_signalhandler)
+    {
+      /* In a signal handler: only the count (see the top of the file).  */
+      sem_add (sem, 1);
+      return 0;
+    }
+
+  __pthread_disable_ints ();
+  sem_add (sem, 1);
+
+  /* Wake the first waiter: it takes the count when it runs (or, if
+     another thread has taken it by then, waits again).  */
+  pthread_t blocked = sem_queue (sem)->waiting;
+  if (blocked != NULL)
+    {
+      sem_queue (sem)->waiting = blocked->nextwait;
+      blocked->nextwait = NULL;
+      blocked->state = STATE_RUNNING;
+    }
+  __pthread_enable_ints ();
+
+  /* As before, give the woken thread a chance to run, but only where a
+     yield is allowed (it used to stop a program that posted from a
+     signal handler).  */
+  if (sem_can_switch ())
+    pthread_yield ();
+  return 0;
+}
+
+int
+sem_getvalue (sem_t * __restrict sem, int * __restrict sval)
+{
+  if (sem_check_validity (sem))
+    return -1;
+
+  __pthread_disable_ints ();
+  *sval = (int) __atomic_load_n (&sem->usem_count, __ATOMIC_SEQ_CST);
+  __pthread_enable_ints ();
+
+  return 0;
 }

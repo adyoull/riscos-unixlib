@@ -26,6 +26,8 @@ echo "== host tests: Unix to RISC OS names (__riscosify)"
 tests/host/riscosify/run.sh
 echo "== host tests: rename() and file types"
 tests/host/rename/run.sh
+echo "== host tests: semaphores (sem_wait blocks, sem_timedwait)"
+tests/host/sem/run.sh
 
 echo "== emulator: thread ticker machine code (needs a build + unicorn)"
 GCCSDK_ENV=${GCCSDK_ENV:-$HOME/gccsdk/env}
