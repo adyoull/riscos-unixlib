@@ -5,6 +5,14 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.6-rc1 (2026-11-03, pre-release, tag v5.0.3.6-rc1)
+
+5.0.3.5 plus P7, from riscos-mesa. Not yet run on RISC OS. libtool
+`-version-info` 8:2:3 (`sem_timedwait` was already in the library, as a
+stub).
+
+- **Semaphores work properly (P7).** `sem_timedwait` was a stub that always failed with ENOSYS (SDL's timer thread never slept); `sem_wait` never blocked, polling instead and leaking a little memory on every call; and a `sem_post` from a signal handler stopped the program. Waiters now sleep until posted (checking every 10 cs for posts from signal handlers and for cancellation), `sem_timedwait` follows POSIX to the centisecond, and `sem_post` is safe in a handler. `sem_timedwait` is now declared in `<semaphore.h>`. No layout changes. Found by riscos-mesa. New host test and Pi test `Sem`.
+
 ## 5.0.3.5 (2026-11-03, tag v5.0.3.5)
 
 The same code as 5.0.3.5-rc1: 5.0.3.4 plus M1. libtool `-version-info`

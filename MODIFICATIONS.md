@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 77 modified files and 11 added files).
+diff against unchanged GCCSDK UnixLib: 79 modified files and 11 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1250 |
-| Modified (listed below) | 77 |
+| Byte-identical to GCCSDK `64c6f81` | 1248 |
+| Modified (listed below) | 79 |
 | Added | 11 |
 | Removed relative to upstream | 0 |
 
@@ -71,6 +71,7 @@ the commits are named below.
 | `include/limits.h` | H1 `LLONG_MIN` type |
 | `include/string.h` | H2 POSIX.1-2008 string functions declared without `_GNU_SOURCE` |
 | `stdio/rename.c` | M1 `rename()` and file types |
+| `pthread/sem.c`, `include/semaphore.h` | P7 semaphores: blocking `sem_wait`, `sem_timedwait`, `sem_post` in a handler |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
 | `incl-local/internal/pvops.s` (**new**), `incl-local/internal/asm_dec.s`, `incl-local/internal/unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s` | O1 threads and signals on RISC OS for Linux |
@@ -104,7 +105,7 @@ library:
 - OpenTTD 14.1: W1, T1, T2, A1.
 - Warzone 2100 2.3.9: F1, X1, the problem behind K1-K4, and the crashes
   behind R1 and R2.
-- riscos-mesa (SDL2, OpenAL Soft): P1, P2.
+- riscos-mesa (SDL2, OpenAL Soft): P1, P2, P7.
 - riscos-gtk (Gnumeric, Claws Mail, 2026-10-17/18, 2026-11-02/03): G1, U1, H2, M1.
 - riscos-reeledit (MLT, 2026-10-20): P6.
 - Sound (S1-S5) and large files (L1-L4) were written here.
@@ -868,6 +869,73 @@ the library. It also links a program that defines its own
 suggestions (`ENOTSUP` for process scope, a file of their own) are
 applied. Not yet run on RISC OS, though there's nothing to see there: the
 functions only check their arguments.
+
+### P7. Semaphores: `sem_wait` blocks, `sem_timedwait`, `sem_post` in a signal handler (`pthread/sem.c`, `include/semaphore.h`)
+
+**Problem.** Reported by riscos-mesa (2026-11-03):
+- `sem_timedwait` was a stub that always failed with ENOSYS. SDL 2's
+  configure only link-tests it, so `SDL_SemWaitTimeout` failed at once and
+  SDL's timer thread never slept.
+- `sem_wait` never blocked. It only queued itself when the queue was
+  already non-empty, so no waiter was ever queued; every waiter polled
+  with `pthread_yield`, using processor time, and each call leaked an
+  unchecked `malloc`.
+- Found here: `sem_post` always called `pthread_yield`, so a `sem_post`
+  from a signal handler (async-signal-safe in POSIX) stopped the program
+  with "pthread_yield called with context switching disabled".
+
+**Change.** A new implementation, not riscos-gcc16's (P5 of the withdrawn
+5.0.3.4-rc1, which kept a mutex and condition variable in a heap block):
+- Waiters are queued the way condition-variable waiters are: linked
+  through `nextwait`, in `STATE_COND_TIMED_WAIT`, with `thread->cond`
+  pointing at `usem_waiters` viewed as a `pthread_cond_t`'s `waiting`
+  member. The context switcher's timeout code (`pthread/context.c`) and
+  fork's clean-up of waiters (`sys/vfork.c`) use only that member, so
+  they work unchanged; static assertions check the layout. `sem_t`
+  doesn't change.
+- Every wait has a timeout: the deadline, or 10 cs, after which the
+  waiter checks again. So a post from a signal handler or a pending
+  cancellation is seen within 10 cs, and threads that all wait on
+  semaphores never meet the "Deadlocked" error (the old polling never
+  did either).
+- `sem_timedwait` as in POSIX: a count above 0 is taken whatever `abstime`
+  is; EINVAL for a bad `tv_nsec` only when it would wait; ETIMEDOUT once
+  the CLOCK_REALTIME deadline has passed (centisecond resolution, never
+  early); a cancellation point. Declared in `<semaphore.h>` under
+  `__USE_XOPEN2K`, with `struct timespec`, as glibc does.
+- The count is changed atomically (LDREX/STREX in the EABI build,
+  `__atomic_modify` otherwise) and taken with a compare-and-swap. A
+  `sem_post` in a signal handler only adds to the count: a handler can
+  interrupt a thread in the middle of a queue change, so it never touches
+  the queue, and it doesn't yield. Elsewhere `sem_post` wakes the first
+  waiter and yields only where that's allowed.
+- `sem_wait` with context switching held off (or in a handler) can't end,
+  and still stops with the old fatal error; `sem_timedwait` there checks
+  until its deadline. Without the thread system both poll, as before:
+  only a signal handler can post.
+- Nothing is allocated.
+
+**Compatibility.** No layout or prototype changes; programs that call
+these functions need relinking. Behaviour changes: `sem_timedwait` works
+instead of failing with ENOSYS; `sem_wait` sleeps instead of polling;
+`sem_post` from a handler works. A waiter that wakes to recheck goes to
+the back of the queue, so waiters aren't strictly first come, first
+served (POSIX doesn't require it), and `sem_destroy`'s EBUSY can miss a
+waiter for that moment (destroying a semaphore with waiters is undefined
+anyway). `<semaphore.h>` in POSIX 2001 and later modes now declares
+`sem_timedwait` and defines `struct timespec`; strict C modes, POSIX
+1990/XPG5 and C++ see the same header as before (checked by preprocessing
+in each). The generated `unixlib/stubs.h` no longer has
+`__stub_sem_timedwait`. Only `sem.o` changes in the library.
+
+**Verification.** Peer-reviewed in two rounds by two reviewers; the
+reviews added the signal-handler rules, the compare-and-swap, a timeout
+1 cs early to match the switcher's `>`, and kept the fatal error. New host
+test `tests/host/sem` (41 checks: the real `sem.c` with a simulated clock
+and a model of the context switcher's timed waits; timeouts, wake-ups,
+past deadlines, EINVAL, rechecks, FIFO at the head, handler posts, no
+thread system, 100000 waits and posts, and no `malloc` in `sem.o`). New Pi
+test `Sem`. Not yet run on RISC OS.
 
 ### R1. Inline SWI wrappers: every register and memory the SWI changes - commit `c98c781`
 
@@ -1895,11 +1963,11 @@ file:
 
 ## 6. Version, build and symbols
 
-### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4 and 5.0.3.5 release commits
+### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5 and 5.0.3.6 release commits
 
-`AC_INIT` and the Help file say **5.0.3.5**. Releases continue UnixLib's own
-numbering from GCCSDK's 5.0. The libtool `-version-info` is `8:1:3`
-(5.0.3.5 changes code only):
+`AC_INIT` and the Help file say **5.0.3.6**. Releases continue UnixLib's own
+numbering from GCCSDK's 5.0. The libtool `-version-info` is `8:2:3`
+(5.0.3.5 and 5.0.3.6 change code only):
 interfaces have been added (6:0:1 for 5.0.3.1; `getservbyname_r` and
 friends for 5.0.3.2, 7:0:2; P6's thread attribute functions for 5.0.3.4,
 8:0:3) and none removed, so the shared library's major
