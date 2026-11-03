@@ -141,6 +141,10 @@ Fault       a SIGILL caught by a handler ("caught SIGILL: ok"), then an
             uncaught one: must print "Fatal signal received: Illegal
             instruction" and a backtrace, and end the program. Nothing else
             on the machine should be affected.
+Rename      rename() of files whose type isn't the one MimeMap gives
+            their extension (a Text "rntest.xml" renamed to .xml.bak, as
+            Claws Mail does): each line must say ok, then PASS. Run it in
+            the desktop: without MimeMap it says it proves nothing.
 
 Please report: what each one printed, whether it sounded right, any
 clicks or gaps, and the "max queued" figure.
