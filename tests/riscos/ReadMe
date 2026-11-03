@@ -145,6 +145,12 @@ Rename      rename() of files whose type isn't the one MimeMap gives
             their extension (a Text "rntest.xml" renamed to .xml.bak, as
             Claws Mail does): each line must say ok, then PASS. Run it in
             the desktop: without MimeMap it says it proves nothing.
+Sem         semaphores: sem_timedwait times out after about 200 ms while
+            another thread runs, wakes when posted, and rejects a bad
+            time; a thread waiting in sem_wait takes no processor time;
+            100000 waits and posts lose no memory; and a sem_post from a
+            SIGALRM handler, with every thread waiting, ends the wait.
+            Each line must say ok, then PASS.
 
 Please report: what each one printed, whether it sounded right, any
 clicks or gaps, and the "max queued" figure.

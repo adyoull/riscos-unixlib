@@ -1,0 +1,5 @@
+| Semaphores: sem_timedwait, sem_wait blocking, sem_post from a signal
+| handler. Must print PASS.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.semtest
