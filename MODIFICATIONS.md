@@ -656,6 +656,7 @@ real `rename.c` and `riscosify.c` over a fake filing system and MimeMap,
 with `__riscosify_control` 0, `FILETYPE_EXT`, `FFF_EXT`, `NOT_SET` and
 `NO_PROCESS`; Text/Data/untyped files, directories, an image file,
 suffix swapping and replacing an existing file. The old code fails 19.
+Pi test `Rename` (in the desktop).
 Not yet run on RISC OS.
 
 ### N1. `getservbyname_r`, `getservbyport_r`, `getservent_r` (new `netlib/getserv_r.c`, `Makefile.am`)
@@ -1892,10 +1893,11 @@ file:
 
 ## 6. Version, build and symbols
 
-### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3 and 5.0.3.4 release commits
+### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4 and 5.0.3.5 release commits
 
-`AC_INIT` and the Help file say **5.0.3.4**. Releases continue UnixLib's own
-numbering from GCCSDK's 5.0. The libtool `-version-info` is `8:0:3`:
+`AC_INIT` and the Help file say **5.0.3.5**. Releases continue UnixLib's own
+numbering from GCCSDK's 5.0. The libtool `-version-info` is `8:1:3`
+(5.0.3.5 changes code only):
 interfaces have been added (6:0:1 for 5.0.3.1; `getservbyname_r` and
 friends for 5.0.3.2, 7:0:2; P6's thread attribute functions for 5.0.3.4,
 8:0:3) and none removed, so the shared library's major
