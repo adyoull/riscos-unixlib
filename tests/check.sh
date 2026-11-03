@@ -24,6 +24,8 @@ echo "== host tests: group and password lookups (getgrgid_r and friends)"
 tests/host/getpwgr/run.sh
 echo "== host tests: Unix to RISC OS names (__riscosify)"
 tests/host/riscosify/run.sh
+echo "== host tests: rename() and file types"
+tests/host/rename/run.sh
 
 echo "== emulator: thread ticker machine code (needs a build + unicorn)"
 GCCSDK_ENV=${GCCSDK_ENV:-$HOME/gccsdk/env}

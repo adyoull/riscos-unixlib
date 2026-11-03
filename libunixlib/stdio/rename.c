@@ -23,9 +23,22 @@ rename (const char *old_name, const char *new_name)
   if (old_name[0] == '\0' || new_name[0] == '\0')
     return __set_errno (ENOENT);
 
-  int oftype;
+  /* oftype and nftype are the types the names imply, including a type
+     MimeMap guesses from an extension: they decide the new name's type at
+     the end.  oxtype and nxtype are only an explicit ",xyz", as stat()
+     and open() check (get_attrs in common/objattr.c): a name's type is
+     only a reason to say a file doesn't exist, or isn't a directory, when
+     the name states it.  A Text "folderlist.xml" exists, although MimeMap
+     maps ".xml" to &F80 (riscos-gtk, 2026).  As in get_attrs, only a
+     file's type is checked; an image file is one when the imagefs
+     feature says so (SWI_OS_File_ReadCatInfo already reports it as 1 or
+     2, except in the SCL build).  */
+  int oftype, oxtype;
   char ofile[MAXPATHLEN];
-  if (!__riscosify_std (old_name, 0, ofile, sizeof (ofile), &oftype))
+  if (!__riscosify (old_name, 0,
+		    __get_riscosify_control () | __RISCOSIFY_FILETYPE_NOT_SET,
+		    ofile, sizeof (ofile), &oxtype)
+      || !__riscosify_std (old_name, 0, ofile, sizeof (ofile), &oftype))
     return __set_errno (ENAMETOOLONG);
   /* Fetch real objtype and filetype of old_name.  */
   unsigned otype, oloadaddr;
@@ -39,16 +52,21 @@ rename (const char *old_name, const char *new_name)
 
   /* Let __riscosify_std () create the directory if necessary. This is so
      rename ("foo", "foo.c") works when "c" does not exist.  */
-  int nftype;
+  int nftype, nxtype;
   char nfile[MAXPATHLEN];
-  if (!__riscosify_std (new_name, 1, nfile, sizeof (nfile), &nftype))
+  if (!__riscosify (new_name, 0,
+		    __get_riscosify_control () | __RISCOSIFY_FILETYPE_NOT_SET,
+		    nfile, sizeof (nfile), &nxtype)
+      || !__riscosify_std (new_name, 1, nfile, sizeof (nfile), &nftype))
     return __set_errno (ENAMETOOLONG);
   int ntype = __object_exists_ro (nfile);
 
   /* Does the old file/directory exist ? If so, and the new object exists
      as well, is it the same type ? */
   if (otype == 0
-      || (oftype != __RISCOSIFY_FILETYPE_NOTFOUND && oftype != oftype_ro))
+      || ((otype == 1 || (otype == 3 && __get_feature_imagefs_is_file ()))
+	  && oxtype != __RISCOSIFY_FILETYPE_NOTFOUND
+	  && (unsigned) oxtype != oftype_ro))
     {
       /* FIXME: if one of the directories in ofile does not exist, return
 	 ENOTDIR instead.  */
@@ -57,7 +75,7 @@ rename (const char *old_name, const char *new_name)
   else if (otype == 1 && ntype == 2)
     return __set_errno (EISDIR);
   else if (otype == 2
-	   && (ntype == 1 || nftype != __RISCOSIFY_FILETYPE_NOTFOUND))
+	   && (ntype == 1 || nxtype != __RISCOSIFY_FILETYPE_NOTFOUND))
     return __set_errno (ENOTDIR);
 
   /* Do a RISC OS rename.  If that works ok, we're done.  This will
@@ -99,12 +117,31 @@ rename (const char *old_name, const char *new_name)
 	}
     }
 
+  /* The file's type follows its name when its name says nothing about the
+     type, or when the type it has is the one its old name gave it: then
+     it gets the new name's type if that is different.  A file whose type
+     differs from what its name implies (a Text "folderlist.xml", or an
+     untyped "x.xml" with load and execution addresses) keeps its type,
+     unless the new name states one with ",xyz".  (An untyped "prog"
+     renamed "prog.xml" gets &F80, as before.)  Never on a directory.  */
   int oftype_a = (oftype == __RISCOSIFY_FILETYPE_NOTFOUND) ? 0xfff : oftype;
   int nftype_a = (nftype == __RISCOSIFY_FILETYPE_NOTFOUND) ? 0xfff : nftype;
-  if (oftype_a != nftype_a)
+  int settype = -1;
+  if (otype == 2)
+    ;
+  else if (oftype == __RISCOSIFY_FILETYPE_NOTFOUND
+	   || (unsigned) oftype == oftype_ro)
+    {
+      if (oftype_a != nftype_a)
+	settype = nftype_a;
+    }
+  else if (nxtype != __RISCOSIFY_FILETYPE_NOTFOUND
+	   && (unsigned) nxtype != oftype_ro)
+    settype = nxtype;
+  if (settype != -1)
     {
       /* We need to set the filetype of the file.  */
-      if ((err = SWI_OS_File_WriteCatInfoFileType (nfile, nftype_a)) != NULL)
+      if ((err = SWI_OS_File_WriteCatInfoFileType (nfile, settype)) != NULL)
 	return __ul_seterr (err, EOPSYS);
     }
 
