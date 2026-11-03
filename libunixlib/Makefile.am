@@ -1522,7 +1522,7 @@ unixlib_asm_deps = $(top_srcdir)/incl-local/internal/asm_dec.s \
 unixlib_asm_objs = $(patsubst %.s,%.lo,$(notdir $(filter %.s,$(libunixlib_la_SOURCES))))
 $(unixlib_asm_objs) crt0.o gcrt0.o sul.o pthticker.o: $(unixlib_asm_deps)
 
-libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 8:1:3 -Wl,--version-script -Wl,$(top_srcdir)/vscript
+libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 8:2:3 -Wl,--version-script -Wl,$(top_srcdir)/vscript
 
 libm_la_SOURCES = libm-support/libm.c
 
