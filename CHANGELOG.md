@@ -5,6 +5,15 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.6 (2026-11-03, tag v5.0.3.6)
+
+The same code as 5.0.3.6-rc1: 5.0.3.5 plus P7. libtool `-version-info`
+8:2:3. On native RISC OS 5.31 (Pi), `Sem` passes: a 200 ms
+`sem_timedwait` times out while another thread runs, a post wakes it at
+about 100 ms, a thread waiting in `sem_wait` takes no processor time,
+100000 waits and posts take 363 ms, and a signal handler's post ends a
+wait with every thread waiting.
+
 ## 5.0.3.6-rc1 (2026-11-03, pre-release, tag v5.0.3.6-rc1)
 
 5.0.3.5 plus P7, from riscos-mesa. Not yet run on RISC OS. libtool

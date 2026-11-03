@@ -935,7 +935,14 @@ test `tests/host/sem` (41 checks: the real `sem.c` with a simulated clock
 and a model of the context switcher's timed waits; timeouts, wake-ups,
 past deadlines, EINVAL, rechecks, FIFO at the head, handler posts, no
 thread system, 100000 waits and posts, and no `malloc` in `sem.o`). New Pi
-test `Sem`. Not yet run on RISC OS.
+test `Sem`: passes on native RISC OS 5.31 (2026-11-03). The 200 ms timeout
+ended after 193 ms on the monotonic clock: the CLOCK_REALTIME deadline is
+made from a centisecond reading, so it can be up to 10 ms short; the wait
+never ends before it. A post woke a waiter at 109 ms (posted at 100 ms);
+the main thread ran at full speed with a thread in `sem_wait`; 100000
+waits and posts took 363 ms; a SIGALRM handler's post ended a wait with
+every thread waiting (396 ms). riscos-mesa's SDL and OpenAL tests are to
+follow.
 
 ### R1. Inline SWI wrappers: every register and memory the SWI changes - commit `c98c781`
 
@@ -2028,6 +2035,9 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 ---
 
 ## 8. Still to be done
+
+**Run on RISC OS (5.0.3.6-rc1, native RISC OS 5.31, 2026-11-03):** `Sem`
+(P7) passes.
 
 **Run on RISC OS (Pi 4, 5.0.3.5-rc1, 2026-11-03):** `Rename` (M1) passes
 in the desktop: a Text and a Data `.xml` rename and keep their types, and
