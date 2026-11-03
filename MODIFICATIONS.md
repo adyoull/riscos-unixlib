@@ -656,8 +656,10 @@ real `rename.c` and `riscosify.c` over a fake filing system and MimeMap,
 with `__riscosify_control` 0, `FILETYPE_EXT`, `FFF_EXT`, `NOT_SET` and
 `NO_PROCESS`; Text/Data/untyped files, directories, an image file,
 suffix swapping and replacing an existing file. The old code fails 19.
-Pi test `Rename` (in the desktop).
-Not yet run on RISC OS.
+Pi test `Rename` (in the desktop): passes on a Pi 4 (2026-11-03). On
+RISC OS 5.31-6 (the RISC OS for Linux test bed), riscos-gtk's test
+program renames its Text `folderlist.xml`, and Claws Mail linked with
+5.0.3.5-rc1 saves its folder list; both failed before.
 
 ### N1. `getservbyname_r`, `getservbyport_r`, `getservent_r` (new `netlib/getserv_r.c`, `Makefile.am`)
 
@@ -1958,6 +1960,11 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 ---
 
 ## 8. Still to be done
+
+**Run on RISC OS (Pi 4, 5.0.3.5-rc1, 2026-11-03):** `Rename` (M1) passes
+in the desktop: a Text and a Data `.xml` rename and keep their types, and
+an XML `.xml` and a Text `.tmp` get the types the new names give, as
+before. riscos-gtk confirmed Claws Mail on RISC OS 5.31-6.
 
 **Run on RISC OS (Pi 4, 5.0.3.4-rc5, 2026-11-02):** `Preempt` (O1's
 native path; with and without PThreadTicker), `ITimer` (T5: 6 alarms in

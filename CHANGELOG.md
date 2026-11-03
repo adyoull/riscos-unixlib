@@ -5,6 +5,14 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.5 (2026-11-03, tag v5.0.3.5)
+
+The same code as 5.0.3.5-rc1: 5.0.3.4 plus M1. libtool `-version-info`
+8:1:3. On a Pi 4 (RISC OS 5) in the desktop, `Rename` passes. riscos-gtk
+confirmed it on RISC OS 5.31-6 (the RISC OS for Linux test bed): its test
+program renames a Text `folderlist.xml`, and Claws Mail linked with rc1
+saves its folder list, both of which failed with 5.0.3.4.
+
 ## 5.0.3.5-rc1 (2026-11-03, pre-release, tag v5.0.3.5-rc1)
 
 5.0.3.4 plus M1, from the GTK port. Not yet run on RISC OS. libtool
