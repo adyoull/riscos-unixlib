@@ -35,6 +35,7 @@ typedef enum abort_error
   abort_ERROR_STACK_INTERNAL,	/* A SWI gave an error in the stack abort handler.  */
   abort_ERROR_MMAP_READ_ONLY,	/* Abort in mmap area with valid page (probably attempted write to read only page).  */
   abort_ERROR_MMAP_INTERNAL,	/* A SWI gave an error in mmap abort handler.  */
+  abort_ERROR_UNHANDLED,	/* No handler registered with ARMEABISupport could handle the abort (1.07 and later).  */
   abort_ERROR_MAX
 } abort_error;
 
@@ -45,7 +46,8 @@ static const char *abort_msg[] =
   "Unixlib detected stack overflow\n\n",
   "Unixlib detected that a SWI returned an error in the stack abort handler\n\n",
   "Unixlib detected an abort in an mmap area\n\n",
-  "Unixlib detected that a SWI returned an error in the mmap abort handler\n\n"
+  "Unixlib detected that a SWI returned an error in the mmap abort handler\n\n",
+  "Unixlib detected that ARMEABISupport could not handle an abort\n\n"
 };
 #endif
 

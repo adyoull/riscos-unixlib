@@ -24,7 +24,12 @@ fstat (int fd, struct stat *buf)
     return __set_errno (EINVAL);
 
   if (BADF (fd))
+#ifdef __ARM_EABI__
+    /* Perhaps one of ARMEABISupport's fds (shared memory, shared files): sys/mman-armeabi.c.  */
+    return __armeabi_fd_fstat (fd, buf);
+#else
     return __set_errno (EBADF);
+#endif
 
   const struct __unixlib_fd *file_desc = getfd (fd);
 

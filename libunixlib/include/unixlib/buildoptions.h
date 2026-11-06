@@ -61,7 +61,7 @@
 
 #endif /* __UNIXLIB_CHUNKED_STACK */
 
-#if __UNIXLIB_CHUNKED_STACK && defined (___ARM_EABI__)
+#if __UNIXLIB_CHUNKED_STACK && defined (__ARM_EABI__)
 #  error "EABI based target can not have chunked stacks."
 #endif
 

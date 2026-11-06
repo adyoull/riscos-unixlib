@@ -17,7 +17,12 @@ lseek (int fd, __off_t offset, int whence)
   PTHREAD_UNSAFE
 
   if (BADF (fd))
+#ifdef __ARM_EABI__
+    /* Perhaps one of ARMEABISupport's fds (shared memory, shared files): sys/mman-armeabi.c.  */
+    return __armeabi_fd_lseek (fd, offset, whence);
+#else
     return __set_errno (EBADF);
+#endif
 
   struct __unixlib_fd *file_desc = getfd (fd);
 
@@ -36,7 +41,16 @@ lseek64 (int fd, __off64_t offset, int whence)
   PTHREAD_UNSAFE
 
   if (BADF (fd))
+#ifdef __ARM_EABI__
+    {
+      /* ARMEABISupport's fds have 32-bit positions.  */
+      if (offset != (__off64_t)(__off_t)offset)
+	return __set_errno (EOVERFLOW);
+      return __armeabi_fd_lseek (fd, (__off_t) offset, whence);
+    }
+#else
     return __set_errno (EBADF);
+#endif
 
   struct __unixlib_fd *file_desc = getfd (fd);
 

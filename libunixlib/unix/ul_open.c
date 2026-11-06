@@ -113,6 +113,18 @@ open (const char *file, int oflag, ...)
   else
     mode = 0777;
 
+#ifdef __ARM_EABI__
+  /* 2026: a file shared through ARMEABISupport (1.07 and later; with an
+     older ARMEABISupport, an ordinary open).  */
+  if (oflag & O_SHAREDFILE)
+    {
+      int sfd = __armeabi_open_shared (file, oflag, mode);
+      if (sfd != -2)
+	return sfd;
+    }
+#endif
+  oflag &= ~O_SHAREDFILE;
+
   /* Allocate a new file descriptor. This function automatically
      sets errno if there are none available.  */
   int fd = __alloc_file_descriptor (0);

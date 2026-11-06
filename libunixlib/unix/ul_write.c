@@ -28,7 +28,12 @@ write (int fd, const void *buf, size_t nbytes)
   if (nbytes == 0)
     return 0;
   if (BADF (fd))
+#ifdef __ARM_EABI__
+    /* Perhaps one of ARMEABISupport's fds (shared memory, shared files): sys/mman-armeabi.c.  */
+    return __armeabi_fd_write (fd, buf, nbytes);
+#else
     return __set_errno (EBADF);
+#endif
   if (buf == NULL)
     return __set_errno (EINVAL);
 

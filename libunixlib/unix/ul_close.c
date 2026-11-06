@@ -70,23 +70,17 @@ close (int fd)
   debug_printf ("-- close(fd=%d): ", fd);
 #endif
 
-#ifdef __ARM_EABI__
-  if (IS_SHM_FD(fd))
-    {
-      _kernel_oserror *err;
-
-      err = _swix(ARMEABISupport_ShmOp, _INR(0,1), ARMEABISUPPORT_SHMOP_CLOSE,
-						   fd);
-      return err ? __ul_seterr (err, __errno_from_armeabisupport (err->errnum)) : 0;
-    }
-#endif
-
   if (BADF (fd))
     {
 #ifdef DEBUG
       debug_printf ("bad file descriptor\n");
 #endif
+#ifdef __ARM_EABI__
+      /* Perhaps one of ARMEABISupport's fds (shared memory, shared files): sys/mman-armeabi.c.  */
+      return __armeabi_fd_close (fd);
+#else
       return __set_errno (EBADF);
+#endif
     }
 
   struct __unixlib_fd *file_desc = getfd (fd);

@@ -26,7 +26,12 @@ fsync (int fd)
   PTHREAD_UNSAFE_CANCELLATION
 
   if (BADF (fd))
+#ifdef __ARM_EABI__
+    /* Perhaps one of ARMEABISupport's fds (shared memory, shared files): sys/mman-armeabi.c.  */
+    return __armeabi_fd_fsync (fd);
+#else
     return __set_errno (EBADF);
+#endif
 
   struct __unixlib_fd *file_desc = getfd (fd);
 

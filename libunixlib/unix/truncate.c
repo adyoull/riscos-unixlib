@@ -24,14 +24,14 @@ ftruncate (int fd, off_t length)
 #ifndef __TARGET_SCL__
   PTHREAD_UNSAFE
 
-#ifdef __ARM_EABI__
-  /* This is currently a NOOP for a shared memory object.  */
-  if (IS_SHM_FD(fd))
-    return 0;
-#endif
-
   if (BADF (fd))
+#ifdef __ARM_EABI__
+    /* Perhaps one of ARMEABISupport's fds (shared memory, shared files): sys/mman-armeabi.c
+       (for ARMEABISupport 1.05's shared memory, nothing to do).  */
+    return __armeabi_fd_ftruncate (fd, length);
+#else
     return __set_errno (EBADF);
+#endif
 
   struct __unixlib_fd *file_desc = getfd (fd);
   if (file_desc->devicehandle->type != DEV_RISCOS)

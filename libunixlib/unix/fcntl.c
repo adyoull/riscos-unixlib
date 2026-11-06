@@ -13,26 +13,25 @@
 #include <internal/unix.h>
 #include <internal/fd.h>
 #include <internal/dev.h>
-#ifdef __ARM_EABI__
-#include <internal/os.h>
-#include <internal/local.h>
-#include <internal/swiparams.h>
-
-static int shm_fcntl(int fd, int cmd);
-#endif
 
 int
 fcntl (int fd, int cmd, ...)
 {
   PTHREAD_UNSAFE_CANCELLATION
 
-#ifdef __ARM_EABI__
-  if (IS_SHM_FD(fd))
-    return shm_fcntl (fd, cmd);
-#endif
-
   if (BADF (fd))
+#ifdef __ARM_EABI__
+    {
+      /* Perhaps one of ARMEABISupport's fds (shared memory, shared files): sys/mman-armeabi.c.  */
+      va_list ap;
+      va_start (ap, cmd);
+      int result = __armeabi_fd_fcntl (fd, cmd, &ap);
+      va_end (ap);
+      return result;
+    }
+#else
     return __set_errno (EBADF);
+#endif
 
   struct __unixlib_fd *file_desc = getfd (fd);
 
@@ -155,36 +154,3 @@ fcntl (int fd, int cmd, ...)
     }
 }
 
-#ifdef __ARM_EABI__
-int shm_fcntl(int fd, int cmd)
-{
-  switch (cmd)
-    {
-    case F_DUPFD:
-      {
-	_kernel_oserror *err;
-	int duplicate_fd;
-
-	/* Currently, the duplicate fd is the same as the input fd with the
-	 * reference count incremented. Flags are ignored.  */
-	err = _swix(ARMEABISupport_ShmOp, _INR(0,1)|_OUT(0), ARMEABISUPPORT_SHMOP_DUP,
-							     fd, &duplicate_fd);
-	return err ? __ul_seterr (err, __errno_from_armeabisupport (err->errnum))
-		   : duplicate_fd;
-      }
-    case F_GETFD:
-    case F_SETFD:
-    case F_GETFL:
-    case F_SETFL:
-    case F_GETUNL:
-    case F_SETUNL:
-    case F_SETOWN:
-    case F_GETLK:
-    case F_SETLK:
-    case F_SETLKW:
-      return 0;
-    default:
-      return __set_errno (EINVAL);
-    }
-}
-#endif

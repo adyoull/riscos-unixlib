@@ -93,6 +93,10 @@ __BEGIN_DECLS
 /* Large file flag - not fully supported but needed for some libraries */
 #define O_LARGEFILE 0x20000
 
+/* Open a file shared through ARMEABISupport (1.07 and later; with an
+   older ARMEABISupport, an ordinary open).  RISC OS only.  */
+#define O_SHAREDFILE 0x40000
+
 
 /* Duplicate file descriptor.  */
 #define F_DUPFD 	0

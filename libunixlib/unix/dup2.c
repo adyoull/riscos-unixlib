@@ -7,10 +7,19 @@
 #include <unistd.h>
 
 #include <internal/unix.h>
+#include <internal/fd.h>
 
 int
 dup2 (int fd1, int fd2)
 {
+#ifdef __ARM_EABI__
+  /* 2026: one of ARMEABISupport 1.07's fds (see sys/mman-armeabi.c).  */
+  int result;
+  if ((unsigned int) fd1 >= __ul_global.sulproc->maxfd
+      && __armeabi_fd_dup2 (fd1, fd2, &result))
+    return result;
+#endif
+
   if ((unsigned int) fd2 >= __ul_global.sulproc->maxfd)
     return __set_errno (EINVAL);
 

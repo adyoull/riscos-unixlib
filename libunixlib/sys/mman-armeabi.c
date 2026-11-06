@@ -7,16 +7,23 @@
 
 #include <sys/mman.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <swis.h>
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#include <stdarg.h>
 
 #include <internal/os.h>
 #include <internal/unix.h>
 #include <internal/swiparams.h>
 #include <internal/fd.h>
+#include <internal/dev.h>
 #include <internal/local.h>
+#include <internal/symlinks.h>
+#include <unixlib/local.h>
+#include <sys/param.h>
 #include <pthread.h>
 
 #include <stdio.h>
@@ -145,7 +152,9 @@ __mmap_offset32 (void *addr, size_t len, int prot, int flags, int fd,
 							 fd,
 							 offset,
 							 &result);
-  if (err || !result)
+  if (err)
+    return (void *) __set_errno (__errno_from_armeabisupport (err->errnum));
+  if (!result)
     return (void *) __set_errno (ENOMEM);
 
   size_t mapped_size = page_align (gbl, len);
@@ -153,8 +162,27 @@ __mmap_offset32 (void *addr, size_t len, int prot, int flags, int fd,
   if (flags & MAP_ANON)
     memset (result, 0, mapped_size);
 
-  if (fd == -1 || IS_SHM_FD(fd))
+  /* 2026: an anonymous mapping takes no data from fd (it used to read
+     from it if fd was one of UnixLib's, and fail for other values with
+     ARMEABISupport 1.08).  */
+  if (fd == -1 || (flags & MAP_ANON))
     return result;
+
+  /* 2026: an fd that isn't UnixLib's.  Shared memory is mapped by
+     ARMEABISupport itself; a shared file (1.07 and later) is read in
+     below, through read (), as a UnixLib file is.  */
+  if (BADF (fd))
+    {
+      int type = __armeabi_fd_type (fd);
+      if (type == ARMEABISUPPORT_FD_TYPE_SHM)
+	return result;
+      if (type != ARMEABISUPPORT_FD_TYPE_SHARED_FILE)
+	{
+	  munmap (result, mapped_size);
+	  return (void *) __set_errno (type == ARMEABISUPPORT_FD_TYPE_INVALID
+				       ? EBADF : ENODEV);
+	}
+    }
 
   /* Read in the relevant section of the file */
   /* FIXME: Take into account file/memory protections.  */
@@ -221,8 +249,10 @@ munmap (void * addr, size_t len)
     {
       /* The start of a previously allocated block was passed in, is it a file
        * mapping?  */
-      if ((fd != -1 && !IS_SHM_FD(fd)) &&
-	    !BADF(fd) && (prot & PROT_WRITE) && !(flags & MAP_PRIVATE))
+      /* Only UnixLib's own files: ARMEABISupport writes back a shared
+	 file (1.07 and later) itself, and shared memory needs nothing.  */
+      if (fd != -1 && !BADF (fd)
+	  && (prot & PROT_WRITE) && !(flags & MAP_PRIVATE))
         {
 	  /* Write back file contents if necessary
 	     All the docs I've seen suggest that we only need to write
@@ -271,7 +301,7 @@ mprotect (void * addr __attribute__ ((__unused__)),
    file it maps.  Filesystem operations on a file being mapped are
    unpredictable before this is done.  */
 int
-msync (void * addr, size_t len, int syncflags __attribute__ ((__unused__)))
+msync (void * addr, size_t len, int syncflags)
 {
   const struct ul_global *gbl = &__ul_global;
 
@@ -303,9 +333,7 @@ msync (void * addr, size_t len, int syncflags __attribute__ ((__unused__)))
   if (addr + len > mmap_addr + size)
     return __set_errno (ENOMEM);
 
-  /* Only valid if this is a file open for non-private writing.  */
-  if ((fd == -1 || IS_SHM_FD(fd)) || BADF(fd)
-      || !(prot & PROT_WRITE) || (flags & MAP_PRIVATE))
+  if (fd == -1 || (BADF (fd) && !__armeabi_have_fdop ()))
     return __set_errno (EINVAL);
 
   /* If no length specified, flush the whole mapping.  */
@@ -314,6 +342,25 @@ msync (void * addr, size_t len, int syncflags __attribute__ ((__unused__)))
       len = size;
       addr = mmap_addr;
     }
+
+  /* 2026: a shared file or shared memory of ARMEABISupport 1.07 and
+     later: it writes back what needs it.  */
+  if (BADF (fd))
+    {
+      int type = __armeabi_fd_type (fd);
+      if (type == ARMEABISUPPORT_FD_TYPE_SHM)
+	return 0;	/* nothing to write back */
+      if (type != ARMEABISUPPORT_FD_TYPE_SHARED_FILE)
+	return __set_errno (EINVAL);
+      err = _swix (ARMEABISupport_MMapOp, _INR(0,3),
+		   ARMEABISUPPORT_MMAPOP_MSYNC, addr, len, syncflags);
+      return err ? __ul_seterr (err, __errno_from_armeabisupport (err->errnum))
+		 : 0;
+    }
+
+  /* Only valid if this is a file open for non-private writing.  */
+  if (!(prot & PROT_WRITE) || (flags & MAP_PRIVATE))
+    return __set_errno (EINVAL);
 
   __off64_t oldpos = lseek64 (fd, 0, SEEK_CUR);
   lseek64 (fd, FILE_OFFSET (offset) + (addr - mmap_addr), SEEK_SET);
@@ -424,10 +471,368 @@ int __errno_from_armeabisupport (int errnum)
   case ARMEABISUPPORT_ERROR_ENOMEM:
     error = ENOMEM;
     break;
+  case ARMEABISUPPORT_ERROR_EOVERFLOW:
+    error = EOVERFLOW;
+    break;
   default:
     error = EOPSYS;
     break;
   }
 
   return error;
+}
+
+/* 2026: file descriptors that belong to ARMEABISupport.
+
+   ARMEABISupport 1.05 hands out shared memory fds that are pointers
+   (IS_SHM_FD), closed and duplicated with ShmOp reasons 2 and 3.  1.07
+   and later number all their fds (shared memory, and shared files opened
+   with O_SHAREDFILE) from 1000 and work on them with FdOp; ShmOp reason 2
+   is DUP there, and CLOSE has gone.  Lee Noar's GCCSDK UnixLib change of
+   2026-11-01 moved UnixLib to the new interface; here both are kept, so a
+   program works with either module.  Which one is loaded is found out
+   once: 1.05 has no FdOp (its SWI handler, or the kernel without the
+   module, says the SWI isn't known), 1.07 and later answer every FdOp,
+   even for an fd that isn't theirs (EBADF).
+
+   Each function is called only when BADF (fd).  */
+
+static int fdop_state = -1;	/* -1 not known yet, 0 1.05, 1 FdOp */
+
+int
+__armeabi_have_fdop (void)
+{
+  if (fdop_state < 0)
+    {
+      const _kernel_oserror *err
+	= _swix (ARMEABISupport_FdOp, _INR(0,1), ARMEABISUPPORT_FDOP_VALIDATE,
+		 -1);
+      /* FdOp's own answers for fd -1 (EBADF, or "process not known"
+	 before the program has registered): it has FdOp.  Anything else
+	 ("SWI not known", from the module or the kernel): it hasn't.  */
+      fdop_state = (err == NULL
+		    || err->errnum == ARMEABISUPPORT_ERROR_EBADF
+		    || err->errnum == ARMEABISUPPORT_ERROR_BAD_PROCESS);
+    }
+  return fdop_state;
+}
+
+/* An error from FdOp: errno from it, and EBADF when ARMEABISupport
+   doesn't know the program (so it has no fds of its own).  */
+static int
+fd_error (const _kernel_oserror *err)
+{
+  if (err->errnum == ARMEABISUPPORT_ERROR_BAD_PROCESS)
+    return __set_errno (EBADF);
+  return __ul_seterr (err, __errno_from_armeabisupport (err->errnum));
+}
+
+/* ARMEABISUPPORT_FD_TYPE_SHM, _SHARED_FILE or _IPC, or
+   ARMEABISUPPORT_FD_TYPE_INVALID (errno EBADF) if it isn't one of
+   ARMEABISupport's.  */
+int
+__armeabi_fd_type (int fd)
+{
+  if (!__armeabi_have_fdop ())
+    {
+      if (IS_SHM_FD (fd))
+	return ARMEABISUPPORT_FD_TYPE_SHM;
+      (void) __set_errno (EBADF);
+      return ARMEABISUPPORT_FD_TYPE_INVALID;
+    }
+
+  int type;
+  const _kernel_oserror *err
+    = _swix (ARMEABISupport_FdOp, _INR(0,1) | _OUT(1),
+	     ARMEABISUPPORT_FDOP_VALIDATE, fd, &type);
+  if (err != NULL || type == ARMEABISUPPORT_FD_TYPE_INVALID)
+    {
+      (void) __set_errno (EBADF);
+      return ARMEABISUPPORT_FD_TYPE_INVALID;
+    }
+  return type;
+}
+
+int
+__armeabi_fd_close (int fd)
+{
+  const _kernel_oserror *err;
+
+  if (!__armeabi_have_fdop ())
+    {
+      if (!IS_SHM_FD (fd))
+	return __set_errno (EBADF);
+      err = _swix (ARMEABISupport_ShmOp, _INR(0,1),
+		   ARMEABISUPPORT_SHMOP_CLOSE_105, fd);
+      return err ? __ul_seterr (err, __errno_from_armeabisupport (err->errnum))
+		 : 0;
+    }
+
+  err = _swix (ARMEABISupport_FdOp, _INR(0,1), ARMEABISUPPORT_FDOP_CLOSE, fd);
+  return err ? fd_error (err) : 0;
+}
+
+int
+__armeabi_fd_read (int fd, void *buf, unsigned int n)
+{
+  if (!__armeabi_have_fdop ())
+    return __set_errno (EBADF);
+
+  int got;
+  const _kernel_oserror *err
+    = _swix (ARMEABISupport_FdOp, _INR(0,3) | _OUT(0),
+	     ARMEABISUPPORT_FDOP_READ, fd, buf, n, &got);
+  return err ? fd_error (err) : got;
+}
+
+int
+__armeabi_fd_write (int fd, const void *buf, unsigned int n)
+{
+  if (!__armeabi_have_fdop ())
+    return __set_errno (EBADF);
+
+  int put;
+  const _kernel_oserror *err
+    = _swix (ARMEABISupport_FdOp, _INR(0,3) | _OUT(0),
+	     ARMEABISUPPORT_FDOP_WRITE, fd, buf, n, &put);
+  return err ? fd_error (err) : put;
+}
+
+long
+__armeabi_fd_lseek (int fd, long offset, int whence)
+{
+  if (!__armeabi_have_fdop ())
+    return __set_errno (EBADF);
+
+  long pos;
+  const _kernel_oserror *err
+    = _swix (ARMEABISupport_FdOp, _INR(0,3) | _OUT(0),
+	     ARMEABISUPPORT_FDOP_SEEK, fd, offset, whence, &pos);
+  return err ? fd_error (err) : pos;
+}
+
+int
+__armeabi_fd_fstat (int fd, struct stat *buf)
+{
+  if (!__armeabi_have_fdop ())
+    return __set_errno (EBADF);
+
+  unsigned objtype, loadaddr, execaddr, objlen, attr;
+  const char *filename;
+  const _kernel_oserror *err
+    = _swix (ARMEABISupport_FdOp, _INR(0,1) | _OUTR(0,5),
+	     ARMEABISUPPORT_FDOP_GETINFO, fd,
+	     &objtype, &filename, &loadaddr, &execaddr, &objlen, &attr);
+  if (err != NULL)
+    return fd_error (err);
+
+  buf->st_dev = DEV_CUSTOM;
+  /* Shared memory has no file name: number it by its fd.  */
+  buf->st_ino = filename ? __get_file_ino (NULL, filename) : (__ino_t) fd;
+  return __stat (objtype, loadaddr, execaddr, objlen, attr, buf);
+}
+
+int
+__armeabi_fd_fsync (int fd)
+{
+  if (!__armeabi_have_fdop ())
+    return __set_errno (EBADF);
+
+  const _kernel_oserror *err
+    = _swix (ARMEABISupport_FdOp, _INR(0,1), ARMEABISUPPORT_FDOP_FSYNC, fd);
+  return err ? fd_error (err) : 0;
+}
+
+int
+__armeabi_fd_ftruncate (int fd, long length)
+{
+  if (!__armeabi_have_fdop ())
+    {
+      /* As before: nothing to do for 1.05's shared memory.  */
+      return IS_SHM_FD (fd) ? 0 : __set_errno (EBADF);
+    }
+
+  const _kernel_oserror *err
+    = _swix (ARMEABISupport_FdOp, _INR(0,2), ARMEABISUPPORT_FDOP_FTRUNCATE,
+	     fd, length);
+  return err ? fd_error (err) : 0;
+}
+
+/* isatty for an fd that isn't UnixLib's: never a terminal; 0, with errno
+   EBADF if it isn't ARMEABISupport's either.  */
+int
+__armeabi_fd_isatty (int fd)
+{
+  (void) __armeabi_fd_type (fd);
+  return 0;
+}
+
+int
+__armeabi_fd_fcntl (int fd, int cmd, va_list *ap)
+{
+  const _kernel_oserror *err;
+
+  if (!__armeabi_have_fdop ())
+    {
+      /* As before, for 1.05's shared memory.  */
+      if (!IS_SHM_FD (fd))
+	return __set_errno (EBADF);
+      switch (cmd)
+	{
+	case F_DUPFD:
+	  {
+	    int duplicate_fd;
+	    err = _swix (ARMEABISupport_ShmOp, _INR(0,1) | _OUT(0),
+			 ARMEABISUPPORT_SHMOP_DUP_105, fd, &duplicate_fd);
+	    return err
+	      ? __ul_seterr (err, __errno_from_armeabisupport (err->errnum))
+	      : duplicate_fd;
+	  }
+	case F_GETFD: case F_SETFD: case F_GETFL: case F_SETFL:
+	case F_GETUNL: case F_SETUNL: case F_SETOWN:
+	case F_GETLK: case F_SETLK: case F_SETLKW:
+	  return 0;
+	default:
+	  return __set_errno (EINVAL);
+	}
+    }
+
+  switch (cmd)
+    {
+    case F_DUPFD:
+      {
+	int lowest = va_arg (*ap, int);
+	if (lowest < 0)
+	  return __set_errno (EINVAL);
+	if (lowest <= 1000)
+	  {
+	    /* ARMEABISupport gives the lowest free number of its own, all
+	       from 1000.  */
+	    int duplicate_fd;
+	    err = _swix (ARMEABISupport_FdOp, _INR(0,1) | _OUT(0),
+			 ARMEABISUPPORT_FDOP_DUP, fd, &duplicate_fd);
+	    return err ? fd_error (err) : duplicate_fd;
+	  }
+	/* The lowest free number from LOWEST, as POSIX has it.  */
+	for (int n = lowest; n < lowest + 1024; n++)
+	  if (_swix (ARMEABISupport_FdOp, _INR(0,1),
+		     ARMEABISUPPORT_FDOP_VALIDATE, n) != NULL)
+	    {
+	      err = _swix (ARMEABISupport_FdOp, _INR(0,2),
+			   ARMEABISUPPORT_FDOP_DUP2, fd, n);
+	      return err ? fd_error (err) : n;
+	    }
+	return __set_errno (EMFILE);
+      }
+    case F_GETFD:
+      {
+	int cloexec;
+	err = _swix (ARMEABISupport_FdOp, _INR(0,1) | _OUT(0),
+		     ARMEABISUPPORT_FDOP_GETFD, fd, &cloexec);
+	return err ? fd_error (err) : (cloexec ? 1 : 0);	/* as for UnixLib's */
+      }
+    case F_SETFD:
+      {
+	int arg = va_arg (*ap, int);
+	err = _swix (ARMEABISupport_FdOp, _INR(0,2),
+		     ARMEABISUPPORT_FDOP_SETFD, fd, arg != 0);
+	return err ? fd_error (err) : 0;
+      }
+    case F_GETLK:
+      {
+	/* struct flock's type and whence are shorts: pass them in ints.  */
+	struct flock *arg = va_arg (*ap, struct flock *);
+	int type = arg->l_type, whence = arg->l_whence;
+	long start = arg->l_start, len = arg->l_len;
+	err = _swix (ARMEABISupport_FdOp, _INR(0,5) | _OUTR(2,5),
+		     ARMEABISUPPORT_FDOP_GETLOCK, fd, type, whence, start, len,
+		     &type, &whence, &start, &len);
+	if (err != NULL)
+	  return fd_error (err);
+	arg->l_type = type;
+	arg->l_whence = whence;
+	arg->l_start = start;
+	arg->l_len = len;
+	return 0;
+      }
+    case F_SETLK:
+    case F_SETLKW:
+      {
+	/* F_SETLKW doesn't wait: if the lock is held, it fails as F_SETLK
+	   does.  Locks are advisory.  */
+	struct flock *arg = va_arg (*ap, struct flock *);
+	err = _swix (ARMEABISupport_FdOp, _INR(0,5),
+		     ARMEABISUPPORT_FDOP_SETLOCK, fd, (int) arg->l_type,
+		     (int) arg->l_whence, (long) arg->l_start,
+		     (long) arg->l_len);
+	return err ? fd_error (err) : 0;
+      }
+    case F_GETFL:
+    case F_SETFL:
+    case F_GETUNL:
+    case F_SETUNL:
+    case F_SETOWN:
+      /* Validate the fd; nothing else to do, as for 1.05.  */
+      return __armeabi_fd_type (fd) == ARMEABISUPPORT_FD_TYPE_INVALID ? -1 : 0;
+    default:
+      return __set_errno (EINVAL);
+    }
+}
+
+/* dup2 (fd, fd2) for one of ARMEABISupport 1.07's fds: possible only to
+   another number of its own (from 1000); 1 if done (or failed, with
+   *result set), 0 to leave it to dup2 as before (ARMEABISupport 1.05, or
+   fd isn't ARMEABISupport's).  */
+int
+__armeabi_fd_dup2 (int fd, int fd2, int *result)
+{
+  if (!__armeabi_have_fdop ()
+      || __armeabi_fd_type (fd) == ARMEABISUPPORT_FD_TYPE_INVALID)
+    return 0;
+
+  if (fd2 < 1000)
+    {
+      /* A UnixLib number can't hold one of ARMEABISupport's fds.  */
+      *result = __set_errno (EINVAL);
+      return 1;
+    }
+  if (fd2 == fd)
+    {
+      *result = fd2;
+      return 1;
+    }
+
+  const _kernel_oserror *err
+    = _swix (ARMEABISupport_FdOp, _INR(0,2), ARMEABISUPPORT_FDOP_DUP2, fd, fd2);
+  *result = err ? fd_error (err) : fd2;
+  return 1;
+}
+
+/* open with O_SHAREDFILE: through ARMEABISupport when it can (1.07 and
+   later); -2 if it can't, for open to do an ordinary open instead.  */
+int
+__armeabi_open_shared (const char *ux_file, int oflag, int mode)
+{
+  if (!__armeabi_have_fdop ())
+    return -2;
+
+  char file[MAXPATHLEN];
+  if (!__riscosify_std (ux_file, (oflag & (O_CREAT | O_WRONLY | O_RDWR)) != 0,
+			file, sizeof (file), NULL))
+    return __set_errno (ENAMETOOLONG);
+
+  const char *ro_file = file;
+#if __UNIXLIB_SYMLINKS
+  char target[MAXPATHLEN];
+  if (__resolve_symlinks (file, target, sizeof (target), 0) != 0)
+    return -1;
+  ro_file = target;
+#endif
+
+  int fd;
+  const _kernel_oserror *err
+    = _swix (ARMEABISupport_FileOp, _INR(0,3) | _OUT(0),
+	     ARMEABISUPPORT_FILEOP_OPEN, ro_file, oflag & ~O_SHAREDFILE, mode,
+	     &fd);
+  return err ? fd_error (err) : fd;
 }
