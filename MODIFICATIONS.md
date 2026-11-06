@@ -13,7 +13,7 @@ it was checked. It is meant to let someone who was not involved follow, and
 challenge, each decision.
 
 The exact source changes are also in `patches/unixlib-riscos.diff` (unified
-diff against unchanged GCCSDK UnixLib: 79 modified files and 11 added files).
+diff against unchanged GCCSDK UnixLib: 91 modified files and 11 added files).
 `patches/unixlib-sound.diff` is the sound part (S1-S9) on its own. Each
 change is also its own git commit, with the reasons in the commit message;
 the commits are named below.
@@ -35,8 +35,8 @@ the commits are named below.
 
 | Status | Files |
 |---|---|
-| Byte-identical to GCCSDK `64c6f81` | 1248 |
-| Modified (listed below) | 79 |
+| Byte-identical to GCCSDK `64c6f81` | 1236 |
+| Modified (listed below) | 91 |
 | Added | 11 |
 | Removed relative to upstream | 0 |
 
@@ -72,6 +72,7 @@ the commits are named below.
 | `include/string.h` | H2 POSIX.1-2008 string functions declared without `_GNU_SOURCE` |
 | `stdio/rename.c` | M1 `rename()` and file types |
 | `pthread/sem.c`, `include/semaphore.h` | P7 semaphores: blocking `sem_wait`, `sem_timedwait`, `sem_post` in a handler |
+| `sys/mman-armeabi.c`, `unix/ul_close.c`, `ul_read.c`, `ul_write.c`, `ul_lseek.c`, `ul_isatty.c`, `ul_open.c`, `fstat.c`, `sync.c`, `truncate.c`, `fcntl.c`, `dup2.c`, `incl-local/internal/fd.h`, `swiparams.h`, `include/fcntl.h`, `swis.h`, `unixlib/buildoptions.h`, `signal/post.c` | Q1 ARMEABISupport's fds with 1.05 and 1.07+ |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
 | `incl-local/internal/pvops.s` (**new**), `incl-local/internal/asm_dec.s`, `incl-local/internal/unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s` | O1 threads and signals on RISC OS for Linux |
@@ -106,6 +107,7 @@ library:
 - Warzone 2100 2.3.9: F1, X1, the problem behind K1-K4, and the crashes
   behind R1 and R2.
 - riscos-mesa (SDL2, OpenAL Soft): P1, P2, P7.
+- Lee Noar's GCCSDK UnixLib change for ARMEABISupport 1.08 (2026-11-01): Q1.
 - riscos-gtk (Gnumeric, Claws Mail, 2026-10-17/18, 2026-11-02/03): G1, U1, H2, M1.
 - riscos-reeledit (MLT, 2026-10-20): P6.
 - Sound (S1-S5) and large files (L1-L4) were written here.
@@ -943,6 +945,76 @@ the main thread ran at full speed with a thread in `sem_wait`; 100000
 waits and posts took 363 ms; a SIGALRM handler's post ended a wait with
 every thread waiting (396 ms). riscos-mesa's SDL and OpenAL tests are to
 follow.
+
+### Q1. ARMEABISupport's fds with 1.05 and 1.07+: shared memory, shared files (`sys/mman-armeabi.c`, `unix/ul_close.c`, `ul_read.c`, `ul_write.c`, `ul_lseek.c`, `ul_isatty.c`, `ul_open.c`, `fstat.c`, `sync.c`, `truncate.c`, `fcntl.c`, `dup2.c`, `incl-local/internal/fd.h`, `swiparams.h`, `include/fcntl.h`, `swis.h`, `unixlib/buildoptions.h`, `signal/post.c`)
+
+**Problem.** ARMEABISupport 1.07 and 1.08 (Lee Noar; 1.05 is in GCCSDK)
+changed how it gives out fds:
+- In 1.05, a `shm_open` fd is a pointer. UnixLib recognises it by its
+  value (`IS_SHM_FD`) and closes and dups it with ShmOp reasons 2 and 3.
+- In 1.07 and later, all its fds are numbered from 1000 (shared memory,
+  and "shared files" opened with a new `O_SHAREDFILE` flag) and are worked
+  on with a new SWI, `ARMEABISupport_FdOp`. ShmOp reason 2 became DUP and
+  CLOSE went.
+- So with 1.08 loaded, our UnixLib (like GCCSDK's) took a shared memory fd
+  for a closed UnixLib fd: `close`, `dup` and `ftruncate` failed with
+  EBADF (the fd was never released), and `mmap` treated it as a file and
+  failed.
+
+Lee's GCCSDK UnixLib change of 2026-11-01 (github.com/leno278/gccsdk,
+branch `armeabisupport-unixlib-update`, `3a88286f`) moves UnixLib to the
+new interface, but needs 1.07 or later: with 1.05 every bad-fd error
+becomes "SWI not known" and shared memory stops working.
+
+**Change.** Lee's change reimplemented so that both versions work.
+- `__armeabi_have_fdop()` asks once, with FdOp VALIDATE of fd -1: FdOp's
+  own answers (EBADF, or "process not known" before the program has
+  registered) mean 1.07 or later; anything else ("SWI not known") means
+  1.05, or no ARMEABISupport.
+- Wherever a function finds an fd that isn't UnixLib's (`BADF`), it calls a
+  helper in `sys/mman-armeabi.c`. With 1.07 and later the helper uses FdOp;
+  with 1.05 it does exactly what UnixLib did before (ShmOp 2 and 3 for
+  pointer fds, `ftruncate` a no-op, `fcntl` as before, otherwise EBADF).
+  UnixLib's own fds (0 to 255) never reach ARMEABISupport.
+  - `close`, `read`, `write`, `lseek`, `lseek64` (32-bit positions, else
+    EOVERFLOW), `fstat` (GETINFO), `fsync`/`fdatasync`, `ftruncate`.
+  - `fcntl`: `F_DUPFD` (the lowest free number from its argument, with DUP
+    or DUP2), `F_GETFD`/`F_SETFD` (close-on-exec, with UnixLib's 0/1
+    values), `F_GETLK`, `F_SETLK`; `F_SETLKW` doesn't wait (it is
+    `F_SETLK`); the others validate the fd and do nothing.
+  - `dup2` to another number from 1000 (FdOp DUP2); to a UnixLib number,
+    EINVAL before anything is closed.
+  - `mmap`: shared memory is mapped by ARMEABISupport; a shared file is
+    read in through `read`, as a UnixLib file is. `munmap` leaves the
+    write-back of a shared file to ARMEABISupport. `msync` of a shared file
+    is MMapOp MSYNC; of shared memory, 0 (1.08's msync only takes files).
+  - `open` with `O_SHAREDFILE` (new in `<fcntl.h>`, 0x40000): FileOp OPEN
+    on 1.07 and later; an ordinary open with 1.05.
+  - New SWI names in `<swis.h>`; new constants; `abort_ERROR_UNHANDLED`'s
+    message; `buildoptions.h`'s `___ARM_EABI__` typo fixed. As in Lee's
+    change.
+- Fixed against Lee's version:
+  - `msync` called FdOp with an MMapOp reason (7, which is FdOp GETLOCK);
+  - `mmap` ignored a VALIDATE error and tested an uninitialised type;
+  - `munmap` used GET_INFO's outputs after an error;
+  - `F_GETFD` ignored errors;
+  - `F_GETLK` had the SWI write ints into `struct flock`'s `short` fields.
+
+**Two behaviour changes for every ARMEABISupport version.**
+- `isatty()` of a bad fd returns 0 with errno EBADF, as POSIX says. It
+  returned -1, which callers took as "a terminal".
+- `mmap` with `MAP_ANON` ignores `fd`. It used to read data from it if it
+  was an open UnixLib fd, and failed if it was a closed one.
+
+**Verification.** Peer-reviewed in two rounds. New emulator test
+`tests/emu/fdop_test.py` (72 checks): the real library functions run in
+Unicorn with ARMEABISupport faked as 1.05 and as 1.08, including an
+unregistered program, a UnixLib fd that must stay local, `struct flock`
+guard words, file positions around `mmap`, `dup2`/`F_DUPFD`, and EBADF for
+unknown fds with both versions. Only the objects of the changed files
+differ from 5.0.3.6. New Pi test `Shm`. Not yet run on RISC OS. Credit:
+Lee Noar, whose change and ARMEABISupport 1.08 this follows (UnixLib's
+licence).
 
 ### R1. Inline SWI wrappers: every register and memory the SWI changes - commit `c98c781`
 

@@ -5,6 +5,13 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.7-rc1 (2026-11-06, pre-release, tag v5.0.3.7-rc1)
+
+5.0.3.6 plus Q1. Not yet run on RISC OS. libtool `-version-info` 8:3:3
+(no new functions).
+
+- **Shared memory works with ARMEABISupport 1.08, and with 1.05 as before (Q1).** ARMEABISupport 1.07 and later number their fds from 1000 and work on them with a new SWI, so with 1.08 a `shm_open` fd failed `close`, `dup`, `ftruncate` and `mmap`. UnixLib now finds out which ARMEABISupport is loaded and uses either interface. With 1.07 and later, its fds also work with `read`, `write`, `lseek`, `fstat`, `fsync`, `fcntl` (close-on-exec, advisory locks) and `dup2`, and `open` takes a new `O_SHAREDFILE` flag for files shared through ARMEABISupport (an ordinary open with 1.05). From Lee Noar's GCCSDK UnixLib change, reimplemented for both versions, with fixes. Also, for every version: `isatty` of a bad fd returns 0 (it was -1), and `mmap` with `MAP_ANON` ignores `fd`. New emulator test (both versions) and Pi test `Shm`.
+
 ## 5.0.3.6 (2026-11-03, tag v5.0.3.6)
 
 The same code as 5.0.3.6-rc1: 5.0.3.5 plus P7. libtool `-version-info`
