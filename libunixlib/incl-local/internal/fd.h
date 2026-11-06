@@ -64,6 +64,38 @@ extern int __armeabi_fd_isatty (int __fd);
 extern int __armeabi_fd_fcntl (int __fd, int __cmd, va_list *__ap);
 extern int __armeabi_fd_dup2 (int __fd, int __fd2, int *__result);
 extern int __armeabi_open_shared (const char *__file, int __oflag, int __mode);
+
+/* 2026: a diagnostic build (CFLAGS -D__UNIXLIB_FDOP_TRACE=1, never a
+   release) writes a line to stderr for each FdOp call on these fds that
+   fails, with the address close (), read () etc. were called from.  The
+   address is kept in __armeabi_fd_caller, set as each helper is called
+   (not per thread: good enough for a diagnostic).  sys/mman-armeabi.c
+   itself defines __UNIXLIB_FDOP_INTERNAL so its own calls don't set it.  */
+#ifndef __UNIXLIB_FDOP_TRACE
+#  define __UNIXLIB_FDOP_TRACE 0
+#endif
+#if __UNIXLIB_FDOP_TRACE && !defined __UNIXLIB_FDOP_INTERNAL
+extern const void *__armeabi_fd_caller;
+#  define __ARMEABI_CALLED(call) \
+     (__armeabi_fd_caller = __builtin_return_address (0), call)
+#  define __armeabi_fd_type(fd) __ARMEABI_CALLED (__armeabi_fd_type (fd))
+#  define __armeabi_fd_close(fd) __ARMEABI_CALLED (__armeabi_fd_close (fd))
+#  define __armeabi_fd_read(fd, b, n) \
+     __ARMEABI_CALLED (__armeabi_fd_read (fd, b, n))
+#  define __armeabi_fd_write(fd, b, n) \
+     __ARMEABI_CALLED (__armeabi_fd_write (fd, b, n))
+#  define __armeabi_fd_lseek(fd, o, w) \
+     __ARMEABI_CALLED (__armeabi_fd_lseek (fd, o, w))
+#  define __armeabi_fd_fstat(fd, b) __ARMEABI_CALLED (__armeabi_fd_fstat (fd, b))
+#  define __armeabi_fd_fsync(fd) __ARMEABI_CALLED (__armeabi_fd_fsync (fd))
+#  define __armeabi_fd_ftruncate(fd, l) \
+     __ARMEABI_CALLED (__armeabi_fd_ftruncate (fd, l))
+#  define __armeabi_fd_isatty(fd) __ARMEABI_CALLED (__armeabi_fd_isatty (fd))
+#  define __armeabi_fd_fcntl(fd, c, a) \
+     __ARMEABI_CALLED (__armeabi_fd_fcntl (fd, c, a))
+#  define __armeabi_fd_dup2(fd, f2, r) \
+     __ARMEABI_CALLED (__armeabi_fd_dup2 (fd, f2, r))
+#endif
 #endif
 
 /* Macro for checking file descriptor validity.  */

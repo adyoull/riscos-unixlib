@@ -205,6 +205,12 @@ class Machine:
         f = self.fds.get(fd)
         if f is None:
             return self.error(E_EBADF)
+        # As 1.08's fdtable.c: SEEK, READ, WRITE, GETINFO, the locks and
+        # FSYNC are only for files (EINVAL for shared memory and IPC).
+        if reason in (2, 3, 4, 5, 6, 7, 8) and f["type"] != 1:
+            return self.error(E_EINVAL)
+        if reason == 9 and f["type"] == 2:     # FTRUNCATE of IPC: EBADF
+            return self.error(E_EBADF)
         if reason == 0:                        # VALIDATE
             self.reg(UC_ARM_REG_R1, f["type"])
         elif reason == 1:                      # CLOSE
@@ -333,6 +339,8 @@ def test(elf, syms, v):
         check(fd == PTRFD, "1.05: shm_open gives the pointer fd")
         check(m.call("t_dup", fd) == PTRFD and m.ops(ShmOp)[-1] == 3, "1.05: dup = ShmOp 3")
         check(m.call("t_ftruncate", fd, 4096) == 0, "1.05: ftruncate is a no-op")
+        fails_with(m, m.call("t_fstat_size", fd), EBADF, "1.05: fstat of shm: EBADF as before")
+        fails_with(m, m.call("t_fsync", fd), EBADF, "1.05: fsync of shm: EBADF as before")
         check(m.call("t_getfd", fd) == 0, "1.05: F_GETFD 0 as before")
         g = m.call("t_getlk", fd) & 0xFFFFFFFF
         check(struct.unpack("<I", m.uc.mem_read(g, 4))[0] == 0xAAAAAAAA, "1.05: F_GETLK 0 as before")
@@ -352,20 +360,37 @@ def test(elf, syms, v):
     d = m.call("t_dup", fd)
     check(d == 1003 and [o for o in m.ops(FdOp) if o != 0] == [10] and not m.ops(ShmOp),
           "1.08: dup = FdOp DUP, never ShmOp 2 (got %d, %s)" % (d, m.calls))
-    check(m.call("t_ftruncate", fd, 4096) == 0 and m.calls[-1][1:4] == (9, fd, 4096),
+    m.calls = []
+    check(m.call("t_ftruncate", fd, 4096) == 0 and (FdOp, 9, fd, 4096) in [c[:4] for c in m.calls],
           "1.08: ftruncate = FdOp FTRUNCATE")
-    check(m.call("t_fsync", fd) == 0 and m.calls[-1][1] == 8, "1.08: fsync = FdOp FSYNC")
+    m.calls = []
+    check(m.call("t_fsync", fd) == 0 and 8 not in m.ops(FdOp),
+          "1.08: fsync of shm: 0, no FdOp FSYNC (EINVAL in 1.08)")
+    check(m.call("t_fsync", 1001) == 0 and m.calls[-1][1] == 8, "1.08: fsync of a file = FdOp FSYNC")
+    # fstat of shared memory: 1.08's GETINFO is for files only (EINVAL), so
+    # UnixLib describes it: a regular file with ftruncate's length.
+    check(m.call("t_fstat_size", fd) == 4096, "1.08: fstat of shm: ftruncate's size (%d)"
+          % m.call("t_fstat_size", fd))
+    check(m.call("t_fstat_mode", fd) == 0o100600, "1.08: fstat of shm: S_IFREG|0600 (%o)"
+          % m.call("t_fstat_mode", fd))
+    d2 = m.call("t_dup", fd)
+    check(m.call("t_fstat_size", d2) == 4096, "1.08: fstat of a dup: the same size (%d)"
+          % m.call("t_fstat_size", d2))
+    check(m.call("t_close", d2) == 0 and m.call("t_fstat_size", d2) == -1 and m.errno() == EBADF,
+          "1.08: fstat after close: EBADF")
+    check(m.call("t_fstat_size", 1000) == 0, "1.08: fstat of shm never truncated: size 0")
     check(m.call("t_setfd", fd, 1) == 0 and m.call("t_getfd", fd) == 1,
           "1.08: F_SETFD / F_GETFD close-on-exec")
     check(m.call("t_getfl", fd) == 0, "1.08: F_GETFL 0")
-    g = m.call("t_getlk", fd) & 0xFFFFFFFF
+    # Locks are for files (1.08 gives EINVAL for shared memory).
+    g = m.call("t_getlk", 1001) & 0xFFFFFFFF
     before, ltype, lwhence, lstart, llen, lpid, after = struct.unpack(
         "<IhhiiiI", bytes(m.uc.mem_read(g, 24)))
     check(before == 0xAAAAAAAA and after == 0xBBBBBBBB, "1.08: F_GETLK result 0, guards intact")
     check((ltype, lwhence, lstart, llen, lpid) == (3, 1, 0x77777777, 0x66666666, 0x5555),
           "1.08: F_GETLK fills type/whence/start/len only (%s)"
           % ((ltype, lwhence, lstart, llen, lpid),))
-    check(m.call("t_setlk", fd) == 0 and m.calls[-1][1:7] == (6, fd, 1, 1, 100, 200),
+    check(m.call("t_setlk", 1001) == 0 and m.calls[-1][1:7] == (6, 1001, 1, 1, 100, 200),
           "1.08: F_SETLK passes the lock (%s)" % (m.calls[-1],))
     check(m.call("t_read", 1001, HEAP, 8) == 8 and bytes(m.uc.mem_read(HEAP, 8)) == b"F" * 8,
           "1.08: read = FdOp READ")
@@ -374,6 +399,22 @@ def test(elf, syms, v):
     fails_with(m, m.call("t_lseek64_big", 1001), EOVERFLOW, "1.08: lseek64 past 4GB")
     check(m.call("t_fstat_size", 1001) == 64, "1.08: fstat = FdOp GETINFO (size)")
     check(m.call("t_isatty", 1001) == 0, "1.08: isatty 0")
+    # An IPC channel: a FIFO; fsync EINVAL, as for a pipe.
+    m.fds[1600] = dict(type=2, data=bytearray(), pos=0, cloexec=0)
+    check(m.call("t_fstat_mode", 1600) == 0o010600, "1.08: fstat of IPC: S_IFIFO|0600 (%o)"
+          % m.call("t_fstat_mode", 1600))
+    fails_with(m, m.call("t_fsync", 1600), EINVAL, "1.08: fsync of IPC")
+    # Slots: a live fd's size survives many short-lived ones.
+    m = M()
+    a = m.call("t_shm_open")
+    m.call("t_ftruncate", a, 12288)
+    for i in range(20):
+        b = m.call("t_shm_open")
+        m.call("t_ftruncate", b, 4096 + i)
+        m.call("t_close", b)
+    check(m.call("t_fstat_size", a) == 12288, "1.08: size kept past 20 open/ftruncate/close (%d)"
+          % m.call("t_fstat_size", a))
+    fails_with(m, m.call("t_ftruncate", a, -1), EINVAL, "1.08: ftruncate of shm to -1")
 
     # mmap: shared memory isn't read in; a shared file is, through FdOp READ.
     m = M()

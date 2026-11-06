@@ -42,6 +42,19 @@ main (void)
   if (fd == -1)
     goto done;
   result ("ftruncate to 8192", ftruncate (fd, 8192) == 0);
+  if (fdop)
+  {
+    /* 5.0.3.7-rc2: fstat and fsync of shared memory (1.08 has no FdOp
+       information for it, and its FSYNC is for files).  */
+    struct stat st;
+    errno = 0;
+    int r = fstat (fd, &st);
+    result ("fstat (1.07+): a regular file of 8192 bytes",
+	    r == 0 && S_ISREG (st.st_mode) && st.st_size == 8192);
+    if (r != 0)
+      printf ("  (fstat: errno %d %s)\n", errno, strerror (errno));
+    result ("fsync (1.07+)", fsync (fd) == 0);
+  }
   char *a = mmap (NULL, 8192, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   result ("mmap", a != MAP_FAILED);
   if (a != MAP_FAILED)
@@ -59,8 +72,6 @@ main (void)
   result ("dup", d != -1);
   if (fdop)
     {
-      struct stat st;
-      result ("fstat (1.07+)", fstat (fd, &st) == 0);
       result ("F_SETFD/F_GETFD close-on-exec (1.07+)",
 	      fcntl (fd, F_SETFD, FD_CLOEXEC) == 0 && fcntl (fd, F_GETFD) == 1);
     }

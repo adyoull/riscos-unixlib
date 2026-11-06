@@ -69,6 +69,16 @@ t_fstat_size (int fd)
   return (int) st.st_size;
 }
 
+/* fstat: st_mode, or -1.  */
+int
+t_fstat_mode (int fd)
+{
+  struct stat st;
+  if (fstat (fd, &st) != 0)
+    return -1;
+  return (int) st.st_mode;
+}
+
 /* struct flock with guard words around it: F_GETLK must fill the shorts
    without writing past them.  Returns the fcntl result; the struct is at
    *out (guard, flock, guard).  */
