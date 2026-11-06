@@ -47,6 +47,15 @@ make install                 # also copies lib + headers into $GCCSDK_ENV
 make riscos-tests            # -> tests/riscos/out/UnixLibTests.zip
 ```
 
+**The shared library** (`libunixlib.so.5`, for programs linked
+dynamically through SOManager, such as Iris): `SHARED=yes
+build/build-unixlib.sh`, in `build/work-shared`. It needs a toolchain built
+with shared library support (`libgcc_s.so`); riscos-crossdev's is static
+only. The releases ship only `libunixlib.a`. A shared build goes out as a
+test package, for a program's own `!SharedLibs` copy, not as a
+replacement for the system one: every dynamically linked program on the
+machine would use that.
+
 `GCCSDK_ENV` is the installed cross toolchain (default: the riscos-crossdev
 image's `$RISCOS_TOOLCHAIN` inside that image, otherwise `~/gccsdk/env`).
 Host packages: `autoconf2.69`, `automake1.11`, `perl`, `python3`, a host

@@ -5,6 +5,10 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## Unreleased
+
+- `build/build-unixlib.sh` can build the shared library too (`SHARED=yes`, with a toolchain that has shared library support). The releases are unchanged: `libunixlib.a` only.
+
 ## 5.0.3.7-rc1 (2026-11-06, pre-release, tag v5.0.3.7-rc1)
 
 5.0.3.6 plus Q1. Not yet run on RISC OS. libtool `-version-info` 8:3:3

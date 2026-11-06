@@ -14,6 +14,10 @@
 #                                      (-fdebug-prefix-map is always added)
 #   INSTALL=yes                        also copy libunixlib.a and UnixLib's
 #                                      headers into GCCSDK_ENV
+#   SHARED=yes                         also build the shared library
+#                                      libunixlib.so.5 (needs a toolchain
+#                                      built with shared library support:
+#                                      libgcc_s.so); built in build/work-shared
 #
 # Needs autoconf2.69, automake 1.11 (aclocal-1.11/automake-1.11), perl.
 # Output: build/work/build/.libs/libunixlib.a
@@ -27,6 +31,11 @@ GCCSDK_ENV=${GCCSDK_ENV:-$HOME/gccsdk/env}
 CFLAGS=${CFLAGS:-"-g -O2 -fstack-clash-protection"}
 T=arm-riscos-gnueabihf
 W=$REPO/build/work
+SHAREDOPT=--disable-shared
+if [ "$SHARED" = yes ]; then
+  W=$REPO/build/work-shared
+  SHAREDOPT=--enable-shared
+fi
 # The debug information records the directory each object was compiled in
 # (DW_AT_comp_dir, here $W/build) and where the toolchain's own headers are
 # (GCCSDK_ENV, often under the home directory). Map both to fixed names so
@@ -54,9 +63,10 @@ mkdir -p "$W/build"; cd "$W/build"
 CC=$T-gcc AR=$T-ar RANLIB=$T-ranlib CFLAGS="$CFLAGS" \
   ../src/libunixlib/configure --host=$T --target=$T \
     --build="$(gcc -dumpmachine)" --prefix="$GCCSDK_ENV" \
-    --disable-shared --enable-static --disable-multilib >configure.log
+    $SHAREDOPT --enable-static --disable-multilib >configure.log
 make -j"$(nproc)" >make.log 2>&1 || { tail -40 make.log; exit 1; }
 ls -l .libs/libunixlib.a
+[ "$SHARED" = yes ] && ls -l .libs/libunixlib.so*
 # No trace of the build machine's paths in what we ship.
 if strings -a .libs/libunixlib.a pthticker | grep -F -q -e "$REPO" -e "$HOME"; then
   echo "libunixlib.a or pthticker contains a build path:" >&2
