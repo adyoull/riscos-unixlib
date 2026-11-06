@@ -151,6 +151,11 @@ Sem         semaphores: sem_timedwait times out after about 200 ms while
             100000 waits and posts lose no memory; and a sem_post from a
             SIGALRM handler, with every thread waiting, ends the wait.
             Each line must say ok, then PASS.
+Shm         shared memory (shm_open, ftruncate, mmap twice, msync, dup,
+            close, shm_unlink) and a file opened with O_SHAREDFILE. The
+            first line says which ARMEABISupport it found (1.05, or 1.07
+            or later); it must work with either. Each line must say ok,
+            then PASS. Please say which version it reported.
 
 Please report: what each one printed, whether it sounded right, any
 clicks or gaps, and the "max queued" figure.

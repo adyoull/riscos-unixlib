@@ -1,0 +1,5 @@
+| Shared memory and ARMEABISupport fds (shm_open, mmap, dup, close,
+| O_SHAREDFILE). Says which ARMEABISupport it found. Must print PASS.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.shmtest
