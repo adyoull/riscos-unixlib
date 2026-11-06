@@ -72,7 +72,7 @@ the commits are named below.
 | `include/string.h` | H2 POSIX.1-2008 string functions declared without `_GNU_SOURCE` |
 | `stdio/rename.c` | M1 `rename()` and file types |
 | `pthread/sem.c`, `include/semaphore.h` | P7 semaphores: blocking `sem_wait`, `sem_timedwait`, `sem_post` in a handler |
-| `sys/mman-armeabi.c`, `unix/ul_close.c`, `ul_read.c`, `ul_write.c`, `ul_lseek.c`, `ul_isatty.c`, `ul_open.c`, `fstat.c`, `sync.c`, `truncate.c`, `fcntl.c`, `dup2.c`, `incl-local/internal/fd.h`, `swiparams.h`, `include/fcntl.h`, `swis.h`, `unixlib/buildoptions.h`, `signal/post.c` | Q1 ARMEABISupport's fds with 1.05 and 1.07+ |
+| `sys/mman-armeabi.c`, `unix/ul_close.c`, `ul_read.c`, `ul_write.c`, `ul_lseek.c`, `ul_isatty.c`, `ul_open.c`, `fstat.c`, `sync.c`, `truncate.c`, `fcntl.c`, `dup2.c`, `incl-local/internal/fd.h`, `swiparams.h`, `include/fcntl.h`, `swis.h`, `unixlib/buildoptions.h`, `signal/post.c` | Q1 ARMEABISupport's fds with 1.05 and 1.07+, Q2 `fstat`/`fsync` of 1.08 shared memory |
 | `netlib/getserv_r.c` (**new**) | N1 `getservbyname_r` and friends, N2 |
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
 | `incl-local/internal/pvops.s` (**new**), `incl-local/internal/asm_dec.s`, `incl-local/internal/unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s` | O1 threads and signals on RISC OS for Linux |
@@ -1015,6 +1015,49 @@ unknown fds with both versions. Only the objects of the changed files
 differ from 5.0.3.6. New Pi test `Shm`. Not yet run on RISC OS. Credit:
 Lee Noar, whose change and ARMEABISupport 1.08 this follows (UnixLib's
 licence).
+
+### Q2. fstat and fsync of ARMEABISupport 1.08 shared memory; an FdOp trace build (`sys/mman-armeabi.c`, `incl-local/internal/fd.h`) - commit `a317b09`
+
+**The problem.** In ARMEABISupport 1.07/1.08, FdOp GETINFO, FSYNC, SEEK,
+READ, WRITE and the lock reasons are for files only: for shared memory and
+IPC channels they give EINVAL (`fdtable.c`). Q1 passed `fstat` and `fsync`
+straight to FdOp, so `fstat` of a `shm_open` fd failed with EINVAL. Found
+by ROL-Testbed with Iris 1.039 (Pi test `Shm`). Q1's emulator fake
+answered GETINFO for shared memory, so it didn't show.
+
+**The fix (1.07 and later only; 1.05 is unchanged).**
+- `fstat` asks FdOp VALIDATE for the type. A shared file still uses
+  GETINFO. Shared memory is described by UnixLib: a regular file, owner
+  read and write (`S_IFREG | 0600`, as Linux gives), `st_size` the length
+  this program last gave `ftruncate` for that fd (or the fd it was
+  duplicated from), otherwise 0. An IPC channel is a FIFO
+  (`S_IFIFO | 0600`, size 0). `st_ino` is the fd, `st_dev` DEV_CUSTOM.
+- ARMEABISupport keeps no size for shared memory (its `ftruncate` of shared
+  memory does nothing; `mmap` sets the size), so the lengths are kept in a
+  16-slot table in the library: set by `ftruncate`, copied by `dup`,
+  `F_DUPFD` and `dup2`, cleared by `close` and by a `shm_open` that returns
+  the number. A free slot is used first, then the oldest. Another program
+  that opens the same object sees size 0.
+- `fsync` of shared memory returns 0 (as on Linux); of an IPC channel,
+  EINVAL (as for a pipe).
+- `ftruncate` to a negative length is EINVAL for these fds.
+
+**A diagnostic build.** With `-D__UNIXLIB_FDOP_TRACE=1` in CFLAGS (never a
+release), each FdOp call on these fds that fails writes one line to
+stderr: the helper, the fd, the error number and message, and the address
+`close`, `read`, `fstat`, `mmap`, `msync` etc. were called from (kept in
+`__armeabi_fd_caller`, set by macros in `internal/fd.h`; one variable, not
+per thread). A VALIDATE failure is reported only for fds from 1000.
+Without the option the code is the same as before.
+
+**Verification.** Peer-reviewed; its findings taken (1.05 left as it was,
+free slots first, negative lengths, trace noise). The emulator fake now
+rejects the file-only reasons for shared memory and IPC as 1.08 does; 84
+checks (new: `fstat` size and mode for shared memory and IPC, a dup's
+size, EBADF after close, a size kept past 20 short-lived objects, `fsync`,
+negative `ftruncate`, 1.05 unchanged). The trace build was run through the
+same test and its lines checked. Pi test `Shm` checks `fstat` (a regular
+file of 8192 bytes) and `fsync` with 1.07 and later.
 
 ### R1. Inline SWI wrappers: every register and memory the SWI changes - commit `c98c781`
 

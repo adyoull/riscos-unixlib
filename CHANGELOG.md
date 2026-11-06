@@ -9,6 +9,14 @@ How to release: docs/MAINTAINING.md.
 
 - `build/build-unixlib.sh` can build the shared library too (`SHARED=yes`, with a toolchain that has shared library support). The releases are unchanged: `libunixlib.a` only.
 
+## 5.0.3.7-rc2 (2026-11-06, pre-release, tag v5.0.3.7-rc2)
+
+5.0.3.7-rc1 plus Q2. Not yet run on RISC OS. libtool `-version-info`
+8:3:3.
+
+- **`fstat` and `fsync` of shared memory work with ARMEABISupport 1.08 (Q2).** 1.08 has no file information for shared memory and its fsync is for files, so in rc1 `fstat` of a `shm_open` fd failed with EINVAL (found by ROL-Testbed with Iris 1.039). `fstat` now reports a regular file with the size this program gave `ftruncate`; `fsync` returns 0. ARMEABISupport 1.05: unchanged.
+- A diagnostic build option, `-D__UNIXLIB_FDOP_TRACE=1`, logs every failing ARMEABISupport fd call to stderr with its caller. Releases don't use it.
+
 ## 5.0.3.7-rc1 (2026-11-06, pre-release, tag v5.0.3.7-rc1)
 
 5.0.3.6 plus Q1. Not yet run on RISC OS. libtool `-version-info` 8:3:3

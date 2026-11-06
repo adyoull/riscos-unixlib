@@ -56,6 +56,11 @@ test package, for a program's own `!SharedLibs` copy, not as a
 replacement for the system one: every dynamically linked program on the
 machine would use that.
 
+**A trace build** for ARMEABISupport's fds (shared memory, shared files):
+`CFLAGS="-g -O2 -fstack-clash-protection -D__UNIXLIB_FDOP_TRACE=1"` with
+either build. Each failing FdOp call then writes a line to stderr with its
+caller's address (MODIFICATIONS Q2). For diagnosis only; never release it.
+
 `GCCSDK_ENV` is the installed cross toolchain (default: the riscos-crossdev
 image's `$RISCOS_TOOLCHAIN` inside that image, otherwise `~/gccsdk/env`).
 Host packages: `autoconf2.69`, `automake1.11`, `perl`, `python3`, a host
