@@ -77,6 +77,7 @@ the commits are named below.
 | `netlib/ul_serv.c` | N2 services parser: `strtok_r`, broken lines, `getservent` keeps the file open |
 | `incl-local/internal/pvops.s` (**new**), `incl-local/internal/asm_dec.s`, `incl-local/internal/unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s` | O1 threads and signals on RISC OS for Linux |
 | `signal/_signal.s` | T5 sub-second interval timers repeat |
+| `sys/_syslib.s`, `signal/_signal.s`, `signal/post.c`, `sys/exec.c`, `incl-local/internal/unix.h` | J1 mixed linking: a dynamically linked program with the static library |
 | `grp/getgrgid_r.c`, `grp/getgrnam_r.c`, `pwd/getpwuid_r.c`, `pwd/getpwnam_r.c`, `pwd/getlogin.c`, `termios/cuserid.c` | G1 group and password lookups: `*result` and return values |
 | `common/riscosify.c` | U1 a run of leading slashes is one `/` |
 | `include/pthread.h`, `pthread/attrsched.c` (**new**), `Makefile.am` | P6 `pthread_attr_setscope`, `setinheritsched`, `setschedpolicy` and the get functions |
@@ -1058,6 +1059,62 @@ size, EBADF after close, a size kept past 20 short-lived objects, `fsync`,
 negative `ftruncate`, 1.05 unchanged). The trace build was run through the
 same test and its lines checked. Pi test `Shm` checks `fstat` (a regular
 file of 8192 bytes) and `fsync` with 1.07 and later.
+
+### J1. Mixed linking: a dynamically linked program with the static library (`sys/_syslib.s`, `signal/_signal.s`, `signal/post.c`, `sys/exec.c`, `incl-local/internal/unix.h`) - commit `5d3e3ac`
+
+**What it's for.** riscos-crossdev's "mixed" programs: UnixLib (and
+libstdc++/libgcc) linked into the program from the static libraries, the
+other libraries as shared objects loaded by SOManager. The program is
+linked dynamically (interpreter `ld-riscos/so/2`), so its start comes from
+the dynamic loader, which passes crt0 (unchanged) the start of free memory
+and the shared libraries' initialisation and finalisation functions.
+GCCSDK's shared (PIC) UnixLib used them; the static library didn't, so its
+heap overlaid the libraries' data, their constructors didn't run and SUL
+never deregistered the SOManager client. Prototyped by riscos-crossdev
+(`claude/crossdev-mixed-linking-prototype.md`; MixTest, 10 tests passed
+on RISC OS on Linux); reimplemented here.
+
+**How a dynamic link is recognised.** The linker defines `_DYNAMIC` only
+in a dynamically linked executable. The static library refers to it
+weakly (`.weak _DYNAMIC`; in C `__ul_dynamic()`, `internal/unix.h`, under
+a C alias because `<sys/elf.h>` declares `_DYNAMIC` with another type). In
+an ordinary static program it is 0 and every new path is skipped, so such
+programs behave exactly as before (crt0's values are register garbage
+there and are never read). The PIC library is unchanged.
+
+**What changes when `_DYNAMIC` is set (non-PIC library only).**
+- `__main`: `rwlomem` (and so `rwbreak` and `stack_limit`) is raised to
+  crt0's free-memory value; `CRT1_LIB_INIT` is called after `__unixinit`
+  and `CRT1_LIB_FINI` registered with `atexit`, as the PIC code does; the
+  SUL process status gets `IS_DYNAMIC`, so SUL deregisters the SOManager
+  client at exit (`module/sul.s` unchanged).
+- `__exit_with_error_num` and `execve` (child of no UnixLib parent) call
+  `SOM_DeregisterClient`, as in the PIC library.
+- `__h_cback`: the check that skips callbacks whose PC is above the
+  application limit is skipped, as in the PIC library (shared libraries'
+  code is in SOManager's area). Without this, signals and thread
+  switching would stall while the program runs library code.
+- `sigsetup`: a handler is accepted if `__valid_address` passes; the
+  program-code range check applies only to static programs.
+- The EABI backtrace names the library and offset (`SOM_Location`).
+- `__funcall` (PARANOID builds only) allows addresses above application
+  space.
+
+**Not here.** C++ exceptions thrown across the program/library boundary
+need a `__gnu_Unwind_Find_exidx` in the program that knows the libraries'
+exception tables. libgcc refers to it weakly, so a definition in
+`libunixlib.a` would never be linked; it stays with the link recipe
+(riscos-crossdev's `mixed_exidx.c`).
+
+**Verification.** Peer-reviewed (its finding, the `__h_cback` check, is
+fixed). Only `_syslib.o`, `_signal.o`, `post.o` and `exec.o` differ in
+code from 5.0.3.7-rc3. A static program's `_DYNAMIC` words are 0; a mixed
+test link (static `libunixlib.a`, a shared library) with the
+shared-capable toolchain resolves them, needs no `libunixlib.so`, and
+exports what the library uses. Emulator tests (fdop 84, swi 22, heap 42,
+itimer, ticker 211) and `make check` pass; the shared library still
+passes the ABI check. Not yet run on RISC OS: riscos-crossdev's MixTest,
+relinked with this library, is the test.
 
 ### R1. Inline SWI wrappers: every register and memory the SWI changes - commit `c98c781`
 
