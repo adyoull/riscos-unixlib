@@ -55,7 +55,7 @@ the commits are named below.
 | `stdlib/atexit.c` | X1 atexit handlers with thread switching allowed |
 | `sched/sched_prio.c` (**new**), `include/sched.h` | P1 `sched_get_priority_min/max` |
 | `pthread/schedparam.c`, `pthread/newnode.c` | P2 `pthread_setschedparam` |
-| `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s`, `sys/exec.c` | K1-K7, K9 thread ticker (`sys/_syslib.s` also A2) |
+| `pthread/ticker.c` (**new**), `incl-local/internal/ticker.s` (**new**), `module/pthticker.s` (**new**), `pthread/_context.s`, `pthread/context.c`, `pthread/pthinit.c`, `incl-local/pthread.h`, `incl-local/internal/asm_dec.s`, `sys/_syslib.s`, `sys/exec.c` | K1-K7, K9, K12 thread ticker (`sys/_syslib.s` also A2) |
 | `sys/vfork.c`, `sys/_vfork.s`, `incl-local/internal/unix.h` | K8 fork on EABI: the child's exit and the parent's stack (K10 follow-ups) |
 | `pthread/join.c`, `pthread/newnode.c`, `incl-local/pthread.h` | K10 only the forking thread exists in a fork child |
 | `include/sys/stat.h`, `incl-local/sys/stat.h`, `unix/stat64.c` (**new**), `unix/stat.c`, `unix/lstat.c`, `unix/fstat.c`, `unix/scl_fstat.c` | L1 `struct stat64` with a 64-bit size |
@@ -1885,6 +1885,21 @@ line. Cosmetic.)
 - a change an atfork prepare handler made to `main`'s frame must survive.
 
 Peer review confirmed the test would fail on the code before K10, and on K10's first version. The library builds and `make check` passes. Not yet run on RISC OS.
+
+### K12. PThreadTicker 0.04: ROOL's error number (`module/pthticker.s`) - commits `18a518f`, `26f6d81`
+
+**Change.** ROOL reserved the module name `PThreadTicker` and allocated it
+the error block &823900-&8239FF (reply of 7 Nov 2026). The module's one
+error, "PThreadTicker is in use by UnixLib programs" (from finalisation
+while programs are attached), had number 0; from 0.04 it is &823900. The
+interface (version 2), the code and the workspace are unchanged, so every
+UnixLib that uses 0.03 uses 0.04. `RMEnsure PThreadTicker 0.01` stays the
+recommended load line. ReadMe and `docs/THREAD-TICKER.md` updated. (K11
+is not used: it was a withdrawn release's ID.)
+
+**Verification.** Peer-reviewed. `tests/emu/ticker_test.py` checks the
+error number (211 checks). `tools/make-release.sh` reads 0.04 from the
+help string. Not yet run on RISC OS.
 
 ### O1. Threads and signals on RISC OS for Linux (`incl-local/internal/pvops.s` (new), `asm_dec.s`, `unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s`)
 
