@@ -5,8 +5,12 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
-## Unreleased
+## 5.0.3.7-rc4 (2026-11-08, pre-release, tag v5.0.3.7-rc4)
 
+5.0.3.7-rc3 plus J1. Not yet run on RISC OS. libtool `-version-info`
+8:3:3 (no new functions).
+
+- **Mixed linking (J1).** A program can now be linked dynamically, with its other libraries as shared objects loaded by SOManager, while UnixLib stays linked into it from `libunixlib.a` (riscos-crossdev's "mixed" programs). The library recognises such a program (the linker defines `_DYNAMIC`) and then starts its heap after the shared libraries' data, runs their constructors, and tells SOManager when the program ends. Signal handlers and thread switching also work while the program is in library code. Ordinary static programs behave exactly as before. From riscos-crossdev's prototype, which passed 10 tests on RISC OS on Linux.
 - **The shared library can be built, checked, installed and packaged** (build tooling only; the library is unchanged). With a GCCSDK toolchain that has shared library support: `make shared` builds `libunixlib.so.5` and checks that it exports everything GCCSDK's `libunixlib.so.5.0.0` does (same names, types and data sizes), `make install-shared` installs it so programs link dynamically against it, `make shared-tests` builds tests linked dynamically, and `make shared-release TAG=...` makes the `UnixLibShared` package for a release. See docs/MAINTAINING.md.
 
 ## 5.0.3.7-rc3 (2026-11-08, pre-release, tag v5.0.3.7-rc3)
