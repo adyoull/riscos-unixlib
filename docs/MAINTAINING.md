@@ -47,19 +47,50 @@ make install                 # also copies lib + headers into $GCCSDK_ENV
 make riscos-tests            # -> tests/riscos/out/UnixLibTests.zip
 ```
 
-**The shared library** (`libunixlib.so.5`, for programs linked
-dynamically through SOManager, such as Iris): `SHARED=yes
-build/build-unixlib.sh`, in `build/work-shared`. It needs a toolchain built
-with shared library support (`libgcc_s.so`); riscos-crossdev's is static
-only. The releases ship only `libunixlib.a`. A shared build goes out as a
-test package, for a program's own `!SharedLibs` copy, not as a
-replacement for the system one: every dynamically linked program on the
-machine would use that.
+### The shared library (dynamic linking)
+
+`libunixlib.so.5` is for programs linked dynamically and loaded through
+SOManager, such as Iris. It needs a toolchain built with shared library
+support (it has `arm-riscos-gnueabihf/lib/libgcc_s.so`): riscos-warzone2100's
+(built or prebuilt, below) has it; **riscos-crossdev's image is static
+only**, and the build stops with a message if you try. Point
+`GCCSDK_ENV` at the shared-capable toolchain for these targets:
+
+```
+make shared          # build/work-shared: libunixlib.a and libunixlib.so.5.<age>.<rev>
+make check-shared    # the .so against GCCSDK's ABI (also run by make shared)
+make shared-tests    # tests/riscos/out-shared/Tests: tests linked dynamically
+make install-shared  # build, then install .a, headers and .so into GCCSDK_ENV
+```
+
+- **ABI check** (`tools/check-shared-abi.sh`): the SONAME is
+  `libunixlib.so.5`, it needs only `libgcc_s.so.1`, it has no text
+  relocations, and it exports every symbol GCCSDK's `libunixlib.so.5.0.0`
+  does, with the same type and, for data, the same size
+  (`tools/abi/gccsdk-libunixlib.so.5.0.0.syms`, made from GCCSDK's library
+  with `tools/abi-dynsyms.sh`). New symbols are fine. That is what lets
+  programs built against GCCSDK's library, Iris among them, run with ours.
+- **Installing** puts `libunixlib.so.5.<age>.<rev>` beside GCCSDK's
+  `libunixlib.so.5.0.0` and points the links `libunixlib.so` and
+  `libunixlib.so.5` at it. Programs linked with that toolchain without
+  `-static` then use our library at link time. To go back, point the two
+  links at `libunixlib.so.5.0.0` again.
+- **Dynamic tests** (`tests/riscos/build-shared.sh`, `TESTS="..."` to
+  choose): ELF programs (type E1F) with the same Obey files as
+  UnixLibTests, saying "UnixLibShared". By default Shm, Sem, Preempt,
+  ITimer and Fault.
+- **On RISC OS**, the library goes in a program's own `!SharedLibs`
+  (`lib.armeabihf.libunixlib/so/5`), not the system one: every dynamically
+  linked program on the machine would use that.
 
 **A trace build** for ARMEABISupport's fds (shared memory, shared files):
-`CFLAGS="-g -O2 -fstack-clash-protection -D__UNIXLIB_FDOP_TRACE=1"` with
-either build. Each failing FdOp call then writes a line to stderr with its
-caller's address (MODIFICATIONS Q2). For diagnosis only; never release it.
+`TRACE=yes` with either build (`build/work-trace`,
+`build/work-shared-trace`). Each failing FdOp call then writes a line to
+stderr with its caller's address (MODIFICATIONS Q2). For diagnosis only;
+never release or install it.
+
+`JOBS=N` limits the parallel compiles (one full build was killed for
+memory with every processor in use).
 
 `GCCSDK_ENV` is the installed cross toolchain (default: the riscos-crossdev
 image's `$RISCOS_TOOLCHAIN` inside that image, otherwise `~/gccsdk/env`).
@@ -155,9 +186,17 @@ unless its own changes were.
    `patches/*.diff`, `UnixLibTests.zip`, `PThreadTicker-<version>.zip`
    (for RISC OS users: a !System to merge, ReadMe, Licence; text in
    `release/`) and `SHA256SUMS`.
-4. Push the commit and the tag; create the GitHub release from the tag
+4. Optionally, with a shared-capable `GCCSDK_ENV`: `make shared-release
+   TAG=vX.Y.Z` puts the shared library package in
+   `out/release/vX.Y.Z-shared/`: `UnixLibShared-<version>.zip` (the
+   library and its Trace variant as `lib.armeabihf.libunixlib/so/5`, the
+   dynamic tests, a ReadMe from `release/UnixLibShared-ReadMe`; RISC OS
+   filetypes), the unstripped `-debug` and `-trace-debug` copies, and
+   `SHA256SUMS`. The library is built from the same tag as `libunixlib.a`.
+5. Push the commit and the tag; create the GitHub release from the tag
    with those files (`gh release create vX.Y.Z out/release/vX.Y.Z/*
-   --notes-file ...`, plus `--prerelease` for an rc).
+   --notes-file ...`, plus `--prerelease` for an rc; add the shared
+   package's files if it was made).
 
 The module's own version is in its help string (`module/pthticker.s`);
 bump it when the module changes.

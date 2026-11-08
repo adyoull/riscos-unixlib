@@ -91,7 +91,7 @@ for p in patches/unixlib-riscos.diff patches/unixlib-sound.diff; do
 done
 
 echo "== scripts parse"
-for s in build/*.sh tests/*.sh tests/abi/check.sh tests/host/*/run.sh tests/riscos/build.sh tools/*.sh; do
+for s in build/*.sh tests/*.sh tests/abi/check.sh tests/host/*/run.sh tests/riscos/build.sh tests/riscos/build-shared.sh tools/*.sh; do
   sh -n "$s"
 done
 python3 -m py_compile tools/mkrozip.py tests/emu/ticker_test.py tests/emu/swi_test.py tests/emu/heap_test.py tests/emu/itimer_test.py tests/emu/fdop_test.py

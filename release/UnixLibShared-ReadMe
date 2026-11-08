@@ -1,0 +1,75 @@
+riscos-unixlib VERSION as a shared library
+==========================================
+
+From riscos-unixlib TAG.
+
+riscos-unixlib is an unofficial fork of GCCSDK's UnixLib. It is not made,
+released or supported by the GCCSDK developers. Please report problems at
+https://github.com/adyoull/riscos-unixlib/issues, not to GCCSDK. AI
+(Anthropic's Claude) has been used as a coding assistant on this fork.
+
+STATUS
+What it is
+----------
+lib.armeabihf.libunixlib/so/5 is UnixLib VERSION built as a shared
+library, for programs that are linked dynamically and loaded through
+SOManager, such as Iris. It is built from the same source as the
+libunixlib.a of the same release. Compared with GCCSDK's UnixLib it has,
+among other things:
+  - threads and signals on RISC OS for Linux;
+  - shared memory with ARMEABISupport 1.08 as well as 1.05;
+  - semaphores that sleep (sem_wait, sem_timedwait);
+  - the thread ticker kept running through Wimp_Poll, from code outside
+    the program.
+The release's CHANGELOG lists everything.
+
+It replaces GCCSDK's libunixlib/so/5. It exports every symbol of
+GCCSDK's (the same names, types and data sizes; checked when it is
+built), so programs built against GCCSDK's library run with it unchanged.
+
+Trace.lib.armeabihf.libunixlib/so/5 is the same library with a diagnostic
+added: each failing call on one of ARMEABISupport's fds (shared memory,
+shared files) writes a line to the program's stderr, like
+
+  UnixLib FdOp: __armeabi_fd_fstat fd 1003: error &81DC28 ... (from &xxxxxxxx)
+
+giving the fd, the error and the address close(), fstat() etc. were
+called from. Use it only to find a problem; it is not for everyday use.
+
+Important: one copy is shared by every program
+----------------------------------------------
+SOManager loads one libunixlib/so/5 for all dynamically linked programs.
+Whichever !SharedLibs is in use (Iris's own sets the SharedLibs path for
+the whole machine once it has been seen), every dynamically linked
+program uses the copy in it. So:
+  - keep the old file, so you can go back;
+  - reboot after swapping it, so nothing still has the old one loaded;
+  - if anything else misbehaves, swap the old file back and reboot.
+
+Installing
+----------
+1. Find the libunixlib/so/5 that is used. For Iris it is inside
+   !Iris.SharedLibs.!SharedLibs.lib.armeabihf (use Shift-double-click to
+   open the applications). It may be called libunixlib/so/5/0/0, with
+   libunixlib/so/5 linked to it; replace the one that holds the library.
+2. Rename that file to libunixlib/so/5-gccsdk (don't delete it).
+3. Copy lib.armeabihf.libunixlib/so/5 (or the Trace one) from this
+   package into the same directory, under the same name.
+4. Reboot, then run Iris.
+
+To go back: delete the new file, rename libunixlib/so/5-gccsdk back, and
+reboot.
+
+Tests
+-----
+Tests contains some of UnixLibTests' programs, linked dynamically against
+this library. Run them after installing; each must print PASS (Fault must
+end with "Fatal signal received: Illegal instruction"). The first line of
+Shm says which ARMEABISupport it found. They need SOManager and the
+SharedLibs (including libm/so/1), as Iris does.
+
+Licence and source
+------------------
+UnixLib's licences: see the source at
+https://github.com/adyoull/riscos-unixlib (the debug copies of the
+library are attached to the release on GitHub).
