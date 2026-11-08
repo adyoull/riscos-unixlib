@@ -1,7 +1,7 @@
-riscos-unixlib VERSION as a shared library
-==========================================
+UnixLib as a shared library (riscos-unixlib)
+============================================
 
-From riscos-unixlib TAG.
+Version VERSION, from riscos-unixlib TAG.
 
 riscos-unixlib is an unofficial fork of GCCSDK's UnixLib. It is not made,
 released or supported by the GCCSDK developers. Please report problems at

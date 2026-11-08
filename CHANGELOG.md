@@ -5,6 +5,10 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## Unreleased
+
+- **The shared library can be built, checked, installed and packaged** (build tooling only; the library is unchanged). With a GCCSDK toolchain that has shared library support: `make shared` builds `libunixlib.so.5` and checks that it exports everything GCCSDK's `libunixlib.so.5.0.0` does (same names, types and data sizes), `make install-shared` installs it so programs link dynamically against it, `make shared-tests` builds tests linked dynamically, and `make shared-release TAG=...` makes the `UnixLibShared` package for a release. See docs/MAINTAINING.md.
+
 ## 5.0.3.7-rc3 (2026-11-08, pre-release, tag v5.0.3.7-rc3)
 
 5.0.3.7-rc2 plus K12. The library is the same as rc2; only the
