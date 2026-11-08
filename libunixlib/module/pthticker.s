@@ -11,7 +11,8 @@
 @ and runs them there; with it, UnixLib runs the module's copy. The
 @ routines themselves are internal/ticker.s. See docs/THREAD-TICKER.md.
 @
-@ No SWIs (none are allocated to it). UnixLib finds the module with
+@ No SWIs (none are allocated to it). Error block &823900-&8239FF,
+@ allocated by ROOL (7 Nov 2026). UnixLib finds the module with
 @ OS_Module 18 ("PThreadTicker") and reads the interface table that
 @ follows the module header (offset &34):
 @
@@ -67,13 +68,14 @@ interface:
 title:
 	.asciz	"PThreadTicker"
 help:
-	.asciz	"PThreadTicker\t0.03 (01 Oct 2026) riscos-unixlib"
+	.asciz	"PThreadTicker\t0.04 (08 Nov 2026) riscos-unixlib"
 	.align
 module_flags:
 	.word	1				@ 32-bit compatible
 
+	@ 0.04: the error block ROOL allocated (0.01-0.03 used 0)
 error_inuse:
-	.word	0
+	.word	0x823900
 	.asciz	"PThreadTicker is in use by UnixLib programs"
 	.align
 

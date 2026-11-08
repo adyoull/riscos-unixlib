@@ -14,6 +14,7 @@ Needs the cross toolchain's nm/objcopy (GCCSDK_ENV) and the Python module
 unicorn (pip install unicorn). tests/check.sh skips it without them.
 """
 import os
+import struct
 import subprocess
 import sys
 import tempfile
@@ -354,6 +355,8 @@ def test_module(build):
     out, cpsr = m.call(a("final_code"), {UC_ARM_REG_R12: PRIVWORD, UC_ARM_REG_R10: 0})
     check(cpsr & VFLAG and b"in use" in bytes(m.mu.mem_read(out[0] + 4, 60)),
           "final refuses while attached")
+    check(struct.unpack("<I", bytes(m.mu.mem_read(out[0], 4)))[0] == 0x823900,
+          "the in-use error is &823900 (ROOL's block for PThreadTicker)")
     check(m.r(PRIVWORD) == ws, "workspace kept")
     for _ in range(3):
         m.call(MODBASE + offs[6], {UC_ARM_REG_R12: ws}, irqs_on=True)

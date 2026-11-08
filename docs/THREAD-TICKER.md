@@ -211,7 +211,9 @@ The Pi tests `Ticker`, `TickerEarly` (threads before `Wimp_Initialise`) and
 
 Title `PThreadTicker`, file `PThrTicker` (type Module), built
 with the library (`build/work/build/pthticker`). No SWIs, commands or
-service calls, so it needs nothing allocated by anyone.
+service calls. ROOL has reserved the module name and allocated it the
+error block &823900-&8239FF (7 Nov 2026); since 0.04 its one error, "in
+use", is &823900 (0.01-0.03 used 0).
 
 UnixLib finds it at start-up with `OS_Module 18` ("PThreadTicker"), which
 gives the module's address and its workspace, and reads the interface

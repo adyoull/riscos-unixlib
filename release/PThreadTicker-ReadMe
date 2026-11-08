@@ -61,6 +61,9 @@ file when it quits. Lines ending via=module used this module.
 
 Changes
 -------
+0.04 (8 Nov 2026): the "in use" error has its own number, &823900, from
+     the error block ROOL allocated to PThreadTicker (it was 0). Nothing
+     else changes.
 0.03 (1 Oct 2026): the timer keeps running while the program is in
      Wimp_Poll; if it fires meanwhile, threads are switched as Wimp_Poll
      returns. Before, a program that polled more often than every 2
