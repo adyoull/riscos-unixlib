@@ -45,6 +45,9 @@
 
 	.weak	__program_name
 	.weak	__dynamic_no_da
+#ifndef PIC
+	.weak	_DYNAMIC		@ 2026: defined only in a dynamically linked program
+#endif
 	.weak	__dynamic_da_name
 	.weak	__dynamic_da_max_size
 	.weak   __stack_size
@@ -159,6 +162,25 @@ __main:
 	LDR	a1, .L0+32			@ crt1_data
  PICEQ "LDR	a1, [v4, a1]"
 	STR	v1, [a1, #0]
+
+#ifndef PIC
+	@ 2026: a program linked dynamically against this static library
+	@ ("mixed" linking: UnixLib in the program, other libraries shared,
+	@ loaded by ld-riscos/so/2 and SOManager). The linker defines
+	@ _DYNAMIC only then. The dynamic loader has put the libraries'
+	@ data after the program and passed (through crt0) where free memory
+	@ starts: the heap must start there, not at the program's end. In an
+	@ ordinary static program, crt0's values are whatever the registers
+	@ held and are never used.
+	LDR	a1, .L0+36			@ =_DYNAMIC (0 if not linked)
+	TEQ	a1, #0
+	BEQ	0f
+	LDR	a2, [v1, #CRT1_FREE_MEM]
+	LDR	a3, [fp, #MEM_RWLOMEM]
+	CMP	a2, a3				@ only ever higher
+	STRHI	a2, [fp, #MEM_RWLOMEM]
+0:
+#endif
 
 	@ Obtain the application space limit.  Note that this is different
 	@ to the permitted RAM limit returned by OS_GetEnv, i.e. MEM_APPSPACE_HIMEM
@@ -577,6 +599,12 @@ no_dynamic_area:
 #endif
 #ifdef PIC
 	ORR	a4, a4, #SULPROC_STATUS_FLAG_IS_DYNAMIC
+#else
+	@ 2026: a dynamically linked program using this static library is
+	@ a SOManager client too: SUL deregisters it at exit.
+	LDR	a1, .L0+36			@ =_DYNAMIC
+	TEQ	a1, #0
+	ORRNE	a4, a4, #SULPROC_STATUS_FLAG_IS_DYNAMIC
 #endif
 	STR	a4, [v1, #SULPROC_STATUS]
 #endif
@@ -642,6 +670,21 @@ no_dynamic_area:
  PICEQ "LDR	a1, [v2, #CRT1_LIB_FINI]"
  PICEQ "TEQ	a1, #0"
  PICEQ "BLNE	atexit"
+#ifndef PIC
+	@ 2026: the same for a dynamically linked program using this static
+	@ library (see above): only then are these crt0 values real.
+	LDR	a1, .L0+36			@ =_DYNAMIC
+	TEQ	a1, #0
+	BEQ	1f
+	LDR	a1, [v2, #CRT1_LIB_INIT]
+	TEQ	a1, #0
+	MOVNE	lr, pc
+	MOVNE	pc, a1
+	LDR	a1, [v2, #CRT1_LIB_FINI]
+	TEQ	a1, #0
+	BLNE	atexit
+1:
+#endif
 
 	@ --- Executable Initialisation ---
 	@ Call the program's _init function.
@@ -702,6 +745,9 @@ no_init_array:
 	WORD	__u			@ offset 24
 	WORD	environ			@ offset 28
 	WORD	crt1_data		@ offset 32
+#ifndef PIC
+	WORD	_DYNAMIC		@ offset 36 (weak: 0 in a static program)
+#endif
 
 no_main_routine:
 	.asciz	"There is no main function"
@@ -745,12 +791,24 @@ __exit_with_error_num:
 	@ exist, so we need to read the error table first. The errors themselves
 	@ are in the text section, so we're OK there.
  PICEQ "SWI	XSOM_DeregisterClient"
+#ifndef PIC
+	@ 2026: also for a dynamically linked program using this static
+	@ library (a SOManager client from the start).
+	LDR	a3, .L7+4			@ =_DYNAMIC
+	TEQ	a3, #0
+	MOV	a4, a1
+	SWINE	XSOM_DeregisterClient
+	MOV	a1, a4
+#endif
 #ifdef __ARM_EABI__
 	SWI	XARMEABISupport_Cleanup
 #endif
 	SWI	OS_GenerateError
 .L7:
 	WORD error_table
+#ifndef PIC
+	WORD	_DYNAMIC
+#endif
 	DECLARE_FUNCTION __exit_with_error_num
 
 	.data

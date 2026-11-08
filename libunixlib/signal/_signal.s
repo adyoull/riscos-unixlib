@@ -13,6 +13,10 @@
 
 #include "internal/asm_dec.s"
 
+#ifndef PIC
+	.weak	_DYNAMIC		@ 2026: defined only in a dynamically linked program
+#endif
+
 	@ Exception handlers: store the USR sp and lr at [lr] and [lr, #4],
 	@ and (WITH_PSR) the SPSR at [lr, #12]. a1-ip are free (already
 	@ stored). LIT is a literal holding __ul_global's address (or its GOT
@@ -785,9 +789,18 @@ __h_cback:
 
 	@ When using shared libraries, the PC can be higher than the
 	@ application limit.
- PICNE "LDR	a2, [a3, #MEM_APPSPACE_LIMIT]"
- PICNE "CMP	a1, a2"
- PICNE "BHI	return_quickly"
+	@ 2026: so can a dynamically linked program using the static library
+	@ (shared libraries' code is in SOManager's area): skip the check
+	@ when _DYNAMIC is defined, as in the shared library.
+#ifndef PIC
+	LDR	a2, .L9+12		@ =_DYNAMIC (0 in a static program)
+	TEQ	a2, #0
+	BNE	0f
+	LDR	a2, [a3, #MEM_APPSPACE_LIMIT]
+	CMP	a1, a2
+	BHI	return_quickly
+0:
+#endif
 
 	LDR	a1, [ip, #PTHREAD_CALLEVERY_CALLBACK_FLAG]
 	TST	a1, #3			@ Check escape and internet flags
@@ -825,6 +838,9 @@ pv_return_quickly:
 	WORD	__ul_memory
 	WORD	__ul_global
 	WORD	__ul_callbackfp
+#ifndef PIC
+	WORD	_DYNAMIC		@ .L9+12 (2026; weak)
+#endif
 
 	@ This is the common entry point for many of the RISC OS exception
 	@ handlers.  On entry, assume that all registers are corrupted.

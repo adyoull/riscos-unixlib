@@ -472,8 +472,9 @@ execve (const char *execname, char *const argv[], char *const envp[])
   /* Record the fact that the new process was the result of exec().  */
   sulproc->status.execed = 1;
 
-#ifdef PIC
-  if (sulproc->ppid == 1)
+  /* 2026: also for a dynamically linked program using the static
+     library.  */
+  if (__ul_dynamic () && sulproc->ppid == 1)
     {
       /* Tell the Shared Object Manager that the current client has exited.
 	 We can still access global variables afterwards, because the PIC
@@ -483,7 +484,6 @@ execve (const char *execname, char *const argv[], char *const envp[])
 
       (void) __os_swi (SOM_DeregisterClient, regs);
     }
-#endif
 
   sulproc->sul_exec (sulproc->pid, cli,
 		     (void *) __ul_memory.stack_limit,
