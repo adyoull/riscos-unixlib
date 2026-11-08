@@ -5,6 +5,13 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.7-rc3 (2026-11-08, pre-release, tag v5.0.3.7-rc3)
+
+5.0.3.7-rc2 plus K12. The library is the same as rc2; only the
+PThreadTicker module changes. libtool `-version-info` 8:3:3.
+
+- **PThreadTicker 0.04 (K12).** Its "in use" error now has its own number, &823900, from the error block ROOL allocated to PThreadTicker (it was 0). Nothing else changes; programs that use 0.03 use 0.04.
+
 ## 5.0.3.7-rc2 (2026-11-06, pre-release, tag v5.0.3.7-rc2)
 
 5.0.3.7-rc1 plus Q2. Not yet run on RISC OS. libtool `-version-info`
