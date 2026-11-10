@@ -1013,7 +1013,9 @@ Unicorn with ARMEABISupport faked as 1.05 and as 1.08, including an
 unregistered program, a UnixLib fd that must stay local, `struct flock`
 guard words, file positions around `mmap`, `dup2`/`F_DUPFD`, and EBADF for
 unknown fds with both versions. Only the objects of the changed files
-differ from 5.0.3.6. New Pi test `Shm`. Not yet run on RISC OS. Credit:
+differ from 5.0.3.6. New Pi test `Shm`: passes on RISC OS on Linux
+(5.31-18, ARMEABISupport 1.08) in the shared build (5.0.3.7-rc2,
+ROL-Testbed, 2026-11-06). Not run on native RISC OS 5. Credit:
 Lee Noar, whose change and ARMEABISupport 1.08 this follows (UnixLib's
 licence).
 
@@ -1058,7 +1060,9 @@ checks (new: `fstat` size and mode for shared memory and IPC, a dup's
 size, EBADF after close, a size kept past 20 short-lived objects, `fsync`,
 negative `ftruncate`, 1.05 unchanged). The trace build was run through the
 same test and its lines checked. Pi test `Shm` checks `fstat` (a regular
-file of 8192 bytes) and `fsync` with 1.07 and later.
+file of 8192 bytes) and `fsync` with 1.07 and later: both pass on RISC OS
+on Linux with ARMEABISupport 1.08 (5.0.3.7-rc2, ROL-Testbed, 2026-11-06);
+the trace build logged no failing FdOp call while Iris 1.039 ran.
 
 ### J1. Mixed linking: a dynamically linked program with the static library (`sys/_syslib.s`, `signal/_signal.s`, `signal/post.c`, `sys/exec.c`, `incl-local/internal/unix.h`) - commit `5d3e3ac`
 
@@ -1113,8 +1117,22 @@ test link (static `libunixlib.a`, a shared library) with the
 shared-capable toolchain resolves them, needs no `libunixlib.so`, and
 exports what the library uses. Emulator tests (fdop 84, swi 22, heap 42,
 itimer, ticker 211) and `make check` pass; the shared library still
-passes the ABI check. Not yet run on RISC OS: riscos-crossdev's MixTest,
-relinked with this library, is the test.
+passes the ABI check.
+
+**Run on RISC OS (5.0.3.7-rc4, RISC OS on Linux, 2026-11-08 to 11-10).**
+riscos-crossdev's MixTest relinked with rc4: all 12 tests pass (static
+control; C library constructor, calls both ways, 16 MB heap beside the
+library's data, threads; C++ objects, `std::string`, exceptions both
+ways; a SIGALRM and a thread switch while the program runs library code)
+in the QEMU kit (5.31-18, NativeSupport 0.33, ARMEABISupport 1.05) and on
+the owner's machine (ARMEABISupport 1.08). Test 12 hangs with the
+prototype's library and passes with rc4 (the `__h_cback` change).
+riscos-gtk's Geany, mixed-linked against 26 shared libraries with
+riscos-crossdev 1.11-test2, runs ("it all works perfectly"). On native
+RISC OS 5, MixTest passes and riscos-gtk's mixed-linked L3afpad runs,
+both while Iris was running (the owner, 2026-11-10). Not exercised:
+Escape inside a library, the `SOM_Location` backtrace, the `exec` and
+start-up-error deregistration.
 
 ### R1. Inline SWI wrappers: every register and memory the SWI changes - commit `c98c781`
 
@@ -1956,7 +1974,8 @@ is not used: it was a withdrawn release's ID.)
 
 **Verification.** Peer-reviewed. `tests/emu/ticker_test.py` checks the
 error number (211 checks). `tools/make-release.sh` reads 0.04 from the
-help string. Not yet run on RISC OS.
+help string. Not run on RISC OS separately (only the error number
+changed).
 
 ### O1. Threads and signals on RISC OS for Linux (`incl-local/internal/pvops.s` (new), `asm_dec.s`, `unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s`)
 
@@ -2222,6 +2241,12 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 ---
 
 ## 8. Still to be done
+
+**Run on RISC OS (5.0.3.7-rc2/rc4, RISC OS on Linux, 2026-11-06 to
+11-10):** `Shm` (Q1, Q2) passes with ARMEABISupport 1.08; MixTest (J1, 12
+tests) passes with 1.05 and 1.08; riscos-gtk's mixed-linked Geany runs.
+On native RISC OS 5 (2026-11-10), MixTest passes and the mixed-linked
+L3afpad runs, both while Iris was running. `Shm` not yet on native.
 
 **Run on RISC OS (5.0.3.6-rc1, native RISC OS 5.31, 2026-11-03):** `Sem`
 (P7) passes.

@@ -5,6 +5,16 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.7 (2026-11-10, tag v5.0.3.7)
+
+The same code as 5.0.3.7-rc4: 5.0.3.6 plus Q1, Q2, K12 and J1 (see the rc
+entries below). libtool `-version-info` 8:3:3; PThreadTicker 0.04. Tested
+on RISC OS on Linux: `Shm` passes with ARMEABISupport 1.08, and mixed
+linking passes riscos-crossdev's 12 MixTest checks with ARMEABISupport
+1.05 and 1.08; riscos-gtk's Geany runs mixed-linked against 26 shared
+libraries. On native RISC OS 5, MixTest passes and the mixed-linked
+L3afpad runs, both while Iris was running.
+
 ## 5.0.3.7-rc4 (2026-11-08, pre-release, tag v5.0.3.7-rc4)
 
 5.0.3.7-rc3 plus J1. Not yet run on RISC OS. libtool `-version-info`
