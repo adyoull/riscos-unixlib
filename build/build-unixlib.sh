@@ -18,6 +18,18 @@
 #                                      libunixlib.so.5 (needs a toolchain
 #                                      built with shared library support:
 #                                      libgcc_s.so); built in build/work-shared
+#                                      and checked against GCCSDK's ABI
+#                                      (tools/check-shared-abi.sh). With
+#                                      INSTALL=yes the .so is installed too,
+#                                      so programs link dynamically with it.
+#   JOBS=N                             parallel compile jobs (default: all
+#                                      processors; fewer if the machine runs
+#                                      out of memory)
+#   TRACE=yes                          a diagnostic build: failing calls on
+#                                      ARMEABISupport's fds are logged to
+#                                      stderr (-D__UNIXLIB_FDOP_TRACE=1);
+#                                      built in build/work-trace or
+#                                      build/work-shared-trace. Never release.
 #
 # Needs autoconf2.69, automake 1.11 (aclocal-1.11/automake-1.11), perl.
 # Output: build/work/build/.libs/libunixlib.a
@@ -35,6 +47,15 @@ SHAREDOPT=--disable-shared
 if [ "$SHARED" = yes ]; then
   W=$REPO/build/work-shared
   SHAREDOPT=--enable-shared
+  [ -e "$GCCSDK_ENV/$T/lib/libgcc_s.so" ] || {
+    echo "no $GCCSDK_ENV/$T/lib/libgcc_s.so: this toolchain was built without" >&2
+    echo "shared library support, so it can't build libunixlib.so (see docs/MAINTAINING.md)" >&2
+    exit 1; }
+fi
+if [ "$TRACE" = yes ]; then
+  [ "$INSTALL" = yes ] && { echo "not installing a TRACE build" >&2; exit 1; }
+  W=$W-trace
+  CFLAGS="$CFLAGS -D__UNIXLIB_FDOP_TRACE=1"
 fi
 # The debug information records the directory each object was compiled in
 # (DW_AT_comp_dir, here $W/build) and where the toolchain's own headers are
@@ -64,20 +85,38 @@ CC=$T-gcc AR=$T-ar RANLIB=$T-ranlib CFLAGS="$CFLAGS" \
   ../src/libunixlib/configure --host=$T --target=$T \
     --build="$(gcc -dumpmachine)" --prefix="$GCCSDK_ENV" \
     $SHAREDOPT --enable-static --disable-multilib >configure.log
-make -j"$(nproc)" >make.log 2>&1 || { tail -40 make.log; exit 1; }
+make -j"${JOBS:-$(nproc)}" >make.log 2>&1 || { tail -40 make.log; exit 1; }
 ls -l .libs/libunixlib.a
 [ "$SHARED" = yes ] && ls -l .libs/libunixlib.so*
 # No trace of the build machine's paths in what we ship.
-if strings -a .libs/libunixlib.a pthticker | grep -F -q -e "$REPO" -e "$HOME"; then
-  echo "libunixlib.a or pthticker contains a build path:" >&2
-  strings -a .libs/libunixlib.a pthticker | grep -F -e "$REPO" -e "$HOME" | sort | uniq -c >&2
+SHIP=".libs/libunixlib.a pthticker"
+[ "$SHARED" = yes ] && SHIP="$SHIP $(readlink -f .libs/libunixlib.so.5)"
+if strings -a $SHIP | grep -F -q -e "$REPO" -e "$HOME"; then
+  echo "libunixlib.a, the .so or pthticker contains a build path:" >&2
+  strings -a $SHIP | grep -F -e "$REPO" -e "$HOME" | sort | uniq -c >&2
   exit 1
 fi
 # Refuse a library built from mismatched objects (see tools/check-lib.sh).
 GCCSDK_ENV="$GCCSDK_ENV" "$REPO/tools/check-lib.sh" "$W/build/.libs/libunixlib.a"
+# The shared library must load in place of GCCSDK's.
+if [ "$SHARED" = yes ]; then
+  SO=$(readlink -f .libs/libunixlib.so.5)
+  GCCSDK_ENV="$GCCSDK_ENV" "$REPO/tools/check-shared-abi.sh" "$SO"
+fi
 if [ "$INSTALL" = yes ]; then
   cp .libs/libunixlib.a "$GCCSDK_ENV/$T/lib/libunixlib.a"
   # UnixLib's own headers (a few change, e.g. fdatasync in unistd.h)
   cp -r "$REPO/libunixlib/include/." "$GCCSDK_ENV/$T/include/"
   echo "installed libunixlib.a and headers into $GCCSDK_ENV/$T"
+  if [ "$SHARED" = yes ]; then
+    # The real file under its own name; libunixlib.so (the link-time
+    # name) and libunixlib.so.5 (the SONAME) point at it. A library that
+    # was there (GCCSDK's libunixlib.so.5.0.0) stays, so going back is
+    # pointing the two links at it again.
+    L=$GCCSDK_ENV/$T/lib
+    cp "$SO" "$L/$(basename "$SO")"
+    ln -sfn "$(basename "$SO")" "$L/libunixlib.so.5"
+    ln -sfn libunixlib.so.5 "$L/libunixlib.so"
+    echo "installed $(basename "$SO") (libunixlib.so, libunixlib.so.5) into $L"
+  fi
 fi

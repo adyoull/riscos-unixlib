@@ -321,19 +321,29 @@ extern struct ul_global __ul_global;
    up-to-date.  */
 extern int __get_taskhandle (void);
 
+/* 2026: non-zero when the program was linked dynamically, i.e. it was
+   started by the dynamic loader (ld-riscos/so/2) and other libraries are
+   shared objects loaded by SOManager. Always so for the shared library
+   (PIC); for the static library it is a "mixed" link (this library in the
+   program, other libraries shared), which the linker marks by defining
+   _DYNAMIC. In an ordinary static program _DYNAMIC is undefined, so the
+   weak reference is 0.  */
+#ifdef PIC
+#  define __ul_dynamic() 1
+#else
+/* Under its own C name: <sys/elf.h> declares _DYNAMIC with another type.  */
+extern char __ul_DYNAMIC[] __asm__ ("_DYNAMIC") __attribute__ ((weak));
+#  define __ul_dynamic() (__ul_DYNAMIC != 0)
+#endif
+
 extern int __funcall_error (const char *, int, unsigned int);
 #if __UNIXLIB_PARANOID
-#ifdef PIC
-/* In the shared library, function addresses can and will exist outside
-   application space.  */
+/* In the shared library, and in a dynamically linked program, function
+   addresses can and will exist outside application space.  */
 #define __funcall(f, p) \
   ((((unsigned int)(f) >= __ul_memory.robase) && !((unsigned int)(f) & 3) \
+    && (__ul_dynamic () || (unsigned int)(f) < __ul_memory.appspace_himem) \
    ? 0 : __funcall_error(__FILE__, __LINE__, (unsigned int)(f))), (f)p)
-#else
-#define __funcall(f, p) \
-  ((((unsigned int)(f) >= __ul_memory.robase) && !((unsigned int)(f) & 3) && (unsigned int)(f) < __ul_memory.appspace_himem \
-   ? 0 : __funcall_error(__FILE__, __LINE__, (unsigned int)(f))), (f)p)
-#endif
 #else
 #define __funcall(f, p) ((f)p)
 #endif
