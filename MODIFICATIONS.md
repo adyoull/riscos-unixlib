@@ -711,8 +711,8 @@ Browser's W28, done differently (also covering read-only files and exec).
 the exec flush and the extra forgets. Emulator test `fdop_test` (14 new
 checks over a fake file that extends on OS_Args 1 as RISC OS does): seek
 24 in an empty file, read, SEEK_CUR, write, SEEK_END, a file growing past
-the position, a full disc, the exec flush, close. Pi test `LSeek` (to
-run).
+the position, a full disc, the exec flush, close. Pi test `LSeek`: every check ok and PASS on the
+owner's Pi (native RISC OS, 5.0.3.9-rc1, 2026-11-11).
 
 ### N1. `getservbyname_r`, `getservbyport_r`, `getservent_r` (new `netlib/getserv_r.c`, `Makefile.am`)
 
