@@ -1,5 +1,5 @@
 diff --git a/gcc4/recipe/files/gcc/libunixlib/Makefile.am b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-index e887b17..48c2939 100644
+index e887b17..4e50c43 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 +++ b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 @@ -622,6 +622,7 @@ netlib_src = \
@@ -93,7 +93,7 @@ index e887b17..48c2939 100644
 +unixlib_asm_objs = $(patsubst %.s,%.lo,$(notdir $(filter %.s,$(libunixlib_la_SOURCES))))
 +$(unixlib_asm_objs) crt0.o gcrt0.o sul.o pthticker.o: $(unixlib_asm_deps)
 +
-+libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 8:3:3 -Wl,--version-script -Wl,$(top_srcdir)/vscript
++libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 9:0:4 -Wl,--version-script -Wl,$(top_srcdir)/vscript
  
  libm_la_SOURCES = libm-support/libm.c
  
@@ -224,7 +224,7 @@ index b5e931d..0825bef 100644
  
        if (*in == '<')
 diff --git a/gcc4/recipe/files/gcc/libunixlib/configure.ac b/gcc4/recipe/files/gcc/libunixlib/configure.ac
-index 53fe31c..f7df100 100644
+index 53fe31c..091cb29 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/configure.ac
 +++ b/gcc4/recipe/files/gcc/libunixlib/configure.ac
 @@ -5,7 +5,7 @@ dnl Process this file with autoconf to produce a configure script
@@ -232,17 +232,17 @@ index 53fe31c..f7df100 100644
  
  AC_PREREQ(2.64)
 -AC_INIT([RISC OS UnixLib C Runtime Library], 5.0, [http://gccsdk.riscos.info/], [libunixlib])
-+AC_INIT([RISC OS UnixLib C Runtime Library], 5.0.3.7, [https://github.com/adyoull/riscos-unixlib/issues], [libunixlib])
++AC_INIT([RISC OS UnixLib C Runtime Library], 5.0.3.8, [https://github.com/adyoull/riscos-unixlib/issues], [libunixlib])
  AC_CONFIG_SRCDIR([assert/assert.c])
  AC_CONFIG_HEADER(config.h)
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help b/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
-index 7775d56..7d9aba5 100644
+index 7775d56..63dbdee 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
 +++ b/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
 @@ -1,4 +1,4 @@
 -                                UnixLib 5.0
-+                               UnixLib 5.0.3.7
++                               UnixLib 5.0.3.8
                                  ~~~~~~~~~~~
  
  This document provides a VERY short introduction to UnixLib, and only covers
@@ -2042,6 +2042,24 @@ index b53e525..a2d5c1d 100644
  #  error "EABI based target can not have chunked stacks."
  #endif
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/include/unixlib/local.h b/gcc4/recipe/files/gcc/libunixlib/include/unixlib/local.h
+index 221a53c..8329d30 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/include/unixlib/local.h
++++ b/gcc4/recipe/files/gcc/libunixlib/include/unixlib/local.h
+@@ -139,6 +139,13 @@ extern const _kernel_oserror *__unixlib_write_coredump (const char *__dir);
+    signal name will be outputed as well.  */
+ extern void __write_backtrace (int __signo);
+ 
++/* 2026: make the running thread's VFP context active now, not lazily.
++   Call it straight after Wimp_Poll, Wimp_PollIdle or Wimp_StartTask
++   returns, before any floating point, in a program built as Thumb code:
++   VFPSupport restarts a Thumb instruction 2 bytes early after a lazy
++   context switch.  Not needed for ARM code; harmless anywhere.  */
++extern void __pthread_vfp_reclaim (void);
++
+ /* Return the RISC OS socket number given a socket handle returned by
+    socket.  Is -1 when socket handle is not valid.  */
+ extern int __get_ro_socket (int __sockfd);
 diff --git a/gcc4/recipe/files/gcc/libunixlib/locale/iconv.c b/gcc4/recipe/files/gcc/libunixlib/locale/iconv.c
 index a01ab8f..feb5512 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/locale/iconv.c
@@ -3294,7 +3312,7 @@ index 37f75aa..bd1410f 100644
    node->ret = NULL;
    node->mutex = NULL;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c b/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
-index 9457494..e37d337 100644
+index 9457494..2f6e2a4 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
 @@ -14,8 +14,26 @@
@@ -3324,7 +3342,40 @@ index 9457494..e37d337 100644
  static void
  __get_main_stack (struct __pthread_thread *thread)
  {
-@@ -68,8 +86,21 @@ __pthread_prog_init (void)
+@@ -37,6 +55,32 @@ __get_main_stack (struct __pthread_thread *thread)
+ #endif
+ }
+ 
++/* 2026: make the running thread's VFP context active now (not lazily).
++   For a program to call straight after Wimp_Poll, Wimp_PollIdle or
++   Wimp_StartTask returns, before any floating point, if that code may be
++   Thumb code.  The Wimp gives a task its context back when it resumes
++   it, lazily: the first VFP instruction traps to VFPSupport, which makes
++   the context active and restarts the instruction at lr - 4.  That is
++   right for ARM code, but for Thumb code lr is the instruction + 2, so it
++   restarts 2 bytes early: the halfword before is executed again (on a
++   Pi 4 with RISC OS 5.31, Pi test VFPPoll's Thumb build repeated a store,
++   and the Web Browser's Strada stopped with Illegal Instruction).  This
++   function is ARM code, so activating the context here is safe.  It
++   costs one SWI; with no threads started it uses the main context.  */
++void
++__pthread_vfp_reclaim (void)
++{
++#if !defined(__SOFTFP__) && defined(__VFP_FP__)
++  pthread_t self = __pthread_running_thread;
++  if (self != NULL && self->saved_context != NULL)
++    {
++      int context = self->saved_context->vfpcontext & ~1;
++      if (context != 0)
++	_swix (VFPSupport_ChangeContext, _INR (0, 1), context, 0);
++    }
++#endif
++}
++
+ /* Called once, at program initialisation.  */
+ void
+ __pthread_prog_init (void)
+@@ -68,8 +112,21 @@ __pthread_prog_init (void)
    mainthread.magic = PTHREAD_MAGIC;
    __get_main_stack (&mainthread);
  
@@ -3346,7 +3397,7 @@ index 9457494..e37d337 100644
    __pthread_thread_list = __pthread_running_thread;
    gbl->pthread_num_running_threads = 1;
  }
-@@ -83,12 +114,30 @@ __pthread_prog_fini (void)
+@@ -83,12 +140,30 @@ __pthread_prog_fini (void)
    debug_printf ("-- __pthread_prog_fini: Program finalisation\n");
  #endif
  
