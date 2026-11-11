@@ -166,7 +166,12 @@ VFPPoll     floating point straight after Wimp_Poll (a probe for the
             context was active at some point) or FAIL (Illegal
             instruction). VFPPollT is the same as Thumb code; VFPPollThr
             and VFPPollTThr add a second thread. Please run all four and
-            send <Wimp$ScrapDir>.VFPPoll.
+            send <Wimp$ScrapDir>.VFPPoll. On a Pi 4 (5.31) the ARM ones
+            PASS and the Thumb ones say DIFFERENT: VFPSupport restarts
+            Thumb code 2 bytes early after a lazy switch, which repeated
+            a store (the "another" count is that store's value).
+VFPPollTR   the Thumb build calling __pthread_vfp_reclaim after each
+            return (5.0.3.8): must PASS. VFPPollTRThr with a second thread.
 
 Please report: what each one printed, whether it sounded right, any
 clicks or gaps, and the "max queued" figure.

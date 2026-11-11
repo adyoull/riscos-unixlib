@@ -139,6 +139,13 @@ extern const _kernel_oserror *__unixlib_write_coredump (const char *__dir);
    signal name will be outputed as well.  */
 extern void __write_backtrace (int __signo);
 
+/* 2026: make the running thread's VFP context active now, not lazily.
+   Call it straight after Wimp_Poll, Wimp_PollIdle or Wimp_StartTask
+   returns, before any floating point, in a program built as Thumb code:
+   VFPSupport restarts a Thumb instruction 2 bytes early after a lazy
+   context switch.  Not needed for ARM code; harmless anywhere.  */
+extern void __pthread_vfp_reclaim (void);
+
 /* Return the RISC OS socket number given a socket handle returned by
    socket.  Is -1 when socket handle is not valid.  */
 extern int __get_ro_socket (int __sockfd);

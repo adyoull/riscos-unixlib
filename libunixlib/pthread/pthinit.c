@@ -55,6 +55,32 @@ __get_main_stack (struct __pthread_thread *thread)
 #endif
 }
 
+/* 2026: make the running thread's VFP context active now (not lazily).
+   For a program to call straight after Wimp_Poll, Wimp_PollIdle or
+   Wimp_StartTask returns, before any floating point, if that code may be
+   Thumb code.  The Wimp gives a task its context back when it resumes
+   it, lazily: the first VFP instruction traps to VFPSupport, which makes
+   the context active and restarts the instruction at lr - 4.  That is
+   right for ARM code, but for Thumb code lr is the instruction + 2, so it
+   restarts 2 bytes early: the halfword before is executed again (on a
+   Pi 4 with RISC OS 5.31, Pi test VFPPoll's Thumb build repeated a store,
+   and the Web Browser's Strada stopped with Illegal Instruction).  This
+   function is ARM code, so activating the context here is safe.  It
+   costs one SWI; with no threads started it uses the main context.  */
+void
+__pthread_vfp_reclaim (void)
+{
+#if !defined(__SOFTFP__) && defined(__VFP_FP__)
+  pthread_t self = __pthread_running_thread;
+  if (self != NULL && self->saved_context != NULL)
+    {
+      int context = self->saved_context->vfpcontext & ~1;
+      if (context != 0)
+	_swix (VFPSupport_ChangeContext, _INR (0, 1), context, 0);
+    }
+#endif
+}
+
 /* Called once, at program initialisation.  */
 void
 __pthread_prog_init (void)

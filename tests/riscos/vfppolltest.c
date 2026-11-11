@@ -13,6 +13,8 @@
    none, and then does a floating-point calculation.  An undefined
    instruction there ends the run (SIGILL is caught and logged).
 
+   "reclaim" calls __pthread_vfp_reclaim () first, as a Thumb program
+   should (5.0.3.8): then the counts must all be "own".
    "threads" as an argument adds a second thread (so UnixLib's ticker
    and its Wimp filters run).  Built as ARM (vfppolltest) and as Thumb
    (vfppolltestt): VFPSupport's lazy activation behaves differently for
@@ -28,6 +30,7 @@
 #include <unistd.h>
 #include <kernel.h>
 #include <swis.h>
+#include <unixlib/local.h>
 
 #ifndef VFPSupport_ActiveContext
 #define VFPSupport_ActiveContext 0x58EC6
@@ -37,6 +40,7 @@ static FILE *logf;
 static const char *where = "start";
 static int own, same, other, none, polls, starts;
 static volatile double sink;
+static int reclaim;
 
 static void
 logline (const char *s)
@@ -54,14 +58,14 @@ report (const char *verdict)
 {
   char line[256];
   snprintf (line, sizeof line,
-	    "%s %s: %d polls, %d task starts; active context afterwards: "
+	    "%s%s %s: %d polls, %d task starts; active context afterwards: "
 	    "own %d, another %d, none %d",
 #ifdef __thumb__
 	    "Thumb",
 #else
 	    "ARM",
 #endif
-	    verdict, polls, starts, same, other, none);
+	    reclaim ? " reclaim" : "", verdict, polls, starts, same, other, none);
   logline (line);
   _kernel_oserror e;
   e.errnum = 0;
@@ -124,7 +128,14 @@ main (int argc, char **argv)
       return d > 0 ? 0 : 1;
     }
 
-  int threads = argc > 1 && strcmp (argv[1], "threads") == 0;
+  int threads = 0;
+  for (int a = 1; a < argc; a++)
+    {
+      if (strcmp (argv[a], "threads") == 0)
+	threads = 1;
+      else if (strcmp (argv[a], "reclaim") == 0)
+	reclaim = 1;
+    }
   logf = fopen ("<Wimp$ScrapDir>.VFPPoll", "a");
   _swix (VFPSupport_ActiveContext, _OUT(0), &own);
   {
@@ -135,7 +146,8 @@ main (int argc, char **argv)
 #else
 	      "ARM",
 #endif
-	      threads ? ", 2 threads" : "", own);
+	      threads ? (reclaim ? ", 2 threads, reclaim" : ", 2 threads")
+		      : (reclaim ? ", reclaim" : ""), own);
     logline (line);
   }
   signal (SIGILL, on_sigill);
@@ -166,12 +178,16 @@ main (int argc, char **argv)
   for (int round = 0; round < 50; round++)
     {
       _swix (Wimp_StartTask, _IN(0), cmd);
+      if (reclaim)
+	__pthread_vfp_reclaim ();
       check ("Wimp_StartTask");
       starts++;
       for (int i = 0; i < 5; i++)
 	{
 	  int reason;
 	  _swix (Wimp_Poll, _INR(0,1) | _OUT(0), 0, block, &reason);
+	  if (reclaim)
+	    __pthread_vfp_reclaim ();
 	  check ("Wimp_Poll");
 	  polls++;
 	  if (reason == 17 || reason == 18)	/* Message_Quit */

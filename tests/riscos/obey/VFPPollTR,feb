@@ -1,0 +1,7 @@
+| VFPPoll as Thumb code, calling __pthread_vfp_reclaim after every
+| Wimp_Poll and Wimp_StartTask (5.0.3.8). Must PASS: own context every
+| time. Run from the desktop.
+Set UST$Dir <Obey$Dir>
+Set VFPPoll$Child <UST$Dir>.VFPChild
+WimpSlot -min 8000K
+Run <UST$Dir>.vfppolltestt reclaim
