@@ -147,3 +147,12 @@ t_unixlib_fd (void)
   return r;
 }
 int t_msync (void *p, int len) { return msync (p, len, MS_SYNC); }
+
+/* An anonymous mapping with protection PROT: the address, or 0.  */
+void *
+t_mmap_anon_prot (int prot)
+{
+  void *p = mmap (NULL, 8192, prot, MAP_PRIVATE | MAP_ANON, -1, 0);
+  return p == MAP_FAILED ? NULL : p;
+}
+int t_mprotect_bad (void) { return mprotect ((void *) 0x8001, 4096, PROT_READ); }

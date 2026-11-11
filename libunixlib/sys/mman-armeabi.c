@@ -138,6 +138,22 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
   return __mmap_offset32 (addr, len, prot, flags, fd, (unsigned long) offset);
 }
 
+/* 2026: give a mapping that was made writable to be filled the
+   protection asked for.  Through MAP with the mapping's own address, not
+   PROTECT: ARMEABISupport records the new protection only then (for a
+   whole block), and munmap, msync and mremap act on the recorded one (a
+   read-only file mapping would otherwise be written back).  If
+   ARMEABISupport refuses, the mapping is left more accessible than
+   asked, which programs don't depend on.  */
+static void *
+mmap_set_prot (void *result, size_t size, int prot, int fill_prot)
+{
+  if (fill_prot != prot)
+    (void) _swix (ARMEABISupport_MMapOp, _INR(0,6),
+		  ARMEABISUPPORT_MMAPOP_MAP, result, size, prot, 0, -1, 0);
+  return result;
+}
+
 /* mmap, and mmap64 for offsets up to 4GB-1.  */
 void *
 __mmap_offset32 (void *addr, size_t len, int prot, int flags, int fd,
@@ -156,12 +172,25 @@ __mmap_offset32 (void *addr, size_t len, int prot, int flags, int fd,
   /* We don't support MAP_PRIVATE. However, we will just use MAP_SHARED instead
      rather than changing all the user code calling us.  */
 
+  /* 2026: UnixLib writes into an anonymous mapping (zeros) and into a
+     mapping of a file it reads in itself, so those are mapped readable
+     and writable first and given the protection asked for afterwards.
+     With ARMEABISupport 1.08 on hardware a page mapped without
+     PROT_WRITE can't be written from USR mode: JavaScriptCore's
+     PROT_NONE guard pages aborted in the memset (Web Browser, Pi 4,
+     native RISC OS 5.31).  */
+  int fill = (flags & MAP_ANON) != 0;
+  if (!fill && fd != -1)
+    fill = !BADF (fd)
+	   || __armeabi_fd_type (fd) == ARMEABISUPPORT_FD_TYPE_SHARED_FILE;
+  int fill_prot = fill ? (prot | PROT_READ | PROT_WRITE) : prot;
+
   void *result;
   _kernel_oserror *err;
   err = _swix (ARMEABISupport_MMapOp, _INR(0,6)|_OUT(0), ARMEABISUPPORT_MMAPOP_MAP,
 							 addr,
 							 len,
-							 prot,
+							 fill_prot,
 							 flags,
 							 fd,
 							 offset,
@@ -174,12 +203,14 @@ __mmap_offset32 (void *addr, size_t len, int prot, int flags, int fd,
   size_t mapped_size = page_align (gbl, len);
 
   if (flags & MAP_ANON)
-    memset (result, 0, mapped_size);
-
-  /* 2026: an anonymous mapping takes no data from fd (it used to read
-     from it if fd was one of UnixLib's, and fail for other values with
-     ARMEABISupport 1.08).  */
-  if (fd == -1 || (flags & MAP_ANON))
+    {
+      memset (result, 0, mapped_size);
+      /* 2026: an anonymous mapping takes no data from fd (it used to read
+	 from it if fd was one of UnixLib's, and fail for other values with
+	 ARMEABISupport 1.08).  */
+      return mmap_set_prot (result, mapped_size, prot, fill_prot);
+    }
+  if (fd == -1)
     return result;
 
   /* 2026: an fd that isn't UnixLib's.  Shared memory is mapped by
@@ -213,6 +244,8 @@ __mmap_offset32 (void *addr, size_t len, int prot, int flags, int fd,
       if (size < 0)
 	{
 	  int save_errno = errno;
+	  /* Not written back by munmap unless PROT_WRITE was asked for.  */
+	  mmap_set_prot (result, mapped_size, prot, fill_prot);
 	  munmap (result, mapped_size);
 	  lseek64 (fd, oldpos, SEEK_SET);
 	  return (void *) __set_errno (save_errno);
@@ -232,7 +265,7 @@ __mmap_offset32 (void *addr, size_t len, int prot, int flags, int fd,
   if (mapped_size - len > 0)
     memset (result + len, 0, mapped_size - len);
 
-  return result;
+  return mmap_set_prot (result, mapped_size, prot, fill_prot);
 }
 
 /* Deallocate any mapping for the region starting at ADDR and extending LEN
@@ -297,8 +330,9 @@ mprotect (void * addr __attribute__ ((__unused__)),
 {
   struct ul_global *gbl = &__ul_global;
 
+  /* 2026: -1 and errno, as POSIX says (it returned EINVAL itself).  */
   if (!addr || (size_t)addr & (gbl->pagesize - 1))
-    return EINVAL;
+    return __set_errno (EINVAL);
 
   _kernel_oserror *err;
   err = _swix(ARMEABISupport_MMapOp, _INR(0,3), ARMEABISUPPORT_MMAPOP_PROTECT,

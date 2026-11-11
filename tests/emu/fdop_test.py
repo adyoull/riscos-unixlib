@@ -253,7 +253,11 @@ class Machine:
             raise RuntimeError("FdOp %d" % reason)
 
     def mmapop(self, r):
-        if r[0] == 0:                          # MAP
+        if r[0] == 0 and r[1] != 0:            # MAP at an address: as 1.08,
+            if r[1] not in self.maps:          # a new protection for a block
+                return self.error(0x81DC2D)    # ENOMEM
+            self.reg(UC_ARM_REG_R0, r[1])
+        elif r[0] == 0:                        # MAP
             addr = MAPS + PAGE * len(self.maps)
             fd = r[5] - (1 << 32) if r[5] >= 0x80000000 else r[5]
             self.maps[addr] = (r[2], fd)
@@ -266,6 +270,8 @@ class Machine:
             ln, fd = self.maps[r[1]]
             for x, v in zip(REGS, (r[1], ln, 3, 1, fd, 0)):
                 self.reg(x, v)
+        elif r[0] == 3:                        # PROTECT
+            pass
         elif r[0] == 7:                        # MSYNC (1.07 and later)
             if self.version != 108:
                 raise RuntimeError("MSYNC on 1.05")
@@ -331,6 +337,22 @@ def test(elf, syms, v):
           tag + ": MAP_ANON with any fd")
     m = M()
     fails_with(m, m.call("t_close", -1), EBADF if v == 108 else EBADF, tag + ": close(-1)")
+    # Anonymous memory is mapped writable, zeroed, then given the
+    # protection asked for (PROT_NONE guard pages aborted in the memset).
+    # UnixLib's PROT_READ is 4, PROT_WRITE 2.
+    m = M()
+    m.calls = []
+    p = m.call("t_mmap_anon_prot", 0) & 0xFFFFFFFF
+    maps = [c[1:] for c in m.calls if c[0] == MMapOp]
+    check(p != 0 and len(maps) == 2 and maps[0][1] == 0 and maps[0][3] == 6
+          and maps[1][0] == 0 and maps[1][1] == p and maps[1][2] == 8192
+          and maps[1][3] == 0,
+          "%s: mmap PROT_NONE anon: MAP with RW, then MAP at it with NONE (%s)" % (tag, maps))
+    m.calls = []
+    m.call("t_mmap_anon_prot", 6)        # PROT_READ | PROT_WRITE
+    check([c[1] for c in m.calls if c[0] == MMapOp] == [0],
+          tag + ": mmap RW anon: no PROTECT")
+    fails_with(m, m.call("t_mprotect_bad"), EINVAL, tag + ": mprotect of an unaligned address")
 
     if v == 105:
         # Shared memory as before: ShmOp 2 closes, 3 dups.

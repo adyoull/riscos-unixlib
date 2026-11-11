@@ -103,6 +103,48 @@ main (void)
       }
   }
 
+  /* 5.0.3.9: mappings UnixLib fills itself are made writable first.
+     With ARMEABISupport 1.08 on hardware the zeroing of a PROT_NONE
+     anonymous mapping (a guard page) aborted, and so would reading a
+     file into a PROT_READ mapping.  */
+  {
+    char *g = mmap (NULL, 8192, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    result ("mmap PROT_NONE anonymous (no abort)", g != MAP_FAILED);
+    if (g != MAP_FAILED)
+      {
+	result ("  mprotect to read/write",
+		mprotect (g, 8192, PROT_READ | PROT_WRITE) == 0);
+	result ("  zeroed", g[0] == 0 && g[8191] == 0);
+	g[100] = 42;
+	result ("  writable", g[100] == 42);
+	result ("  munmap", munmap (g, 8192) == 0);
+      }
+    const char *name = "<Wimp$ScrapDir>.unixlibmm";
+    FILE *f = fopen (name, "w");
+    if (f)
+      {
+	fputs ("mapped read-only", f);
+	fclose (f);
+      }
+    int fd = open (name, O_RDWR);
+    result ("open a file", fd != -1);
+    if (fd != -1)
+      {
+	char *m = mmap (NULL, 4096, PROT_READ, MAP_SHARED, fd, 0);
+	result ("mmap PROT_READ of a file (no abort)", m != MAP_FAILED);
+	if (m != MAP_FAILED)
+	  {
+	    result ("  contents", memcmp (m, "mapped read-only", 16) == 0);
+	    result ("  munmap", munmap (m, 4096) == 0);
+	  }
+	struct stat st;
+	result ("  file not written back (still 16 bytes)",
+		fstat (fd, &st) == 0 && st.st_size == 16);
+	close (fd);
+      }
+    remove (name);
+  }
+
 done:
   printf ("%s\n", bad ? "FAIL" : "PASS");
   return bad;
