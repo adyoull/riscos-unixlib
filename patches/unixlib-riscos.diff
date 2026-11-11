@@ -1,5 +1,5 @@
 diff --git a/gcc4/recipe/files/gcc/libunixlib/Makefile.am b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-index e887b17..4e50c43 100644
+index e887b17..be9abf3 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 +++ b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 @@ -622,6 +622,7 @@ netlib_src = \
@@ -93,7 +93,7 @@ index e887b17..4e50c43 100644
 +unixlib_asm_objs = $(patsubst %.s,%.lo,$(notdir $(filter %.s,$(libunixlib_la_SOURCES))))
 +$(unixlib_asm_objs) crt0.o gcrt0.o sul.o pthticker.o: $(unixlib_asm_deps)
 +
-+libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 9:0:4 -Wl,--version-script -Wl,$(top_srcdir)/vscript
++libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 9:1:4 -Wl,--version-script -Wl,$(top_srcdir)/vscript
  
  libm_la_SOURCES = libm-support/libm.c
  
@@ -224,7 +224,7 @@ index b5e931d..0825bef 100644
  
        if (*in == '<')
 diff --git a/gcc4/recipe/files/gcc/libunixlib/configure.ac b/gcc4/recipe/files/gcc/libunixlib/configure.ac
-index 53fe31c..091cb29 100644
+index 53fe31c..5a54896 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/configure.ac
 +++ b/gcc4/recipe/files/gcc/libunixlib/configure.ac
 @@ -5,7 +5,7 @@ dnl Process this file with autoconf to produce a configure script
@@ -232,17 +232,17 @@ index 53fe31c..091cb29 100644
  
  AC_PREREQ(2.64)
 -AC_INIT([RISC OS UnixLib C Runtime Library], 5.0, [http://gccsdk.riscos.info/], [libunixlib])
-+AC_INIT([RISC OS UnixLib C Runtime Library], 5.0.3.8, [https://github.com/adyoull/riscos-unixlib/issues], [libunixlib])
++AC_INIT([RISC OS UnixLib C Runtime Library], 5.0.3.9, [https://github.com/adyoull/riscos-unixlib/issues], [libunixlib])
  AC_CONFIG_SRCDIR([assert/assert.c])
  AC_CONFIG_HEADER(config.h)
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help b/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
-index 7775d56..63dbdee 100644
+index 7775d56..e1e8353 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
 +++ b/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
 @@ -1,4 +1,4 @@
 -                                UnixLib 5.0
-+                               UnixLib 5.0.3.8
++                               UnixLib 5.0.3.9
                                  ~~~~~~~~~~~
  
  This document provides a VERY short introduction to UnixLib, and only covers
@@ -456,7 +456,7 @@ index 7f01c57..e851d26 100644
  
  	.text
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h
-index e45417e..fd02f5c 100644
+index e45417e..8374c9f 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h
 @@ -38,8 +38,9 @@ __BEGIN_DECLS
@@ -470,7 +470,7 @@ index e45417e..fd02f5c 100644
  
  /* Call a device function, ensuring we don't refer to an invalid device */
  #define dev_funcall(type, func, args) __funcall ((*(__dev[(type) < NDEV ? (type) : DEV_NULL].func)), args)
-@@ -74,6 +75,9 @@ extern int __fsclose (struct __unixlib_fd *__fd);
+@@ -74,9 +75,15 @@ extern int __fsclose (struct __unixlib_fd *__fd);
  extern int __fsread (struct __unixlib_fd *__fd, void *__data, int __nbyte);
  extern int __fswrite (struct __unixlib_fd *__fd, const void *__data, int __nbyte);
  extern __off_t __fslseek (struct __unixlib_fd *__fd, __off_t __lpos, int __whence);
@@ -480,7 +480,13 @@ index e45417e..fd02f5c 100644
  extern int __fsstat (const char *__filename, struct stat *__buf);
  extern int __fsfstat (int __fd, struct stat *__buf);
  extern int __fslstat (const char *__filename, struct stat *__buf);
-@@ -126,6 +130,12 @@ extern int __dspwrite (struct __unixlib_fd *__fd, const void *__data, int __nbyt
++/* 2026: positions past the end of a file (unix/dev.c).  */
++extern void __fs_past_end_forget (int __handle);
++extern void __fs_past_end_flush (void);
+ 
+ /* /dev/tty, /dev/console, /dev/rs423, /dev/ttyS0 support */
+ extern void *__ttyopen (struct __unixlib_fd *__fd, const char *file, int __mode);
+@@ -126,6 +133,12 @@ extern int __dspwrite (struct __unixlib_fd *__fd, const void *__data, int __nbyt
  extern __off_t __dsplseek (struct __unixlib_fd *__fd, __off_t __lpos, int __whence);
  extern int __dspioctl (struct __unixlib_fd *__fd, unsigned long __request, void *__arg);
  
@@ -7591,7 +7597,7 @@ index bce2b55..081d3a4 100644
        return (void *) oldbrk;
      }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/exec.c b/gcc4/recipe/files/gcc/libunixlib/sys/exec.c
-index cdee4d5..a34569f 100644
+index cdee4d5..e2e55d1 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/exec.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/exec.c
 @@ -10,6 +10,7 @@
@@ -7602,7 +7608,18 @@ index cdee4d5..a34569f 100644
  #include <sys/param.h>
  #include <swis.h>
  #include <sys/wait.h>
-@@ -411,6 +412,11 @@ execve (const char *execname, char *const argv[], char *const envp[])
+@@ -364,6 +365,10 @@ execve (const char *execname, char *const argv[], char *const envp[])
+       envlen = 0;
+     }
+ 
++  /* 2026: a child (UnixLib or not) shares the RISC OS file handles, so
++     positions past the end of a file are set as file pointers now.  */
++  __fs_past_end_flush ();
++
+   /* Setup RISC OS redirection.  This will only be used by non-UL child
+      processes.  */
+   if (sulproc->ppid != 1)
+@@ -411,6 +416,11 @@ execve (const char *execname, char *const argv[], char *const envp[])
        __pthread_stop_ticker ();
        gbl->pthread_system_running = 0;
      }
@@ -7614,7 +7631,7 @@ index cdee4d5..a34569f 100644
  
  #if __UNIXLIB_FEATURE_ITIMERS
    /* Stop any interval timers that might be running.  Technically
-@@ -466,8 +472,9 @@ execve (const char *execname, char *const argv[], char *const envp[])
+@@ -466,8 +476,9 @@ execve (const char *execname, char *const argv[], char *const envp[])
    /* Record the fact that the new process was the result of exec().  */
    sulproc->status.execed = 1;
  
@@ -7626,7 +7643,7 @@ index cdee4d5..a34569f 100644
      {
        /* Tell the Shared Object Manager that the current client has exited.
  	 We can still access global variables afterwards, because the PIC
-@@ -477,7 +484,6 @@ execve (const char *execname, char *const argv[], char *const envp[])
+@@ -477,7 +488,6 @@ execve (const char *execname, char *const argv[], char *const envp[])
  
        (void) __os_swi (SOM_DeregisterClient, regs);
      }
@@ -8508,7 +8525,7 @@ index 0000000..c1d8f1f
 +#endif
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c b/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
-index 4290c5f..452f22a 100644
+index 4290c5f..3616d7f 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/vfork.c
 @@ -12,6 +12,7 @@
@@ -8697,6 +8714,14 @@ index 4290c5f..452f22a 100644
        /* Reset the DDEUtils' Prefix variable to the value before the fork,
           in case the child has changed it. */
        if (dde_prefix)
+@@ -145,6 +285,7 @@ __fork_post (pid_t pid, int isfork)
+ 		  /* FIXME: is getfd (1)->devicehandle valid ? I.e. no need for
+ 		     BADF (1) test ? */
+ 		  getfd (1)->devicehandle->handle = (void *) prev_fh_out;
++		  __fs_past_end_forget (prev_fh_out);
+ 		  __off_t extent;
+ 		  if (SWI_OS_Args_GetExtent (prev_fh_out, &extent) == NULL)
+ 		    (void) SWI_OS_Args_SetFilePtr (prev_fh_out, extent);
 diff --git a/gcc4/recipe/files/gcc/libunixlib/termios/cuserid.c b/gcc4/recipe/files/gcc/libunixlib/termios/cuserid.c
 index 9b84e27..bcb94e6 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/termios/cuserid.c
@@ -8854,7 +8879,7 @@ index b08fb6d..8b8c45b 100644
  		    : "r14", "cc", "memory");
    *termp = term;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/dev.c b/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
-index de312db..1906827 100644
+index de312db..18ed819 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/unix/dev.c
 @@ -78,6 +78,11 @@ const struct dev __dev[NDEV] = {
@@ -8879,7 +8904,144 @@ index de312db..1906827 100644
    {"custom", DEV_CUSTOM},
  /*   {"pipe", DEV_PIPE}, does open on /dev/pipe make sense ?  */
  /*   {"socket", DEV_SOCKET}, does open on /dev/socket make sense ?  */
-@@ -390,6 +398,43 @@ __fsclose (struct __unixlib_fd *file_desc)
+@@ -151,6 +159,117 @@ __getdevtype (const char *filename, int ro_control)
+   return DEV_RISCOS;
+ }
+ 
++/* 2026: a file position past the end of the file.
++
++   On RISC OS, setting a file pointer past the extent (OS_Args 1) extends
++   the file at once, filling the gap with zeros.  POSIX lseek doesn't
++   change the file: a read there gives end of file, and only a write
++   fills the gap.  SQLite, for one, reads 16 bytes at offset 24 of a new
++   database to see whether it is empty; the file became 24 zero bytes and
++   was "not a database" ever after (Web Browser, Pi 4, RISC OS 5.31, SDFS).
++
++   So a position past the extent is only remembered, by RISC OS file
++   handle (fds made by dup share the handle, and so the position, as in
++   POSIX): reads return end of file while it is still past the extent, a
++   write sets the pointer first (the OS makes the gap of zeros, as a POSIX
++   write would), lseek SEEK_CUR counts from it, and a position inside the
++   file, or a close or a new open of the handle, forgets it.  Kept here
++   rather than in the handle structure, whose size SharedUnixLibrary
++   fixes.  Before exec, remembered positions are set as file pointers
++   (__fs_past_end_flush), as before 2026, so a child sees them.  0 means
++   none; otherwise the position + 1.  */
++static unsigned long long fs_past_end[256];
++
++static __inline__ void
++fs_past_end_clear (int handle)
++{
++  if ((unsigned) handle < 256)
++    fs_past_end[handle] = 0;
++}
++
++/* A handle that didn't come through __fsopen: no remembered position.  */
++void
++__fs_past_end_forget (int handle)
++{
++  fs_past_end_clear (handle);
++}
++
++/* Before exec: set every remembered position as the file pointer (which
++   extends the file, as before 2026) and forget it.  */
++void
++__fs_past_end_flush (void)
++{
++  for (int h = 0; h < 256; h++)
++    if (fs_past_end[h] != 0)
++      {
++	(void) SWI_OS_Args_SetFilePtr (h, (__off_t) (fs_past_end[h] - 1));
++	fs_past_end[h] = 0;
++      }
++}
++
++/* Set the file pointer to POS, or only remember POS if it is past the
++   extent.  A negative 32-bit position (NEG) goes to the OS as before.  */
++static const _kernel_oserror *
++fs_set_ptr_ (int handle, unsigned long pos, int neg)
++{
++  const _kernel_oserror *err;
++  __off_t extent;
++  if (!neg && (unsigned) handle < 256
++      && (err = SWI_OS_Args_GetExtent (handle, &extent)) == NULL
++      && pos > (unsigned long) extent)
++    {
++      fs_past_end[handle] = (unsigned long long) pos + 1;
++      return NULL;
++    }
++  /* A failed SWI leaves the position as it was (POSIX).  */
++  if ((err = SWI_OS_Args_SetFilePtr (handle, (__off_t) pos)) == NULL)
++    fs_past_end_clear (handle);
++  return err;
++}
++#define fs_set_ptr(h, pos) fs_set_ptr_ (h, pos, 0)
++#define fs_set_ptr32(h, lpos) \
++  fs_set_ptr_ (h, (unsigned long) (lpos), (lpos) < 0)
++
++/* The current position: a remembered one, or the file pointer.  */
++static const _kernel_oserror *
++fs_get_ptr (int handle, unsigned long *pos)
++{
++  if ((unsigned) handle < 256 && fs_past_end[handle] != 0)
++    {
++      *pos = (unsigned long) (fs_past_end[handle] - 1);
++      return NULL;
++    }
++  __off_t ptr;
++  const _kernel_oserror *err = SWI_OS_Args_GetFilePtr (handle, &ptr);
++  *pos = (unsigned long) ptr;
++  return err;
++}
++
++/* Before a read or write: a remembered position.  For a read, 1 if it is
++   still at or past the extent (end of file); otherwise (the file has
++   grown, or for a write) the pointer is set to it and it is forgotten.  */
++static int
++fs_past_end_settle (int handle, int reading, const _kernel_oserror **err)
++{
++  *err = NULL;
++  if ((unsigned) handle >= 256 || fs_past_end[handle] == 0)
++    return 0;
++  unsigned long pos = (unsigned long) (fs_past_end[handle] - 1);
++  if (reading)
++    {
++      __off_t extent;
++      if ((*err = SWI_OS_Args_GetExtent (handle, &extent)) != NULL)
++	return 0;
++      if (pos >= (unsigned long) extent)
++	return 1;
++    }
++  /* Forgotten only once the pointer is set: after an error (a full disc,
++     say), the position is still the remembered one.  */
++  if ((*err = SWI_OS_Args_SetFilePtr (handle, (__off_t) pos)) == NULL)
++    fs_past_end[handle] = 0;
++  return 0;
++}
++
+ void *
+ __fsopen (struct __unixlib_fd *file_desc, const char *ux_filename, int mode)
+ {
+@@ -339,12 +458,18 @@ __fsopen (struct __unixlib_fd *file_desc, const char *ux_filename, int mode)
+       return (void *) __set_errno (EAGAIN);
+     }
+ 
++  fs_past_end_clear (fd);
+   return (void *) fd;
+ }
+ 
+ int
+ __fsclose (struct __unixlib_fd *file_desc)
+ {
++  /* The last fd on the handle: forget a remembered position (even for
++     a handle we don't close, which is used without one afterwards).  */
++  if (!(file_desc->dflag & FILE_ISDIR))
++    fs_past_end_clear ((int) file_desc->devicehandle->handle);
++
+   /* If we got the RISC OS file handle from OS, we don't close it.  */
+   if (file_desc->dflag & FILE_HANDLE_FROM_OS)
+     return 0;
+@@ -390,6 +515,43 @@ __fsclose (struct __unixlib_fd *file_desc)
    return (!err) ? 0 : __ul_seterr (err, EOPSYS);
  }
  
@@ -8923,10 +9085,14 @@ index de312db..1906827 100644
  int
  __fsread (struct __unixlib_fd *file_desc, void *data, int nbyte)
  {
-@@ -414,6 +459,10 @@ __fsread (struct __unixlib_fd *file_desc, void *data, int nbyte)
+@@ -414,6 +576,14 @@ __fsread (struct __unixlib_fd *file_desc, void *data, int nbyte)
      {
        const _kernel_oserror *err;
        unsigned not_read;
++      if (fs_past_end_settle ((int) file_desc->devicehandle->handle, 1, &err))
++	return 0;		/* past the end: end of file */
++      if (err)
++	return __ul_seterr (err, EOPSYS);
 +#ifdef __ARM_EABI__
 +      if (nbyte > 0)
 +	touch_stack_pages (data, nbyte);
@@ -8934,7 +9100,52 @@ index de312db..1906827 100644
        if ((err = SWI_OS_GBPB_ReadBytes ((int) file_desc->devicehandle->handle,
  					data, nbyte, &not_read)) != NULL)
  	return __ul_seterr (err, EOPSYS);
-@@ -475,6 +524,44 @@ __fslseek (struct __unixlib_fd * file_desc, __off_t lpos, int whence)
+@@ -431,6 +601,10 @@ __fswrite (struct __unixlib_fd *file_desc, const void *data, int nbyte)
+ #endif
+   const _kernel_oserror *err;
+   unsigned not_written;
++  /* A remembered position past the end: the gap is made now.  */
++  (void) fs_past_end_settle ((int) file_desc->devicehandle->handle, 0, &err);
++  if (err)
++    return __ul_seterr (err, EOPSYS);
+   if ((err = SWI_OS_GBPB_WriteBytes ((int) file_desc->devicehandle->handle,
+ 				     data, nbyte, &not_written)) != NULL)
+     return __ul_seterr (err, EOPSYS);
+@@ -446,18 +620,19 @@ __fslseek (struct __unixlib_fd * file_desc, __off_t lpos, int whence)
+ 
+   const _kernel_oserror *err;
+   int handle = (int) file_desc->devicehandle->handle;
++  /* 2026: positions past the extent are only remembered (fs_set_ptr).  */
+   if (whence == SEEK_SET)
+-    err = SWI_OS_Args_SetFilePtr (handle, lpos);
++    err = fs_set_ptr32 (handle, lpos);
+   else if (whence == SEEK_CUR)
+     {
+-      __off_t fileptr;
+-      err = SWI_OS_Args_GetFilePtr (handle, &fileptr);
++      unsigned long fileptr;
++      err = fs_get_ptr (handle, &fileptr);
+       if (!err)
+ 	{
+ 	  __off_t old_lpos = lpos;
+-	  lpos += fileptr;
++	  lpos += (__off_t) fileptr;
+ 	  if (old_lpos)
+-	    err = SWI_OS_Args_SetFilePtr (handle, lpos);
++	    err = fs_set_ptr32 (handle, lpos);
+ 	}
+     }
+   else if (whence == SEEK_END)
+@@ -466,7 +641,7 @@ __fslseek (struct __unixlib_fd * file_desc, __off_t lpos, int whence)
+       if ((err = SWI_OS_Args_GetExtent (handle, &extent)) == NULL)
+ 	{
+ 	  lpos += extent;
+-	  err = SWI_OS_Args_SetFilePtr (handle, lpos);
++	  err = fs_set_ptr32 (handle, lpos);
+ 	}
+     }
+   else
+@@ -475,6 +650,48 @@ __fslseek (struct __unixlib_fd * file_desc, __off_t lpos, int whence)
    return !err ? lpos : __ul_seterr (err, EOPSYS);
  }
  
@@ -8953,7 +9164,11 @@ index de312db..1906827 100644
 +  __off_t base32 = 0;
 +
 +  if (whence == SEEK_CUR)
-+    err = SWI_OS_Args_GetFilePtr (handle, &base32);
++    {
++      unsigned long cur;
++      err = fs_get_ptr (handle, &cur);
++      base32 = (__off_t) cur;
++    }
 +  else if (whence == SEEK_END)
 +    err = SWI_OS_Args_GetExtent (handle, &base32);
 +  else if (whence != SEEK_SET)
@@ -8969,7 +9184,7 @@ index de312db..1906827 100644
 +
 +  if (whence != SEEK_CUR || lpos != 0)
 +    {
-+      err = SWI_OS_Args_SetFilePtr (handle, (__off_t) (unsigned long) pos);
++      err = fs_set_ptr (handle, (unsigned long) pos);
 +      if (err)
 +	return __ul_seterr (err, EOPSYS);
 +    }
@@ -9627,10 +9842,18 @@ index dee2f50..acd90b5 100644
    return lseek (fd, (__off_t) offset, whence);
  }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/ul_open.c b/gcc4/recipe/files/gcc/libunixlib/unix/ul_open.c
-index ca82ebd..4ed7e7e 100644
+index ca82ebd..18cbe6e 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/ul_open.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/unix/ul_open.c
-@@ -113,6 +113,18 @@ open (const char *file, int oflag, ...)
+@@ -29,6 +29,7 @@ __open_fh (int fd, int fh, int oflag, int mode)
+   struct __unixlib_fd *file_desc = getfd (fd);
+   file_desc->fflag = oflag;
+   file_desc->dflag = FILE_HANDLE_FROM_OS; /* Never close this handle. */
++  __fs_past_end_forget (fh);
+ 
+   struct __sul_process *sulproc = __ul_global.sulproc;
+   file_desc->devicehandle = sulproc->sul_malloc (sulproc->pid,
+@@ -113,6 +114,18 @@ open (const char *file, int oflag, ...)
    else
      mode = 0777;
  
