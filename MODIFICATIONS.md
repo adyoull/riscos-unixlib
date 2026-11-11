@@ -79,6 +79,7 @@ the commits are named below.
 | `signal/_signal.s` | T5 sub-second interval timers repeat |
 | `sys/_syslib.s`, `signal/_signal.s`, `signal/post.c`, `sys/exec.c`, `incl-local/internal/unix.h` | J1 mixed linking: a dynamically linked program with the static library |
 | `pthread/pthinit.c`, `include/unixlib/local.h` | Z1 `__pthread_vfp_reclaim`: VFP after Wimp_Poll in Thumb programs |
+| `sys/mman-armeabi.c` | Q3 mmap fills a mapping while it is writable |
 | `grp/getgrgid_r.c`, `grp/getgrnam_r.c`, `pwd/getpwuid_r.c`, `pwd/getpwnam_r.c`, `pwd/getlogin.c`, `termios/cuserid.c` | G1 group and password lookups: `*result` and return values |
 | `common/riscosify.c` | U1 a run of leading slashes is one `/` |
 | `include/pthread.h`, `pthread/attrsched.c` (**new**), `Makefile.am` | P6 `pthread_attr_setscope`, `setinheritsched`, `setschedpolicy` and the get functions |
@@ -1135,6 +1136,38 @@ both while Iris was running (the owner, 2026-11-10). Not exercised:
 Escape inside a library, the `SOM_Location` backtrace, the `exec` and
 start-up-error deregistration.
 
+### Q3. mmap fills a mapping while it is writable (`sys/mman-armeabi.c`) - commit `895cf89`
+
+**The problem.** Found by the Web Browser project (Strada 0.0.0.14, JIT
+on, Pi 4, native RISC OS 5.31, ARMEABISupport 1.08): "abort on data
+transfer" in `memset` called from `__mmap_offset32`. JavaScriptCore maps
+guard pages `PROT_NONE` with `MAP_ANON` (often `MAP_FIXED` over its
+reservation); UnixLib passed `PROT_NONE` to MMapOp MAP and then zeroed the
+pages from USR mode, which 1.08 on hardware doesn't allow. Reading a file
+into a `PROT_READ` mapping would fail the same way. Under RISC OS on Linux
+the writes succeeded, so it only showed natively.
+
+**The change.** When UnixLib fills the mapping itself (`MAP_ANON` zeroing,
+or reading in a UnixLib file or an ARMEABISupport shared file), MAP is
+asked for the protection plus `PROT_READ | PROT_WRITE`; after filling,
+the protection asked for is set with MMapOp MAP at the mapping's own
+address. Not PROTECT: ARMEABISupport records a block's protection only
+through MAP (1.08's `armeabi_mmap_non_null_addr`), and munmap, msync and
+mremap act on the recorded one, so with PROTECT a read-only file mapping
+would have been written back at munmap (the review's finding). The
+protection is also set back before the munmap on a read error. Shared
+memory (not filled) is mapped as before. Also: `mprotect` of a bad
+address returns -1 with errno EINVAL (it returned EINVAL). Follows the
+Web Browser fork's W26.
+
+**Verification.** Peer-reviewed (its findings, PROTECT not recording the
+protection and the read-error path, are fixed). Emulator test: MAP with
+read/write then MAP at the address with `PROT_NONE`; no second call for a
+read/write mapping; `mprotect`'s error (90 checks). Pi test `Shm` adds a
+`PROT_NONE` anonymous mapping and a `PROT_READ` file mapping (no abort,
+contents, no write-back): passes on a Pi 4 with native RISC OS 5.31 and
+ARMEABISupport 1.07 or later (2026-11-11).
+
 ### Z1. `__pthread_vfp_reclaim`: VFP after Wimp_Poll in Thumb programs (`pthread/pthinit.c`, `include/unixlib/local.h`) - commit `08022c3`
 
 **The problem.** Found by the Web Browser project: on a Pi 4 (native
@@ -1167,8 +1200,9 @@ happens. Nothing calls it automatically (UnixLib doesn't wrap Wimp_Poll);
 ARM programs don't need it. No other code changes. libtool 9:0:4.
 
 **Verification.** By reading and disassembly (ARM, no VFP, one SWI).
-New Pi tests VFPPollTR and VFPPollTRThr (the Thumb build calling it) must
-PASS. Not yet run on RISC OS.
+New Pi tests VFPPollTR and VFPPollTRThr (the Thumb build calling it) pass
+on a Pi 4 with native RISC OS 5.31 (5.0.3.8-rc1, 2026-11-11): own context
+300 of 300, another 0, none 0.
 
 ### R1. Inline SWI wrappers: every register and memory the SWI changes - commit `c98c781`
 
@@ -2277,6 +2311,13 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 ---
 
 ## 8. Still to be done
+
+**Run on RISC OS (Pi 4, native 5.31, 2026-11-11):** VFPPoll and
+VFPPollThr (ARM) pass; VFPPollT and VFPPollTThr (Thumb) show the
+VFPSupport lazy-restart bug; VFPPollTR and VFPPollTRThr (Thumb with
+`__pthread_vfp_reclaim`) pass. `Shm` passes in full with ARMEABISupport
+1.07 or later, including Q3's `PROT_NONE` and `PROT_READ` mappings (the
+first native run of Q1/Q2's checks).
 
 **Run on RISC OS (5.0.3.7-rc2/rc4, RISC OS on Linux, 2026-11-06 to
 11-10):** `Shm` (Q1, Q2) passes with ARMEABISupport 1.08; MixTest (J1, 12

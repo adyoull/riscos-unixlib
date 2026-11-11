@@ -103,7 +103,7 @@ main (void)
       }
   }
 
-  /* 5.0.3.9: mappings UnixLib fills itself are made writable first.
+  /* 5.0.3.8: mappings UnixLib fills itself are made writable first.
      With ARMEABISupport 1.08 on hardware the zeroing of a PROT_NONE
      anonymous mapping (a guard page) aborted, and so would reading a
      file into a PROT_READ mapping.  */

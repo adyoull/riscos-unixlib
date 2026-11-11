@@ -153,7 +153,7 @@ Sem         semaphores: sem_timedwait times out after about 200 ms while
             Each line must say ok, then PASS.
 Shm         shared memory (shm_open, ftruncate, mmap twice, msync, dup,
             close, shm_unlink), a file opened with O_SHAREDFILE, and
-            (5.0.3.9) a PROT_NONE anonymous mapping and a PROT_READ
+            (5.0.3.8) a PROT_NONE anonymous mapping and a PROT_READ
             mapping of a file, which must not abort. The
             first line says which ARMEABISupport it found (1.05, or 1.07
             or later); it must work with either. Each line must say ok,
