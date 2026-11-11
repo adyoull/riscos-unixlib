@@ -1,0 +1,8 @@
+| VFP after Wimp_Poll: starts 50 short-lived UnixLib tasks and polls,
+| checking the active VFP context each time Wimp_Poll returns. Run from
+| the desktop (double-click). Result in an error box and in
+| <Wimp$ScrapDir>.VFPPoll. ARM build. With a second thread.
+Set UST$Dir <Obey$Dir>
+Set VFPPoll$Child <UST$Dir>.VFPChild
+WimpSlot -min 8000K
+Run <UST$Dir>.vfppolltest threads

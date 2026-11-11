@@ -156,6 +156,17 @@ Shm         shared memory (shm_open, ftruncate, mmap twice, msync, dup,
             first line says which ARMEABISupport it found (1.05, or 1.07
             or later); it must work with either. Each line must say ok,
             then PASS. Please say which version it reported.
+VFPPoll     floating point straight after Wimp_Poll (a probe for the
+            Web Browser's "Illegal Instruction"): run from the desktop.
+            It starts 50 short-lived UnixLib tasks (VFPChild) and polls,
+            and after every Wimp_Poll and Wimp_StartTask it counts
+            whether its own VFP context is active, another one, or none,
+            then does some floating point. An error box gives the counts:
+            PASS (always its own), DIFFERENT (finished, but another or no
+            context was active at some point) or FAIL (Illegal
+            instruction). VFPPollT is the same as Thumb code; VFPPollThr
+            and VFPPollTThr add a second thread. Please run all four and
+            send <Wimp$ScrapDir>.VFPPoll.
 
 Please report: what each one printed, whether it sounded right, any
 clicks or gaps, and the "max queued" figure.

@@ -1,0 +1,4 @@
+| Started by VFPPoll as a separate task: some floating point, then exit.
+| Not a test on its own.
+WimpSlot -min 4000K
+Run <UST$Dir>.vfppolltest child

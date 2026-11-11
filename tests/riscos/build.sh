@@ -11,21 +11,25 @@ PATH=$GCCSDK_ENV/bin:$PATH
 L=../../build/work/build/.libs
 O=out/UnixLibTests
 rm -rf out; mkdir -p $O
-for p in dsptest miditest nosound ejtest fsrotest tickertest schedtest lfstest heaptest daprobe fxtest eabxtest pmovtest efdtest fwtest dsstest preempttest itimertest faulttest renametest semtest shmtest; do
+for p in dsptest miditest nosound ejtest fsrotest tickertest schedtest lfstest heaptest daprobe fxtest eabxtest pmovtest efdtest fwtest dsstest preempttest itimertest faulttest renametest semtest shmtest vfppolltest; do
   flags=
   [ $p = lfstest ] && flags=-D_FILE_OFFSET_BITS=64
   arm-riscos-gnueabihf-gcc -O2 -static -fstack-clash-protection $flags -isystem ../../libunixlib/include -L$L $p.c -o out/$p.elf -lm
   GCCSDK_ENV="$GCCSDK_ENV" ../../tools/check-lib.sh out/$p.elf >/dev/null
   "$ELF2AIF" -e out/$p.elf $O/$p,ff8
 done
+# VFPPoll also as Thumb code (VFPSupport's lazy activation and Thumb).
+arm-riscos-gnueabihf-gcc -O2 -static -mthumb -fstack-clash-protection -isystem ../../libunixlib/include -L$L vfppolltest.c -o out/vfppolltestt.elf -lm
+GCCSDK_ENV="$GCCSDK_ENV" ../../tools/check-lib.sh out/vfppolltestt.elf >/dev/null
+"$ELF2AIF" -e out/vfppolltestt.elf $O/vfppolltestt,ff8
 # Each Obey file first prints the release it came from (the git tag, e.g.
 # 5.0.3.1-rc8), so a photo of a run shows which build was tested.
-# Not TickerChild: TickerStartTask starts it as a Wimp task, where output
+# Not TickerChild or VFPChild: they are started as Wimp tasks, where output
 # would open a command window.
 VER=$(git --no-optional-locks describe --tags 2>/dev/null | sed 's/^v//')
 VER=${VER:-unknown}
 for f in obey/*,feb; do
-  case $f in */TickerChild,feb) cp "$f" $O/; continue;; esac
+  case $f in */TickerChild,feb|*/VFPChild,feb) cp "$f" $O/; continue;; esac
   awk -v v="$VER" -v n="$(basename "$f" ,feb)" '
     !done && !/^\|/ { print "Echo UnixLibTests " v ": " n; done = 1 }
     { print }
