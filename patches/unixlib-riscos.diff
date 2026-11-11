@@ -7635,7 +7635,7 @@ index cdee4d5..a34569f 100644
    sulproc->sul_exec (sulproc->pid, cli,
  		     (void *) __ul_memory.stack_limit,
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/mman-armeabi.c b/gcc4/recipe/files/gcc/libunixlib/sys/mman-armeabi.c
-index 14d4f3e..70fe067 100644
+index 14d4f3e..bb84153 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/mman-armeabi.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/mman-armeabi.c
 @@ -5,28 +5,57 @@
@@ -7696,7 +7696,7 @@ index 14d4f3e..70fe067 100644
  static char coredump_dir[256];
  
  void
-@@ -100,6 +129,19 @@ __munmap_all (void)
+@@ -100,6 +129,35 @@ __munmap_all (void)
     deallocates any previous mapping for the affected region.  */
  void *
  mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
@@ -7709,6 +7709,22 @@ index 14d4f3e..70fe067 100644
 +  return __mmap_offset32 (addr, len, prot, flags, fd, (unsigned long) offset);
 +}
 +
++/* 2026: give a mapping that was made writable to be filled the
++   protection asked for.  Through MAP with the mapping's own address, not
++   PROTECT: ARMEABISupport records the new protection only then (for a
++   whole block), and munmap, msync and mremap act on the recorded one (a
++   read-only file mapping would otherwise be written back).  If
++   ARMEABISupport refuses, the mapping is left more accessible than
++   asked, which programs don't depend on.  */
++static void *
++mmap_set_prot (void *result, size_t size, int prot, int fill_prot)
++{
++  if (fill_prot != prot)
++    (void) _swix (ARMEABISupport_MMapOp, _INR(0,6),
++		  ARMEABISUPPORT_MMAPOP_MAP, result, size, prot, 0, -1, 0);
++  return result;
++}
++
 +/* mmap, and mmap64 for offsets up to 4GB-1.  */
 +void *
 +__mmap_offset32 (void *addr, size_t len, int prot, int flags, int fd,
@@ -7716,7 +7732,31 @@ index 14d4f3e..70fe067 100644
  {
    struct ul_global *gbl = &__ul_global;
  
-@@ -124,7 +166,9 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
+@@ -114,34 +172,70 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
+   /* We don't support MAP_PRIVATE. However, we will just use MAP_SHARED instead
+      rather than changing all the user code calling us.  */
+ 
++  /* 2026: UnixLib writes into an anonymous mapping (zeros) and into a
++     mapping of a file it reads in itself, so those are mapped readable
++     and writable first and given the protection asked for afterwards.
++     With ARMEABISupport 1.08 on hardware a page mapped without
++     PROT_WRITE can't be written from USR mode: JavaScriptCore's
++     PROT_NONE guard pages aborted in the memset (Web Browser, Pi 4,
++     native RISC OS 5.31).  */
++  int fill = (flags & MAP_ANON) != 0;
++  if (!fill && fd != -1)
++    fill = !BADF (fd)
++	   || __armeabi_fd_type (fd) == ARMEABISUPPORT_FD_TYPE_SHARED_FILE;
++  int fill_prot = fill ? (prot | PROT_READ | PROT_WRITE) : prot;
++
+   void *result;
+   _kernel_oserror *err;
+   err = _swix (ARMEABISupport_MMapOp, _INR(0,6)|_OUT(0), ARMEABISUPPORT_MMAPOP_MAP,
+ 							 addr,
+ 							 len,
+-							 prot,
++							 fill_prot,
+ 							 flags,
  							 fd,
  							 offset,
  							 &result);
@@ -7727,15 +7767,19 @@ index 14d4f3e..70fe067 100644
      return (void *) __set_errno (ENOMEM);
  
    size_t mapped_size = page_align (gbl, len);
-@@ -132,16 +176,35 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
-   if (flags & MAP_ANON)
-     memset (result, 0, mapped_size);
  
+   if (flags & MAP_ANON)
+-    memset (result, 0, mapped_size);
+-
 -  if (fd == -1 || IS_SHM_FD(fd))
-+  /* 2026: an anonymous mapping takes no data from fd (it used to read
-+     from it if fd was one of UnixLib's, and fail for other values with
-+     ARMEABISupport 1.08).  */
-+  if (fd == -1 || (flags & MAP_ANON))
++    {
++      memset (result, 0, mapped_size);
++      /* 2026: an anonymous mapping takes no data from fd (it used to read
++	 from it if fd was one of UnixLib's, and fail for other values with
++	 ARMEABISupport 1.08).  */
++      return mmap_set_prot (result, mapped_size, prot, fill_prot);
++    }
++  if (fd == -1)
      return result;
  
 +  /* 2026: an fd that isn't UnixLib's.  Shared memory is mapped by
@@ -7766,16 +7810,19 @@ index 14d4f3e..70fe067 100644
  
    while (count < mapped_size)
      {
-@@ -151,7 +214,7 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
+@@ -150,8 +244,10 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
+       if (size < 0)
  	{
  	  int save_errno = errno;
++	  /* Not written back by munmap unless PROT_WRITE was asked for.  */
++	  mmap_set_prot (result, mapped_size, prot, fill_prot);
  	  munmap (result, mapped_size);
 -	  lseek (fd, oldpos, SEEK_SET);
 +	  lseek64 (fd, oldpos, SEEK_SET);
  	  return (void *) __set_errno (save_errno);
  	}
        else if (size == 0)
-@@ -159,7 +222,7 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
+@@ -159,7 +255,7 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
  
        count += size;
      }
@@ -7784,7 +7831,16 @@ index 14d4f3e..70fe067 100644
  
    /* Ref: http://linux.die.net/man/2/mmap
     * "For a file that is not a multiple of the page size, the remaining memory
-@@ -200,18 +263,20 @@ munmap (void * addr, size_t len)
+@@ -169,7 +265,7 @@ mmap (void * addr, size_t len, int prot, int flags, int fd, off_t offset)
+   if (mapped_size - len > 0)
+     memset (result + len, 0, mapped_size - len);
+ 
+-  return result;
++  return mmap_set_prot (result, mapped_size, prot, fill_prot);
+ }
+ 
+ /* Deallocate any mapping for the region starting at ADDR and extending LEN
+@@ -200,18 +296,20 @@ munmap (void * addr, size_t len)
      {
        /* The start of a previously allocated block was passed in, is it a file
         * mapping?  */
@@ -7810,7 +7866,18 @@ index 14d4f3e..70fe067 100644
  	}
      }
  
-@@ -250,7 +315,7 @@ mprotect (void * addr __attribute__ ((__unused__)),
+@@ -232,8 +330,9 @@ mprotect (void * addr __attribute__ ((__unused__)),
+ {
+   struct ul_global *gbl = &__ul_global;
+ 
++  /* 2026: -1 and errno, as POSIX says (it returned EINVAL itself).  */
+   if (!addr || (size_t)addr & (gbl->pagesize - 1))
+-    return EINVAL;
++    return __set_errno (EINVAL);
+ 
+   _kernel_oserror *err;
+   err = _swix(ARMEABISupport_MMapOp, _INR(0,3), ARMEABISUPPORT_MMAPOP_PROTECT,
+@@ -250,7 +349,7 @@ mprotect (void * addr __attribute__ ((__unused__)),
     file it maps.  Filesystem operations on a file being mapped are
     unpredictable before this is done.  */
  int
@@ -7819,7 +7886,7 @@ index 14d4f3e..70fe067 100644
  {
    const struct ul_global *gbl = &__ul_global;
  
-@@ -262,6 +327,7 @@ msync (void * addr, size_t len, int syncflags __attribute__ ((__unused__)))
+@@ -262,6 +361,7 @@ msync (void * addr, size_t len, int syncflags __attribute__ ((__unused__)))
    off_t offset;
    int prot, flags, fd;
  
@@ -7827,7 +7894,7 @@ index 14d4f3e..70fe067 100644
    if ((size_t)addr & (gbl->pagesize - 1))
      return __set_errno (EINVAL);
  
-@@ -282,9 +348,7 @@ msync (void * addr, size_t len, int syncflags __attribute__ ((__unused__)))
+@@ -282,9 +382,7 @@ msync (void * addr, size_t len, int syncflags __attribute__ ((__unused__)))
    if (addr + len > mmap_addr + size)
      return __set_errno (ENOMEM);
  
@@ -7838,7 +7905,7 @@ index 14d4f3e..70fe067 100644
      return __set_errno (EINVAL);
  
    /* If no length specified, flush the whole mapping.  */
-@@ -294,10 +358,29 @@ msync (void * addr, size_t len, int syncflags __attribute__ ((__unused__)))
+@@ -294,10 +392,29 @@ msync (void * addr, size_t len, int syncflags __attribute__ ((__unused__)))
        addr = mmap_addr;
      }
  
@@ -7871,7 +7938,7 @@ index 14d4f3e..70fe067 100644
  
    return fail ? __set_errno (EIO) : 0;
  }
-@@ -349,6 +432,49 @@ mremap (void * addr, size_t old_len, size_t new_len, int may_move)
+@@ -349,6 +466,49 @@ mremap (void * addr, size_t old_len, size_t new_len, int may_move)
    return err ? (void *)__ul_seterr (err, __errno_from_armeabisupport(err->errnum)) : result;
  }
  
@@ -7921,7 +7988,7 @@ index 14d4f3e..70fe067 100644
  int shm_open(const char *name, int oflag, mode_t mode)
  {
    _kernel_oserror *err;
-@@ -359,7 +485,10 @@ int shm_open(const char *name, int oflag, mode_t mode)
+@@ -359,7 +519,10 @@ int shm_open(const char *name, int oflag, mode_t mode)
  						       mode,
  						       &fd);
  
@@ -7933,7 +8000,7 @@ index 14d4f3e..70fe067 100644
  }
  
  int shm_unlink(const char *name)
-@@ -403,6 +532,9 @@ int __errno_from_armeabisupport (int errnum)
+@@ -403,6 +566,9 @@ int __errno_from_armeabisupport (int errnum)
    case ARMEABISUPPORT_ERROR_ENOMEM:
      error = ENOMEM;
      break;
@@ -7943,7 +8010,7 @@ index 14d4f3e..70fe067 100644
    default:
      error = EOPSYS;
      break;
-@@ -410,3 +542,447 @@ int __errno_from_armeabisupport (int errnum)
+@@ -410,3 +576,447 @@ int __errno_from_armeabisupport (int errnum)
  
    return error;
  }

@@ -5,6 +5,16 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.8 (2026-11-11, tag v5.0.3.8)
+
+5.0.3.8-rc1 plus Q3. libtool `-version-info` 9:0:4. Tested on a Pi 4
+(native RISC OS 5.31): VFPPollTR and VFPPollTRThr (Thumb code calling
+`__pthread_vfp_reclaim` after every Wimp_Poll and Wimp_StartTask) pass,
+with their own VFP context every time and no repeated instruction; `Shm`
+passes in full, including Q3's mappings.
+
+- **mmap with PROT_NONE or PROT_READ no longer aborts on hardware (Q3).** With ARMEABISupport 1.08 on a real machine, UnixLib's zeroing of a `PROT_NONE` anonymous mapping aborted (the Web Browser's JavaScript JIT guard pages), and reading a file into a `PROT_READ` mapping would too. UnixLib now fills such mappings while they are writable and then gives them the protection asked for, recorded so that a read-only mapping is never written back. `mprotect` of a bad address now returns -1 with errno EINVAL. Pi test `Shm` checks both kinds of mapping.
+
 ## 5.0.3.8-rc1 (2026-11-11, pre-release, tag v5.0.3.8-rc1)
 
 5.0.3.7 plus Z1. Not yet run on RISC OS. libtool `-version-info` 9:0:4
