@@ -667,6 +667,53 @@ RISC OS 5.31-6 (the RISC OS for Linux test bed), riscos-gtk's test
 program renames its Text `folderlist.xml`, and Claws Mail linked with
 5.0.3.5-rc1 saves its folder list; both failed before.
 
+### M2. lseek past the end of a file (`unix/dev.c`, `sys/exec.c`, `sys/vfork.c`, `unix/ul_open.c`) - commit `ae66e1a`
+
+**Problem.** Reported by the Web Browser (2026-11-11, Pi 4, RISC OS 5.31,
+SDFS): Strada's SQLite databases were "not a database". SQLite reads 16
+bytes at offset 24 of a new, empty database file to see whether it is
+empty; afterwards the file was 24 zero bytes, which isn't a database.
+
+**Cause.** `lseek` set the position with OS_Args 1, and on RISC OS setting
+a file pointer past the extent extends the file at once, filling the gap
+with zeros. POSIX lseek doesn't change the file: a read there gives end of
+file, and only a write fills the gap.
+
+**Change.**
+- A position past the extent is only remembered, in a table by RISC OS
+  file handle (256 entries, static in `unix/dev.c`; not in the fd handle
+  structure, whose size SharedUnixLibrary fixes). dup'd fds share the
+  handle and so the position, as in POSIX. Handles of 256 or more work as
+  before.
+- `lseek` and `lseek64`: SEEK_SET, SEEK_END and SEEK_CUR past the extent
+  remember the position (one extra OS_Args 2 per seek); SEEK_CUR counts
+  from a remembered position. Inside the file, the pointer is set as
+  before. Negative 32-bit results go to the OS as before.
+- `read`: end of file while the position is at or past the extent; if
+  the file has grown past it, the pointer is set and the read goes on.
+- `write`: the pointer is set first, so the OS makes the gap of zeros,
+  as a POSIX write does.
+- The position is forgotten only once the pointer is set: a failed SWI (a
+  full disc, say) leaves it, so a failed lseek or write doesn't move it.
+- `open`, the last `close`, `__open_fh` and vfork's reopen of stdout
+  forget any entry for their handle.
+- Before exec, remembered positions are set as file pointers (extending
+  the files, as before), since a child shares the RISC OS handles.
+
+**Compatibility.** No change for positions inside a file, for pipes,
+ttys or sockets, or for O_APPEND (it seeks to the extent, which isn't
+past it). `fstat` now gives the real size after such a seek. Code that
+uses the RISC OS handle behind a UnixLib fd directly (OS_Args 0, OS_GBPB)
+sees the old pointer after a seek past the end. Same as the Web
+Browser's W28, done differently (also covering read-only files and exec).
+
+**Verification.** Peer-reviewed; the review added the failed-SWI rule,
+the exec flush and the extra forgets. Emulator test `fdop_test` (14 new
+checks over a fake file that extends on OS_Args 1 as RISC OS does): seek
+24 in an empty file, read, SEEK_CUR, write, SEEK_END, a file growing past
+the position, a full disc, the exec flush, close. Pi test `LSeek` (to
+run).
+
 ### N1. `getservbyname_r`, `getservbyport_r`, `getservent_r` (new `netlib/getserv_r.c`, `Makefile.am`)
 
 **Problem.** Reported by the GTK port (2026-10-03): `<netdb.h>` declared the
@@ -2246,14 +2293,15 @@ file:
 
 ## 6. Version, build and symbols
 
-### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5, 5.0.3.6, 5.0.3.7 and 5.0.3.8 release commits
+### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5, 5.0.3.6, 5.0.3.7, 5.0.3.8 and 5.0.3.9 release commits
 
-`AC_INIT` and the Help file say **5.0.3.8**. Releases continue UnixLib's own
-numbering from GCCSDK's 5.0. The libtool `-version-info` is `9:0:4`:
+`AC_INIT` and the Help file say **5.0.3.9**. Releases continue UnixLib's own
+numbering from GCCSDK's 5.0. The libtool `-version-info` is `9:1:4`:
 interfaces have been added (6:0:1 for 5.0.3.1; `getservbyname_r` and
 friends for 5.0.3.2, 7:0:2; P6's thread attribute functions for 5.0.3.4,
 8:0:3; 5.0.3.5 to 5.0.3.7 changed code only, 8:3:3;
-`__pthread_vfp_reclaim` for 5.0.3.8, 9:0:4) and none removed, so the shared library's major
+`__pthread_vfp_reclaim` for 5.0.3.8, 9:0:4; 5.0.3.9 changed code only,
+9:1:4) and none removed, so the shared library's major
 version stays 5.
 
 ### D1. Unofficial fork (`doc/UnixLib/Help`, `configure.ac`; README and other docs)

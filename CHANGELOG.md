@@ -5,6 +5,12 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.9-rc1 (2026-11-11, pre-release, tag v5.0.3.9-rc1)
+
+5.0.3.8 plus M2. Not yet run on RISC OS. libtool `-version-info` 9:1:4.
+
+- **lseek past the end of a file no longer extends it (M2).** On RISC OS, setting a file pointer past the end extends the file with zeros at once; POSIX lseek doesn't change the file. SQLite reads at offset 24 of a new database, so the Web Browser's databases became 24 zero bytes and "not a database". The position is now remembered: a read there gives end of file, and a write fills the gap, as in POSIX. New Pi test `LSeek`.
+
 ## 5.0.3.8 (2026-11-11, tag v5.0.3.8)
 
 5.0.3.8-rc1 plus Q3. libtool `-version-info` 9:0:4. Tested on a Pi 4
