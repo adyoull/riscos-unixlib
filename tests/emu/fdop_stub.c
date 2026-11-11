@@ -148,6 +148,24 @@ t_unixlib_fd (void)
 }
 int t_msync (void *p, int len) { return msync (p, len, MS_SYNC); }
 
+/* A RISC OS file (handle 7) through the file device, for lseek past the
+   end (unix/dev.c).  */
+static struct __unixlib_fd_handle rofile = { 1, DEV_RISCOS, (void *) 7 };
+static struct __unixlib_fd rofd;
+static struct __unixlib_fd *
+rofile_fd (void)
+{
+  rofd.devicehandle = &rofile;
+  rofd.dflag = 0;
+  rofd.fflag = O_RDWR;
+  return &rofd;
+}
+int t_fs_seek (int pos, int whence) { return __fslseek (rofile_fd (), pos, whence); }
+int t_fs_read (void *buf, int n) { return __fsread (rofile_fd (), buf, n); }
+int t_fs_write (const void *buf, int n) { return __fswrite (rofile_fd (), buf, n); }
+int t_fs_close (void) { return __fsclose (rofile_fd ()); }
+void t_fs_flush (void) { __fs_past_end_flush (); }
+
 /* An anonymous mapping with protection PROT: the address, or 0.  */
 void *
 t_mmap_anon_prot (int prot)

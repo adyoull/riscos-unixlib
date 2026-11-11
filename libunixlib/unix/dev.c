@@ -159,6 +159,117 @@ __getdevtype (const char *filename, int ro_control)
   return DEV_RISCOS;
 }
 
+/* 2026: a file position past the end of the file.
+
+   On RISC OS, setting a file pointer past the extent (OS_Args 1) extends
+   the file at once, filling the gap with zeros.  POSIX lseek doesn't
+   change the file: a read there gives end of file, and only a write
+   fills the gap.  SQLite, for one, reads 16 bytes at offset 24 of a new
+   database to see whether it is empty; the file became 24 zero bytes and
+   was "not a database" ever after (Web Browser, Pi 4, RISC OS 5.31, SDFS).
+
+   So a position past the extent is only remembered, by RISC OS file
+   handle (fds made by dup share the handle, and so the position, as in
+   POSIX): reads return end of file while it is still past the extent, a
+   write sets the pointer first (the OS makes the gap of zeros, as a POSIX
+   write would), lseek SEEK_CUR counts from it, and a position inside the
+   file, or a close or a new open of the handle, forgets it.  Kept here
+   rather than in the handle structure, whose size SharedUnixLibrary
+   fixes.  Before exec, remembered positions are set as file pointers
+   (__fs_past_end_flush), as before 2026, so a child sees them.  0 means
+   none; otherwise the position + 1.  */
+static unsigned long long fs_past_end[256];
+
+static __inline__ void
+fs_past_end_clear (int handle)
+{
+  if ((unsigned) handle < 256)
+    fs_past_end[handle] = 0;
+}
+
+/* A handle that didn't come through __fsopen: no remembered position.  */
+void
+__fs_past_end_forget (int handle)
+{
+  fs_past_end_clear (handle);
+}
+
+/* Before exec: set every remembered position as the file pointer (which
+   extends the file, as before 2026) and forget it.  */
+void
+__fs_past_end_flush (void)
+{
+  for (int h = 0; h < 256; h++)
+    if (fs_past_end[h] != 0)
+      {
+	(void) SWI_OS_Args_SetFilePtr (h, (__off_t) (fs_past_end[h] - 1));
+	fs_past_end[h] = 0;
+      }
+}
+
+/* Set the file pointer to POS, or only remember POS if it is past the
+   extent.  A negative 32-bit position (NEG) goes to the OS as before.  */
+static const _kernel_oserror *
+fs_set_ptr_ (int handle, unsigned long pos, int neg)
+{
+  const _kernel_oserror *err;
+  __off_t extent;
+  if (!neg && (unsigned) handle < 256
+      && (err = SWI_OS_Args_GetExtent (handle, &extent)) == NULL
+      && pos > (unsigned long) extent)
+    {
+      fs_past_end[handle] = (unsigned long long) pos + 1;
+      return NULL;
+    }
+  /* A failed SWI leaves the position as it was (POSIX).  */
+  if ((err = SWI_OS_Args_SetFilePtr (handle, (__off_t) pos)) == NULL)
+    fs_past_end_clear (handle);
+  return err;
+}
+#define fs_set_ptr(h, pos) fs_set_ptr_ (h, pos, 0)
+#define fs_set_ptr32(h, lpos) \
+  fs_set_ptr_ (h, (unsigned long) (lpos), (lpos) < 0)
+
+/* The current position: a remembered one, or the file pointer.  */
+static const _kernel_oserror *
+fs_get_ptr (int handle, unsigned long *pos)
+{
+  if ((unsigned) handle < 256 && fs_past_end[handle] != 0)
+    {
+      *pos = (unsigned long) (fs_past_end[handle] - 1);
+      return NULL;
+    }
+  __off_t ptr;
+  const _kernel_oserror *err = SWI_OS_Args_GetFilePtr (handle, &ptr);
+  *pos = (unsigned long) ptr;
+  return err;
+}
+
+/* Before a read or write: a remembered position.  For a read, 1 if it is
+   still at or past the extent (end of file); otherwise (the file has
+   grown, or for a write) the pointer is set to it and it is forgotten.  */
+static int
+fs_past_end_settle (int handle, int reading, const _kernel_oserror **err)
+{
+  *err = NULL;
+  if ((unsigned) handle >= 256 || fs_past_end[handle] == 0)
+    return 0;
+  unsigned long pos = (unsigned long) (fs_past_end[handle] - 1);
+  if (reading)
+    {
+      __off_t extent;
+      if ((*err = SWI_OS_Args_GetExtent (handle, &extent)) != NULL)
+	return 0;
+      if (pos >= (unsigned long) extent)
+	return 1;
+    }
+  /* Forgotten only once the pointer is set: after an error (a full disc,
+     say), the position is still the remembered one.  */
+  if ((*err = SWI_OS_Args_SetFilePtr (handle, (__off_t) pos)) == NULL)
+    fs_past_end[handle] = 0;
+  return 0;
+}
+
 void *
 __fsopen (struct __unixlib_fd *file_desc, const char *ux_filename, int mode)
 {
@@ -347,12 +458,18 @@ __fsopen (struct __unixlib_fd *file_desc, const char *ux_filename, int mode)
       return (void *) __set_errno (EAGAIN);
     }
 
+  fs_past_end_clear (fd);
   return (void *) fd;
 }
 
 int
 __fsclose (struct __unixlib_fd *file_desc)
 {
+  /* The last fd on the handle: forget a remembered position (even for
+     a handle we don't close, which is used without one afterwards).  */
+  if (!(file_desc->dflag & FILE_ISDIR))
+    fs_past_end_clear ((int) file_desc->devicehandle->handle);
+
   /* If we got the RISC OS file handle from OS, we don't close it.  */
   if (file_desc->dflag & FILE_HANDLE_FROM_OS)
     return 0;
@@ -459,6 +576,10 @@ __fsread (struct __unixlib_fd *file_desc, void *data, int nbyte)
     {
       const _kernel_oserror *err;
       unsigned not_read;
+      if (fs_past_end_settle ((int) file_desc->devicehandle->handle, 1, &err))
+	return 0;		/* past the end: end of file */
+      if (err)
+	return __ul_seterr (err, EOPSYS);
 #ifdef __ARM_EABI__
       if (nbyte > 0)
 	touch_stack_pages (data, nbyte);
@@ -480,6 +601,10 @@ __fswrite (struct __unixlib_fd *file_desc, const void *data, int nbyte)
 #endif
   const _kernel_oserror *err;
   unsigned not_written;
+  /* A remembered position past the end: the gap is made now.  */
+  (void) fs_past_end_settle ((int) file_desc->devicehandle->handle, 0, &err);
+  if (err)
+    return __ul_seterr (err, EOPSYS);
   if ((err = SWI_OS_GBPB_WriteBytes ((int) file_desc->devicehandle->handle,
 				     data, nbyte, &not_written)) != NULL)
     return __ul_seterr (err, EOPSYS);
@@ -495,18 +620,19 @@ __fslseek (struct __unixlib_fd * file_desc, __off_t lpos, int whence)
 
   const _kernel_oserror *err;
   int handle = (int) file_desc->devicehandle->handle;
+  /* 2026: positions past the extent are only remembered (fs_set_ptr).  */
   if (whence == SEEK_SET)
-    err = SWI_OS_Args_SetFilePtr (handle, lpos);
+    err = fs_set_ptr32 (handle, lpos);
   else if (whence == SEEK_CUR)
     {
-      __off_t fileptr;
-      err = SWI_OS_Args_GetFilePtr (handle, &fileptr);
+      unsigned long fileptr;
+      err = fs_get_ptr (handle, &fileptr);
       if (!err)
 	{
 	  __off_t old_lpos = lpos;
-	  lpos += fileptr;
+	  lpos += (__off_t) fileptr;
 	  if (old_lpos)
-	    err = SWI_OS_Args_SetFilePtr (handle, lpos);
+	    err = fs_set_ptr32 (handle, lpos);
 	}
     }
   else if (whence == SEEK_END)
@@ -515,7 +641,7 @@ __fslseek (struct __unixlib_fd * file_desc, __off_t lpos, int whence)
       if ((err = SWI_OS_Args_GetExtent (handle, &extent)) == NULL)
 	{
 	  lpos += extent;
-	  err = SWI_OS_Args_SetFilePtr (handle, lpos);
+	  err = fs_set_ptr32 (handle, lpos);
 	}
     }
   else
@@ -539,7 +665,11 @@ __fslseek64 (struct __unixlib_fd *file_desc, __off64_t lpos, int whence)
   __off_t base32 = 0;
 
   if (whence == SEEK_CUR)
-    err = SWI_OS_Args_GetFilePtr (handle, &base32);
+    {
+      unsigned long cur;
+      err = fs_get_ptr (handle, &cur);
+      base32 = (__off_t) cur;
+    }
   else if (whence == SEEK_END)
     err = SWI_OS_Args_GetExtent (handle, &base32);
   else if (whence != SEEK_SET)
@@ -555,7 +685,7 @@ __fslseek64 (struct __unixlib_fd *file_desc, __off64_t lpos, int whence)
 
   if (whence != SEEK_CUR || lpos != 0)
     {
-      err = SWI_OS_Args_SetFilePtr (handle, (__off_t) (unsigned long) pos);
+      err = fs_set_ptr (handle, (unsigned long) pos);
       if (err)
 	return __ul_seterr (err, EOPSYS);
     }

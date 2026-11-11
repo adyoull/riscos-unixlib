@@ -29,6 +29,7 @@ __open_fh (int fd, int fh, int oflag, int mode)
   struct __unixlib_fd *file_desc = getfd (fd);
   file_desc->fflag = oflag;
   file_desc->dflag = FILE_HANDLE_FROM_OS; /* Never close this handle. */
+  __fs_past_end_forget (fh);
 
   struct __sul_process *sulproc = __ul_global.sulproc;
   file_desc->devicehandle = sulproc->sul_malloc (sulproc->pid,

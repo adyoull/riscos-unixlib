@@ -81,6 +81,9 @@ extern __off64_t __fslseek64 (struct __unixlib_fd *__fd, __off64_t __lpos,
 extern int __fsstat (const char *__filename, struct stat *__buf);
 extern int __fsfstat (int __fd, struct stat *__buf);
 extern int __fslstat (const char *__filename, struct stat *__buf);
+/* 2026: positions past the end of a file (unix/dev.c).  */
+extern void __fs_past_end_forget (int __handle);
+extern void __fs_past_end_flush (void);
 
 /* /dev/tty, /dev/console, /dev/rs423, /dev/ttyS0 support */
 extern void *__ttyopen (struct __unixlib_fd *__fd, const char *file, int __mode);

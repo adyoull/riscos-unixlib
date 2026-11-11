@@ -365,6 +365,10 @@ execve (const char *execname, char *const argv[], char *const envp[])
       envlen = 0;
     }
 
+  /* 2026: a child (UnixLib or not) shares the RISC OS file handles, so
+     positions past the end of a file are set as file pointers now.  */
+  __fs_past_end_flush ();
+
   /* Setup RISC OS redirection.  This will only be used by non-UL child
      processes.  */
   if (sulproc->ppid != 1)

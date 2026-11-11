@@ -141,6 +141,12 @@ Fault       a SIGILL caught by a handler ("caught SIGILL: ok"), then an
             uncaught one: must print "Fatal signal received: Illegal
             instruction" and a backtrace, and end the program. Nothing else
             on the machine should be affected.
+LSeek       (5.0.3.9) lseek past the end of a file: a read there gives
+            end of file and the file stays empty, a write fills the gap
+            with zeros, SEEK_CUR and SEEK_END count from the right place,
+            and stdio's fseek then fputc. Each line must say ok, then
+            PASS. It uses <Wimp$ScrapDir>; to try another filing system,
+            give a directory in Unix form, e.g. "LSeek /RAM::RamDisc0.$".
 Rename      rename() of files whose type isn't the one MimeMap gives
             their extension (a Text "rntest.xml" renamed to .xml.bak, as
             Claws Mail does): each line must say ok, then PASS. Run it in

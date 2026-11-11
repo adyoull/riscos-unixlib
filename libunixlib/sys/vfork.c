@@ -285,6 +285,7 @@ __fork_post (pid_t pid, int isfork)
 		  /* FIXME: is getfd (1)->devicehandle valid ? I.e. no need for
 		     BADF (1) test ? */
 		  getfd (1)->devicehandle->handle = (void *) prev_fh_out;
+		  __fs_past_end_forget (prev_fh_out);
 		  __off_t extent;
 		  if (SWI_OS_Args_GetExtent (prev_fh_out, &extent) == NULL)
 		    (void) SWI_OS_Args_SetFilePtr (prev_fh_out, extent);

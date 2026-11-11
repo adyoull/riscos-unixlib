@@ -131,6 +131,12 @@ class Machine:
         self.fds = {1000: dict(type=0, data=bytearray(b"S" * 64), pos=0, cloexec=0),
                     1001: dict(type=1, data=bytearray(b"F" * 64), pos=0, cloexec=0)}
         self.maps = {}                # addr -> (len, fd)
+        # A RISC OS file, handle 7, for unix/dev.c: OS_Args and OS_GBPB
+        # as on native RISC OS (setting the pointer past the extent
+        # extends the file with zeros).
+        self.file = bytearray()
+        self.fptr = 0
+        self.full = False             # OS_Args 1 past the extent fails
         self.nextfd = 1002
         self.call(syms["t_init"])
 
@@ -190,6 +196,42 @@ class Machine:
             return
         if num == MMapOp:
             return self.mmapop(r)
+        if num == 9 and r[1] == 7:             # OS_Args on the file
+            if r[0] == 0:
+                self.reg(UC_ARM_REG_R2, self.fptr)
+            elif r[0] == 1:
+                if self.full and r[2] > len(self.file):
+                    return self.error(0x1C6)   # Disc full
+                self.fptr = r[2]
+                if self.fptr > len(self.file):
+                    self.file.extend(bytes(self.fptr - len(self.file)))
+            elif r[0] == 2:
+                self.reg(UC_ARM_REG_R2, len(self.file))
+            else:
+                raise RuntimeError("OS_Args %d" % r[0])
+            return
+        if num == 0xC and r[1] == 7:           # OS_GBPB on the file
+            if r[0] == 4:                      # read at the pointer
+                n = min(r[3], max(0, len(self.file) - self.fptr))
+                self.uc.mem_write(r[2], bytes(self.file[self.fptr:self.fptr + n]))
+                self.fptr += n
+                self.reg(UC_ARM_REG_R3, r[3] - n)
+            elif r[0] == 2:                    # write at the pointer
+                data = bytes(self.uc.mem_read(r[2], r[3]))
+                if self.fptr > len(self.file):
+                    self.file.extend(bytes(self.fptr - len(self.file)))
+                self.file[self.fptr:self.fptr + len(data)] = data
+                self.fptr += len(data)
+                self.reg(UC_ARM_REG_R3, 0)
+            else:
+                raise RuntimeError("OS_GBPB %d" % r[0])
+            return
+        if num == 0x5E:                        # OS_ChangeRedirection
+            self.reg(UC_ARM_REG_R0, 0)
+            self.reg(UC_ARM_REG_R1, 0)
+            return
+        if num == 0xD and r[0] == 0:           # OS_Find close
+            return
         if num == 8 and r[0] in (5, 17, 20, 23):   # OS_File read info
             self.reg(UC_ARM_REG_R0, 0)         # not found
             return
@@ -485,6 +527,50 @@ def test(elf, syms, v):
           "1.08: close = FdOp CLOSE")
 
 
+def test_past_end(elf, syms):
+    """lseek past the end of a file (unix/dev.c): remembered, not made."""
+    m = Machine(elf, syms, 108)
+    check(m.call("t_fs_seek", 24, 0) == 24 and len(m.file) == 0,
+          "lseek 24 in an empty file: 24, file still empty (%d)" % len(m.file))
+    check(m.call("t_fs_read", HEAP, 16) == 0, "read there: end of file")
+    check(m.call("t_fs_seek", 0, 1) == 24, "SEEK_CUR 0 gives the remembered 24")
+    m.uc.mem_write(HEAP, b"X")
+    check(m.call("t_fs_write", HEAP, 1) == 1 and bytes(m.file) == bytes(24) + b"X",
+          "a write there fills the gap with zeros (%r)" % bytes(m.file))
+    check(m.call("t_fs_seek", 0, 1) == 25, "position after the write: 25")
+    check(m.call("t_fs_seek", 10, 2) == 35 and len(m.file) == 25,
+          "SEEK_END + 10: 35, file not extended")
+    check(m.call("t_fs_seek", -5, 1) == 30 and len(m.file) == 25,
+          "SEEK_CUR -5 from the remembered 35: 30, still not extended")
+    check(m.call("t_fs_seek", 5, 0) == 5 and m.fptr == 5,
+          "back inside the file: the pointer is set (%d)" % m.fptr)
+    m.uc.mem_write(HEAP, bytes(4))
+    check(m.call("t_fs_read", HEAP, 3) == 3, "read inside the file")
+    # The file grows (another writer) past a remembered position.
+    m.call("t_fs_seek", 30, 0)
+    m.file.extend(b"0123456789ABCDEF")         # now 41 bytes
+    check(m.call("t_fs_read", HEAP, 4) == 4
+          and bytes(m.uc.mem_read(HEAP, 4)) == b"5678",
+          "a remembered position inside a grown file reads from there (%r)"
+          % bytes(m.uc.mem_read(HEAP, 4)))
+    # A failed extension (a full disc) keeps the remembered position.
+    m.call("t_fs_seek", 60, 0)
+    m.full = True
+    check(m.call("t_fs_write", HEAP, 1) == -1 and len(m.file) == 41,
+          "a write past the end on a full disc fails")
+    check(m.call("t_fs_seek", 0, 1) == 60, "and the position is still 60")
+    m.full = False
+    # Before exec, remembered positions become file pointers.
+    m.call("t_fs_flush")
+    check(len(m.file) == 60 and m.fptr == 60 and m.call("t_fs_seek", 0, 1) == 60,
+          "exec flush: the pointer is set to 60 (%d, %d)" % (len(m.file), m.fptr))
+    # A close forgets it.
+    m.call("t_fs_seek", 100, 0)
+    m.fptr = 3
+    m.call("t_fs_close")
+    check(m.call("t_fs_seek", 0, 1) == 3, "after close, no remembered position")
+
+
 def main():
     try:
         elf = link()
@@ -494,6 +580,7 @@ def main():
     syms = symbols(elf)
     for v in (105, 108):
         test(elf, syms, v)
+    test_past_end(elf, syms)
     print("fdop_test: %d checks, %d failed" % (checks, fails))
     return 1 if fails else 0
 
