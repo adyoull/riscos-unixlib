@@ -78,6 +78,7 @@ the commits are named below.
 | `incl-local/internal/pvops.s` (**new**), `incl-local/internal/asm_dec.s`, `incl-local/internal/unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s` | O1 threads and signals on RISC OS for Linux |
 | `signal/_signal.s` | T5 sub-second interval timers repeat |
 | `sys/_syslib.s`, `signal/_signal.s`, `signal/post.c`, `sys/exec.c`, `incl-local/internal/unix.h` | J1 mixed linking: a dynamically linked program with the static library |
+| `pthread/pthinit.c`, `include/unixlib/local.h` | Z1 `__pthread_vfp_reclaim`: VFP after Wimp_Poll in Thumb programs |
 | `grp/getgrgid_r.c`, `grp/getgrnam_r.c`, `pwd/getpwuid_r.c`, `pwd/getpwnam_r.c`, `pwd/getlogin.c`, `termios/cuserid.c` | G1 group and password lookups: `*result` and return values |
 | `common/riscosify.c` | U1 a run of leading slashes is one `/` |
 | `include/pthread.h`, `pthread/attrsched.c` (**new**), `Makefile.am` | P6 `pthread_attr_setscope`, `setinheritsched`, `setschedpolicy` and the get functions |
@@ -1134,6 +1135,41 @@ both while Iris was running (the owner, 2026-11-10). Not exercised:
 Escape inside a library, the `SOM_Location` backtrace, the `exec` and
 start-up-error deregistration.
 
+### Z1. `__pthread_vfp_reclaim`: VFP after Wimp_Poll in Thumb programs (`pthread/pthinit.c`, `include/unixlib/local.h`) - commit `08022c3`
+
+**The problem.** Found by the Web Browser project: on a Pi 4 (native
+RISC OS 5.31) Strada, built as Thumb-2 code, stopped with "Illegal
+Instruction" at the first VFP instruction after Wimp_Poll returned. New
+Pi test VFPPoll (`4591707`) settled the cause. It starts 50 short-lived
+UnixLib tasks and polls 250 times, reading `VFPSupport_ActiveContext`
+after every return:
+- ARM build, with and without a second thread: its own context every
+  time (300/300), no other and never none. So the Wimp does switch
+  UnixLib's contexts with the task (as the PRM says, whatever the
+  application-space flag, which only says where the buffer is), and
+  `sul_exit` turning VFP off doesn't reach other tasks.
+- Thumb build: also its own context every time, but after 295 of the 300
+  returns the 16-bit store just before the first VFP instruction was
+  executed a second time (it wrote the "own" count into the "another"
+  count). The Wimp gives the context back lazily; the first VFP
+  instruction traps to VFPSupport, which restarts it at lr - 4: right for
+  ARM, but for Thumb lr is the instruction + 2, so it restarts 2 bytes
+  early. Landing in the middle of a 32-bit instruction gives Strada's
+  Illegal Instruction. A VFPSupport bug (ROOL); ARM code isn't affected.
+
+**The change.** A new function, `__pthread_vfp_reclaim (void)` (declared
+in `<unixlib/local.h>`; the name the Web Browser's fork already uses,
+W25): `VFPSupport_ChangeContext` with the running thread's context (the
+main context before any thread exists), not lazily. It is ARM code. A
+program built as Thumb calls it straight after Wimp_Poll, Wimp_PollIdle
+or Wimp_StartTask returns, before any floating point; then no lazy trap
+happens. Nothing calls it automatically (UnixLib doesn't wrap Wimp_Poll);
+ARM programs don't need it. No other code changes. libtool 9:0:4.
+
+**Verification.** By reading and disassembly (ARM, no VFP, one SWI).
+New Pi tests VFPPollTR and VFPPollTRThr (the Thumb build calling it) must
+PASS. Not yet run on RISC OS.
+
 ### R1. Inline SWI wrappers: every register and memory the SWI changes - commit `c98c781`
 
 **Problem.** UnixLib calls many SWIs through small inline functions that put
@@ -2176,14 +2212,14 @@ file:
 
 ## 6. Version, build and symbols
 
-### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5, 5.0.3.6 and 5.0.3.7 release commits
+### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5, 5.0.3.6, 5.0.3.7 and 5.0.3.8 release commits
 
-`AC_INIT` and the Help file say **5.0.3.7**. Releases continue UnixLib's own
-numbering from GCCSDK's 5.0. The libtool `-version-info` is `8:3:3`
-(5.0.3.5 to 5.0.3.7 change code only):
+`AC_INIT` and the Help file say **5.0.3.8**. Releases continue UnixLib's own
+numbering from GCCSDK's 5.0. The libtool `-version-info` is `9:0:4`:
 interfaces have been added (6:0:1 for 5.0.3.1; `getservbyname_r` and
 friends for 5.0.3.2, 7:0:2; P6's thread attribute functions for 5.0.3.4,
-8:0:3) and none removed, so the shared library's major
+8:0:3; 5.0.3.5 to 5.0.3.7 changed code only, 8:3:3;
+`__pthread_vfp_reclaim` for 5.0.3.8, 9:0:4) and none removed, so the shared library's major
 version stays 5.
 
 ### D1. Unofficial fork (`doc/UnixLib/Help`, `configure.ac`; README and other docs)

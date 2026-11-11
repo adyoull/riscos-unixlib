@@ -5,6 +5,13 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.8-rc1 (2026-11-11, pre-release, tag v5.0.3.8-rc1)
+
+5.0.3.7 plus Z1. Not yet run on RISC OS. libtool `-version-info` 9:0:4
+(one new function).
+
+- **Floating point after Wimp_Poll in Thumb programs (Z1).** On native RISC OS, the Wimp hands a task its VFP context back lazily, and VFPSupport then restarts the first VFP instruction 2 bytes early if it is Thumb code (a VFPSupport bug). Pi test VFPPoll showed it: ARM builds always found their own context; the Thumb build re-executed the instruction before its first VFP instruction after almost every poll. The Web Browser's Strada (Thumb-2) stopped with "Illegal Instruction" there. New function `__pthread_vfp_reclaim()` (`<unixlib/local.h>`): a Thumb program calls it straight after Wimp_Poll, Wimp_PollIdle or Wimp_StartTask returns, and the context is active before any floating point. ARM programs don't need it. New Pi tests VFPPoll (and Thumb, threaded, and reclaim variants).
+
 ## 5.0.3.7 (2026-11-10, tag v5.0.3.7)
 
 The same code as 5.0.3.7-rc4: 5.0.3.6 plus Q1, Q2, K12 and J1 (see the rc
