@@ -637,6 +637,28 @@ __armeabi_have_fdop (void)
   return fdop_state;
 }
 
+/* 2026: ARMEABISupport 1.07 and later number their fds from 1000
+   (FDTABLE_BASE_FD), so a lower one (negative, or one of UnixLib's
+   numbers that isn't open) isn't one of theirs: EBADF without a SWI, as
+   before FdOp.  A program that keeps trying a bad fd costs a SWI per call
+   otherwise, which under RISC OS on Linux is a trap each time (TORCS,
+   2026-11-14).  The trace build still reports it.  */
+#define FDOP_FIRST_FD 1000
+
+static int
+not_fdop_fd_ (int fd, const char *what)
+{
+#if __UNIXLIB_FDOP_TRACE
+  fdop_trace (what, fd, ARMEABISUPPORT_ERROR_EBADF,
+	      "EBADF: not an fd (below 1000, no SWI)");
+#else
+  (void) fd;
+  (void) what;
+#endif
+  return __set_errno (EBADF);
+}
+#define not_fdop_fd() not_fdop_fd_ (fd, __func__)
+
 /* An error from FdOp: errno from it, and EBADF when ARMEABISupport
    doesn't know the program (so it has no fds of its own).  */
 static int
@@ -668,6 +690,14 @@ __armeabi_fd_type (int fd)
       return ARMEABISUPPORT_FD_TYPE_INVALID;
     }
 
+  if (fd < FDOP_FIRST_FD)
+    {
+      /* Not traced: dup2 and others ask about UnixLib's numbers as a
+	 matter of course.  */
+      (void) __set_errno (EBADF);
+      return ARMEABISUPPORT_FD_TYPE_INVALID;
+    }
+
   int type;
   const _kernel_oserror *err
     = _swix (ARMEABISupport_FdOp, _INR(0,1) | _OUT(1),
@@ -675,10 +705,7 @@ __armeabi_fd_type (int fd)
   if (err != NULL || type == ARMEABISUPPORT_FD_TYPE_INVALID)
     {
 #if __UNIXLIB_FDOP_TRACE
-      /* Not for UnixLib's own numbers (dup2 and others ask about them as
-	 a matter of course).  */
-      if (fd >= 1000)
-	fdop_trace ("validate", fd, err ? err->errnum : 0,
+      fdop_trace ("validate", fd, err ? err->errnum : 0,
 		    err ? err->errmess : "not ARMEABISupport's");
 #endif
       (void) __set_errno (EBADF);
@@ -702,6 +729,8 @@ __armeabi_fd_close (int fd)
 		 : 0;
     }
 
+  if (fd < FDOP_FIRST_FD)
+    return not_fdop_fd ();
   err = _swix (ARMEABISupport_FdOp, _INR(0,1), ARMEABISUPPORT_FDOP_CLOSE, fd);
   if (err)
     return fd_error (err);
@@ -714,6 +743,9 @@ __armeabi_fd_read (int fd, void *buf, unsigned int n)
 {
   if (!__armeabi_have_fdop ())
     return __set_errno (EBADF);
+
+  if (fd < FDOP_FIRST_FD)
+    return not_fdop_fd ();
 
   int got;
   const _kernel_oserror *err
@@ -728,6 +760,9 @@ __armeabi_fd_write (int fd, const void *buf, unsigned int n)
   if (!__armeabi_have_fdop ())
     return __set_errno (EBADF);
 
+  if (fd < FDOP_FIRST_FD)
+    return not_fdop_fd ();
+
   int put;
   const _kernel_oserror *err
     = _swix (ARMEABISupport_FdOp, _INR(0,3) | _OUT(0),
@@ -740,6 +775,9 @@ __armeabi_fd_lseek (int fd, long offset, int whence)
 {
   if (!__armeabi_have_fdop ())
     return __set_errno (EBADF);
+
+  if (fd < FDOP_FIRST_FD)
+    return not_fdop_fd ();
 
   long pos;
   const _kernel_oserror *err
@@ -818,7 +856,9 @@ __armeabi_fd_ftruncate (int fd, long length)
     }
 
   if (length < 0)
-    return __set_errno (EINVAL);
+    return __set_errno (EINVAL);	/* first, as before */
+  if (fd < FDOP_FIRST_FD)
+    return not_fdop_fd ();
 
   const _kernel_oserror *err
     = _swix (ARMEABISupport_FdOp, _INR(0,2), ARMEABISUPPORT_FDOP_FTRUNCATE,
@@ -869,6 +909,9 @@ __armeabi_fd_fcntl (int fd, int cmd, va_list *ap)
 	}
     }
 
+  /* Below 1000: EBADF without a SWI, where FdOp would have been asked
+     (an unknown command and F_DUPFD's negative LOWEST stay EINVAL).  */
+  const int not_ours = fd < FDOP_FIRST_FD;
   switch (cmd)
     {
     case F_DUPFD:
@@ -876,7 +919,9 @@ __armeabi_fd_fcntl (int fd, int cmd, va_list *ap)
 	int lowest = va_arg (*ap, int);
 	if (lowest < 0)
 	  return __set_errno (EINVAL);
-	if (lowest <= 1000)
+	if (not_ours)
+	  return not_fdop_fd ();
+	if (lowest <= FDOP_FIRST_FD)
 	  {
 	    /* ARMEABISupport gives the lowest free number of its own, all
 	       from 1000.  */
@@ -905,6 +950,8 @@ __armeabi_fd_fcntl (int fd, int cmd, va_list *ap)
     case F_GETFD:
       {
 	int cloexec;
+	if (not_ours)
+	  return not_fdop_fd ();
 	err = _swix (ARMEABISupport_FdOp, _INR(0,1) | _OUT(0),
 		     ARMEABISUPPORT_FDOP_GETFD, fd, &cloexec);
 	return err ? fd_error (err) : (cloexec ? 1 : 0);	/* as for UnixLib's */
@@ -912,6 +959,8 @@ __armeabi_fd_fcntl (int fd, int cmd, va_list *ap)
     case F_SETFD:
       {
 	int arg = va_arg (*ap, int);
+	if (not_ours)
+	  return not_fdop_fd ();
 	err = _swix (ARMEABISupport_FdOp, _INR(0,2),
 		     ARMEABISUPPORT_FDOP_SETFD, fd, arg != 0);
 	return err ? fd_error (err) : 0;
@@ -920,6 +969,8 @@ __armeabi_fd_fcntl (int fd, int cmd, va_list *ap)
       {
 	/* struct flock's type and whence are shorts: pass them in ints.  */
 	struct flock *arg = va_arg (*ap, struct flock *);
+	if (not_ours)
+	  return not_fdop_fd ();
 	int type = arg->l_type, whence = arg->l_whence;
 	long start = arg->l_start, len = arg->l_len;
 	err = _swix (ARMEABISupport_FdOp, _INR(0,5) | _OUTR(2,5),
@@ -939,6 +990,8 @@ __armeabi_fd_fcntl (int fd, int cmd, va_list *ap)
 	/* F_SETLKW doesn't wait: if the lock is held, it fails as F_SETLK
 	   does.  Locks are advisory.  */
 	struct flock *arg = va_arg (*ap, struct flock *);
+	if (not_ours)
+	  return not_fdop_fd ();
 	err = _swix (ARMEABISupport_FdOp, _INR(0,5),
 		     ARMEABISUPPORT_FDOP_SETLOCK, fd, (int) arg->l_type,
 		     (int) arg->l_whence, (long) arg->l_start,
@@ -968,7 +1021,7 @@ __armeabi_fd_dup2 (int fd, int fd2, int *result)
       || __armeabi_fd_type (fd) == ARMEABISUPPORT_FD_TYPE_INVALID)
     return 0;
 
-  if (fd2 < 1000)
+  if (fd2 < FDOP_FIRST_FD)
     {
       /* A UnixLib number can't hold one of ARMEABISupport's fds.  */
       *result = __set_errno (EINVAL);

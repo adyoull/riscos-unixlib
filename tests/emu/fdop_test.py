@@ -363,6 +363,33 @@ def test(elf, syms, v):
         fails_with(m, m.call(name, *args), EBADF, "%s: %s%s on an unknown fd" % (tag, name, args))
     check(not m.ops(ShmOp), tag + ": no ShmOp for unknown fds")
 
+    # Below 1000 (negative, or a UnixLib number not open): not one of
+    # ARMEABISupport's, so EBADF without a SWI (TORCS's bad-fd loop).
+    m = M()
+    m.call("t_have_fdop")
+    for fd in (5, 999, -1):
+        for name, args in (("t_close", (fd,)), ("t_read", (fd, HEAP, 4)),
+                           ("t_write", (fd, HEAP, 4)), ("t_lseek", (fd, 0, 0)),
+                           ("t_fsync", (fd,)), ("t_fstat_size", (fd,)),
+                           ("t_ftruncate", (fd, 0)), ("t_getfd", (fd,)),
+                           ("t_dup", (fd,))):
+            m.calls = []
+            fails_with(m, m.call(name, *args), EBADF, "%s: %s%s" % (tag, name, args))
+            check(not m.ops(FdOp) and not m.ops(ShmOp),
+                  "%s: %s%s makes no SWI (%r)" % (tag, name, args, m.calls))
+    m.calls = []
+    fails_with(m, m.call("t_ftruncate", 5, -1), EINVAL if v == 108 else EBADF,
+               "%s: ftruncate(5, -1): as before" % tag)
+    # A bad fd as the program's very first fd call: FdOp is still found.
+    m2 = M()
+    fails_with(m2, m2.call("t_read", 5, HEAP, 4), EBADF, tag + ": first call read(5)")
+    check(m2.call("t_have_fdop") == (1 if v == 108 else 0),
+          tag + ": FdOp detected after a first call on a bad fd")
+    m.calls = []
+    m.call("t_read", 1000, HEAP, 4)
+    check(len(m.ops(FdOp)) == (1 if v == 108 else 0),
+          "%s: read of fd 1000 still asks ARMEABISupport" % tag)
+
     # isatty: 0 for a bad fd (was -1), with EBADF.
     m = M()
     r = m.call("t_isatty", 5)
