@@ -5,6 +5,12 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.10-rc1 (2026-11-14, pre-release, tag v5.0.3.10-rc1)
+
+5.0.3.9 plus Q4. Not yet run on RISC OS. libtool `-version-info` 9:2:4.
+
+- **A bad fd costs no SWI again (Q4).** Since 5.0.3.7, an fd call on a descriptor that isn't UnixLib's (`read`, `close`, `fcntl` and so on) asks ARMEABISupport, which costs a SWI; under RISC OS on Linux that is a trap. TORCS, trying a bad fd 13,500 times a second, stalled while loading a track. ARMEABISupport's fds are all numbered from 1000, so for a lower one UnixLib now returns EBADF straight away, as it did before. Results are unchanged.
+
 ## 5.0.3.9 (2026-11-11, tag v5.0.3.9)
 
 The same code as 5.0.3.9-rc1: 5.0.3.8 plus M2. libtool `-version-info`

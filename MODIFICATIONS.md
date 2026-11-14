@@ -1215,6 +1215,42 @@ read/write mapping; `mprotect`'s error (90 checks). Pi test `Shm` adds a
 contents, no write-back): passes on a Pi 4 with native RISC OS 5.31 and
 ARMEABISupport 1.07 or later (2026-11-11).
 
+### Q4. EBADF without a SWI for fds below 1000 (`sys/mman-armeabi.c`) - commit `70d8871`
+
+**Problem.** Reported by ROL (2026-11-14, owner's Pi 4, RISC OS on Linux):
+TORCS stalled while loading a track. A sampler showed ARMEABISupport
+returning EBADF (&81DC2C) about 13,500 times a second: an fd call on a
+descriptor that isn't UnixLib's, which Q1 passes to ARMEABISupport's
+FdOp. Under RISC OS on Linux each module SWI is a trap, so a program
+that keeps trying a bad fd pays for one every time; before Q1 such a
+call returned EBADF at once.
+
+**Change.** ARMEABISupport 1.07 and later number all their fds from 1000
+(its `FDTABLE_BASE_FD`; files, shared memory, IPC channels, dups and fds
+carried across exec alike), and FdOp itself refuses any lower number. So
+when FdOp is in use, the helpers (`close`, `read`, `write`, `lseek`,
+`fstat`, `fsync`, `ftruncate`, `fcntl`, `isatty`, and `dup2`'s check)
+return EBADF for an fd below 1000 (negative, or a UnixLib number that
+isn't open) without a SWI. The FdOp detection still happens on the first
+call.
+
+**Compatibility.** The same results as before: -1 with EBADF (`isatty` 0
+with EBADF), and EINVAL still comes first for a negative `ftruncate`
+length, an unknown `fcntl` command and `F_DUPFD`'s negative lowest. The
+only difference is that `_kernel_last_oserror` isn't set to the module's
+EBADF error for these calls, as before Q1. 1.05 is unchanged. Fds from
+1000 still go to ARMEABISupport: if TORCS's bad fd is one of those (a
+closed shared-memory or shared file fd), Q4 doesn't make it cheaper, and
+the trace build will tell.
+
+**Verification.** Peer-reviewed against ARMEABISupport 1.08's source (the
+review kept the EINVAL order for `ftruncate` and `fcntl`). Emulator test
+`fdop_test`, 220 checks (new: fds 5, 999 and -1 through all nine calls
+fail with EBADF and make no SWI; fd 1000 still asks ARMEABISupport; a
+first call on a bad fd still detects FdOp; `ftruncate (5, -1)` stays
+EINVAL). The trace build (`TRACE=yes`) still reports these calls, with
+"not an fd (below 1000, no SWI)".
+
 ### Z1. `__pthread_vfp_reclaim`: VFP after Wimp_Poll in Thumb programs (`pthread/pthinit.c`, `include/unixlib/local.h`) - commit `08022c3`
 
 **The problem.** Found by the Web Browser project: on a Pi 4 (native
@@ -2293,15 +2329,15 @@ file:
 
 ## 6. Version, build and symbols
 
-### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5, 5.0.3.6, 5.0.3.7, 5.0.3.8 and 5.0.3.9 release commits
+### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5, 5.0.3.6, 5.0.3.7, 5.0.3.8, 5.0.3.9 and 5.0.3.10 release commits
 
-`AC_INIT` and the Help file say **5.0.3.9**. Releases continue UnixLib's own
-numbering from GCCSDK's 5.0. The libtool `-version-info` is `9:1:4`:
+`AC_INIT` and the Help file say **5.0.3.10**. Releases continue UnixLib's own
+numbering from GCCSDK's 5.0. The libtool `-version-info` is `9:2:4`:
 interfaces have been added (6:0:1 for 5.0.3.1; `getservbyname_r` and
 friends for 5.0.3.2, 7:0:2; P6's thread attribute functions for 5.0.3.4,
 8:0:3; 5.0.3.5 to 5.0.3.7 changed code only, 8:3:3;
-`__pthread_vfp_reclaim` for 5.0.3.8, 9:0:4; 5.0.3.9 changed code only,
-9:1:4) and none removed, so the shared library's major
+`__pthread_vfp_reclaim` for 5.0.3.8, 9:0:4; 5.0.3.9 and 5.0.3.10 changed
+code only, 9:1:4 and 9:2:4) and none removed, so the shared library's major
 version stays 5.
 
 ### D1. Unofficial fork (`doc/UnixLib/Help`, `configure.ac`; README and other docs)
