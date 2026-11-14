@@ -5,6 +5,12 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.10 (2026-11-14, tag v5.0.3.10)
+
+The same code as 5.0.3.10-rc1: 5.0.3.9 plus Q4. libtool `-version-info`
+9:2:4. Tested on the owner's Pi 4 under RISC OS on Linux: TORCS, relinked
+with rc1, loads its tracks without the stall.
+
 ## 5.0.3.10-rc1 (2026-11-14, pre-release, tag v5.0.3.10-rc1)
 
 5.0.3.9 plus Q4. Not yet run on RISC OS. libtool `-version-info` 9:2:4.

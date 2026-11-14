@@ -1249,7 +1249,9 @@ review kept the EINVAL order for `ftruncate` and `fcntl`). Emulator test
 fail with EBADF and make no SWI; fd 1000 still asks ARMEABISupport; a
 first call on a bad fd still detects FdOp; `ftruncate (5, -1)` stays
 EINVAL). The trace build (`TRACE=yes`) still reports these calls, with
-"not an fd (below 1000, no SWI)".
+"not an fd (below 1000, no SWI)". On the owner's Pi 4 under RISC OS on
+Linux, TORCS relinked with 5.0.3.10-rc1 loads its tracks without the
+stall (2026-11-14).
 
 ### Z1. `__pthread_vfp_reclaim`: VFP after Wimp_Poll in Thumb programs (`pthread/pthinit.c`, `include/unixlib/local.h`) - commit `08022c3`
 
