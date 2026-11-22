@@ -91,6 +91,10 @@ fread (void *data, size_t size, size_t count, FILE *stream)
 	  else
 	    {
 	      to_read -= bytes;
+	      /* 2026: a short read continues after the bytes it got; it used
+		 to read the rest over them (the count was right, the data
+		 wasn't).  Rob Heaton (riscos-gcc16, his report 09).  */
+	      data = (void *)((char *)data + bytes);
 	      /* Fix the file offset pointer.  */
 	      stream->__offset += bytes;
 	    }
