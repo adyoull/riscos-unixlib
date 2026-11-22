@@ -456,6 +456,24 @@ __write_backtrace (int signo)
 	  fprintf(stderr, abort_msg[0], abort_error_code);
       }
   }
+
+  /* 2026 (O2, from riscos-unixlib-web W12): the backtrace below can't
+     say where a fault happened in code without frame records (Thumb, JIT
+     code, most -O2 EABI code), so show the registers the SIGILL/SIGSEGV/
+     SIGBUS handler saved, as a signal handler's ucontext gets them (pc
+     is 4 past an undefined ARM instruction, 2 past a Thumb one; cpsr bit
+     5 set for Thumb).  */
+  if (__signal_have_saved_regs (signo)
+      && __ul_global.pthread_callevery_rma != NULL)
+    {
+      const int *r = __ul_global.pthread_callevery_rma->callback_regs;
+      fputs ("Registers saved at the fault (not meaningful if the program "
+	     "raised the signal itself):\n", stderr);
+      for (int reg = 0; reg < 16; reg++)
+	fprintf (stderr, "  r%-2d %08x%s", reg, (unsigned int) r[reg],
+		 (reg & 3) == 3 ? "\n" : "");
+      fprintf (stderr, "  cpsr %08x\n\n", (unsigned int) r[16]);
+    }
 #endif
 
 #ifndef __SOFTFP__
@@ -704,10 +722,52 @@ death:
 	    __os_swi (Wimp_CommandWindow, regs);
 	  }
 
-	if (signo == SIGOSERROR && __pthread_running_thread->errbuf_valid)
+	/* 2026 (O2, from riscos-unixlib-web W13): SIGEMT (a serious RISC OS error: a hardware exception
+	   such as an abort RISC OS reported as an error) and SIGFPE say
+	   which error too; its text gives the faulting address.  */
+	if ((signo == SIGOSERROR || signo == SIGEMT || signo == SIGFPE)
+	    && __pthread_running_thread->errbuf_valid)
 	  fprintf(stderr, "\nError 0x%x: %s\n  pc: %x\n",
 			  __ul_errbuf.errnum, __ul_errbuf.errmess,
 			  (int)(int *)__ul_errbuf.pc);
+
+	/* 2026 (O2, from riscos-unixlib-web W16): for a hardware exception that RISC OS reported as an
+	   error (an abort, an undefined instruction...), the registers at
+	   the exception, from RISC OS's exception dump area
+	   (OS_ChangeEnvironment 13, PRM 1-317).  */
+	if (signo == SIGEMT && __pthread_running_thread->errbuf_valid
+	    && (__ul_errbuf.errnum & 0x80000000u))
+	  {
+	    int regs[10] = { 13, 0, 0, 0 };
+	    if (!__os_swi (OS_ChangeEnvironment, regs) && regs[1])
+	      {
+		const unsigned *d = (const unsigned *) regs[1];
+		fprintf (stderr, "  registers at the exception (RISC OS's dump):\n");
+		for (int i = 0; i < 16; i++)
+		  fprintf (stderr, "  r%-2d %08x%s", i, d[i], (i & 3) == 3 ? "\n" : "");
+		/* and 64 bytes from each register that points at memory */
+		for (int i = 0; i < 13; i++)
+		  {
+		    unsigned a = d[i] & ~3u;
+		    if (a < 0x8000 || !__valid_address ((void *) a, (void *) (a + 64)))
+		      continue;
+		    const unsigned char *m = (const unsigned char *) a;
+		    for (int row = 0; row < 4; row++)
+		      {
+			fprintf (stderr, "  r%-2d+%02x:", i, row * 16);
+			for (int j = 0; j < 16; j++)
+			  fprintf (stderr, " %02x", m[row * 16 + j]);
+			fprintf (stderr, "  ");
+			for (int j = 0; j < 16; j++)
+			  {
+			    unsigned char c = m[row * 16 + j];
+			    fputc (c >= 32 && c < 127 ? c : '.', stderr);
+			  }
+			fputc ('\n', stderr);
+		      }
+		  }
+	      }
+	  }
 
 	if (act == term)
 	  write_termination (signo);
