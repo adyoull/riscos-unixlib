@@ -5,6 +5,18 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.11-rc2 (2026-11-22, pre-release, tag v5.0.3.11-rc2)
+
+5.0.3.11-rc1 plus seven fixes first taken in 5.0.3.4-rc1 and withdrawn with it before they ran on RISC OS. They have run since 6 November in the web browser's copy of this library on a Pi 4, and were reviewed a third time against everything added since October. libtool `-version-info` 10:0:5. rc1's own changes passed on the owner's Pi 4 (native RISC OS 5.31) and on RISC OS on Linux 1.0.0058 in QEMU.
+
+- **The DDEUtils prefix (C1):** with `*Prefix` set, UnixLib programs no longer hang at start-up.
+- **Destructor functions run at exit (I1):** a program's `.fini_array` (C `__attribute__((destructor))`, libgcov's exit hook) now runs, after the atexit functions and C++ static destructors, as on other systems. Pi test `FiniArray`.
+- **`pthread_once` (P3)** no longer holds one lock for every init routine, so `std::async` and similar no longer deadlock. Pi test `Once`.
+- **`pthread_cond_timedwait` (P4):** deadlines on time (they ran up to a second late, or were wrong for CLOCK_MONOTONIC), safe across the clock's wrap, and a signal just before the deadline is no longer lost. An expired deadline still lets go of the mutex for a moment. Pi test `TimedWait`.
+- **`sysconf` (C2):** `_SC_NPROCESSORS_ONLN` gives 1 (it gave 2048), `_SC_NPROCESSORS_CONF` is new, and `_SC_PHYS_PAGES` gives the RAM's pages (capped at 2 GB). Programs built with the old header keep the old answers.
+- **`scanf` (C3):** `ll`, `hh`, `j`, `q`, `z`, `t` and `%Lf` store the right sizes.
+- **`fread`/`fwrite` (C4)** continue correctly after a short transfer.
+
 ## 5.0.3.11-rc1 (2026-11-22, pre-release, tag v5.0.3.11-rc1)
 
 5.0.3.10 plus seven fixes from riscos-unixlib-web, the web browser's private copy of this library, where they have run in the WebKit port on a Pi 4 for weeks. Not yet run on RISC OS as part of this library. libtool `-version-info` 10:0:5 (one new function).

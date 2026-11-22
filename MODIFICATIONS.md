@@ -1060,6 +1060,187 @@ instead of the thread carrying on; a suspended thread in a timed wait
 times out only once resumed. **Verification.** Peer-reviewed. Pi test
 `Suspend`.
 
+### C1. The DDEUtils prefix is measured correctly (`common/prefix.c`) - commit `b36e287`
+
+**Problem.** Found by Rob Heaton (riscos-gcc16, his report 20, 2026-10); confirmed in our tree. With a DDEUtils prefix set for the task (`*Prefix <dir>`), `__get_dde_prefix ()` never returned: the program hung at start-up. StrongED, DDE make and UnixLib's own `chdir ()` set the prefix. The function is called at start-up (`__unixinit`), in vfork, `getcwd ()` and `chdir ()`.
+
+**Cause.** The loop that measures the control-character-terminated string tested `*prefix`, the first character, which never changes, instead of `*end_prefix`. The same line is in GCCSDK.
+
+**Change.** Test `*end_prefix` (Rob Heaton's one-word fix).
+
+**Performance and behaviour.** No cost. Without a prefix nothing changes; with one, the program now starts.
+
+**Verification.** `tests/host/prefix` (4 checks):
+- a control-character-terminated prefix;
+- an empty one;
+- none;
+- the `Prefix$Dir` fallback.
+
+The old code hangs the test (or, as built with optimisation, crashes it). Not yet run on RISC OS with `*Prefix` set.
+
+**History (5.0.3.11-rc1).** First taken in 5.0.3.4-rc1 (582889d) and withdrawn with it on 2026-10-11, before it ran on RISC OS (section 7). The same code has run since 2026-11-06 in riscos-unixlib-web, the web browser's copy of this library, on the owner's Pi 4. Taken again in 5.0.3.11-rc1, peer-reviewed a third time against everything added since October.
+
+### I1. The program's `.fini_array` runs at exit (`stdlib/atexit.c`, `sys/_syslib.s`, `vscript`) - commit `e7e7f6c`
+
+**Problem.** Found and fixed by Rob Heaton (riscos-gcc16, his report 22). Confirmed in our tree, where `_syslib.s` said "FIXME: what about FINI_ARRAY?". crt0 passes the bounds of the program's `.fini_array` (`CRT1_FINI_ARRAY_START`/`_END`), but nothing called its functions. So:
+- C functions marked `__attribute__ ((destructor))` never ran;
+- libgcov's exit hook never ran, so a program built with `--coverage` or `-fprofile-generate` never wrote its `.gcda` file;
+- crtstuff's `__do_global_dtors_aux` never ran.
+
+C++ static destructors were unaffected: on EABI they are registered with `__cxa_atexit` as the constructors run.
+
+**Change** (Rob Heaton's patch):
+- `__main` registers `__run_fini_array` with `atexit ()` before the program's `_init` and `.init_array` run.
+- At exit it calls the array last entry first, skipping NULL and -1 entries.
+- So it runs after the atexit () functions and the static destructors the constructors registered, as glibc's `__libc_csu_fini` does.
+- `__register_fini_array` is internal (`vscript` local).
+
+**Behaviour.** This is the one deliberate behaviour change in this batch: destructor functions in a program and the libraries linked into it now run at exit, as on every other platform. A library destructor that misbehaves would now show at exit. The ports should be checked once by quitting them normally.
+
+**Dynamically and mixed-linked programs (checked in 5.0.3.11).** ld-riscos (`boot1.c`) runs the init and fini arrays of shared libraries only and leaves the executable's to crt0, so nothing runs twice. Shared libraries' finalisers are registered earlier, so they run after the executable's array, the right order.
+
+**Also from the third review.** A vfork child that calls `exit ()` (rather than `_exit ()`) after a failed exec now runs the parent's destructor functions too, as it already ran its C++ static destructors; that is the child's bug, as on Linux. `_fini` runs before the array rather than after; crti/crtn's `_fini` is empty.
+
+**Performance.** None outside exit.
+
+**Verification.** New Pi test `FiniArray` (`tests/riscos/finitest.cc`, C++). The exit order must be atexit, the static destructor, then two destructor functions (the default and priority 101), with a C++ exception thrown and caught before. It prints `ASFL` and PASS; `main` prints a line first, so a missing "exit order" line is a FAIL. The built test's `.fini_array` was checked: [priority 101, `__do_global_dtors_aux`, default], run last first. Pi test to run (5.0.3.11-rc1).
+
+**History (5.0.3.11-rc1).** First taken in 5.0.3.4-rc1 (d31a6ea, f478d18) and withdrawn with it on 2026-10-11, before it ran on RISC OS (section 7). The same code has run since 2026-11-06 in riscos-unixlib-web, the web browser's copy of this library, on the owner's Pi 4. Taken again in 5.0.3.11-rc1, peer-reviewed a third time against everything added since October.
+
+### P3. `pthread_once` without one global hold (`pthread/once.c`) - commit `e7c4b40`
+
+**Problem.** Found by Rob Heaton (riscos-gcc16, his report 10): `std::async` deadlocked. Confirmed in our tree. One mutex, shared by every `pthread_once_t`, was held for the whole of the init routine. An init routine that waits for another thread which itself calls `pthread_once`, even on a different object, deadlocked. libstdc++'s `future::get` does that (`call_once (thread::join)` while the other thread runs `call_once (set result)`).
+
+**Change.** Rob Heaton's design:
+- Each `pthread_once_t` has a state: 0 = not run, 1 = done (as before), 2 = running.
+- The mutex only guards the state, and is not held while the init routine runs.
+- Callers that find the routine running wait on a condition variable.
+- A cancelled init routine (`pthread_exit`, or cancellation) resets the state and wakes the waiters, so the next call runs it again, as POSIX requires.
+
+Two differences from his patch:
+- **A fast path:** an object already done returns at once without taking the mutex. That is cheaper than before.
+- **No `-fexceptions`:** his version also undoes the state when a C++ exception leaves the init routine. That needs this file compiled with `-fexceptions`, which would pull the C++ unwinder into every C program that uses `pthread_once`. So exceptions are handled as before, i.e. not.
+
+**Performance and behaviour.** Faster for the common already-done case; otherwise the same work. `pthread_once_t` is unchanged (an `int`, 0 to start, 1 when done). While the routine runs it holds 2, where it used to stay 0; only code that reads the object directly would see that.
+
+**Verification.** New Pi test `Once` (`tests/riscos/oncetest.c`) covers:
+- an init routine that starts and joins a thread which calls `pthread_once` (the old library stops with "Deadlocked");
+- three callers of one slow init routine: one run, and all return after it;
+- a cancelled init routine, which runs again.
+
+Third review (5.0.3.11): an init routine that calls `pthread_once` on its own object (undefined in POSIX) used to run again recursively; now it waits for itself, which stops with "Deadlocked" when other threads exist and never returns in a single-threaded program.
+
+Pi test to run (5.0.3.11-rc1).
+
+**History (5.0.3.11-rc1).** First taken in 5.0.3.4-rc1 (0f0d7b9) and withdrawn with it on 2026-10-11, before it ran on RISC OS (section 7). The same code has run since 2026-11-06 in riscos-unixlib-web, the web browser's copy of this library, on the owner's Pi 4. Taken again in 5.0.3.11-rc1, peer-reviewed a third time against everything added since October.
+
+### P4. `pthread_cond_timedwait`: exact deadlines, wrap-safe, no lost signal (`pthread/cond.c`, `pthread/context.c`) - commit `30af876`
+
+**Problem.** Found by Rob Heaton (riscos-gcc16, his report 11); confirmed in our tree.
+- **CLOCK_REALTIME:** the deadline was `abstime − time ()` with `time ()` in whole seconds, so every wait overran by up to a second.
+- **CLOCK_MONOTONIC:** the absolute `abstime` was added to `clock ()` as if it were a duration.
+
+Two more problems found in reviewing his patch:
+- **Signed comparison:** the scheduler (`context.c`) and `pthread_cond_timedwait` compared `clock () > condtimeout` as signed numbers. They were wrong across the wrap of the centisecond clock, and his capped deadline (`clock ()` + up to 10⁹ cs) would have timed out at once after about 132 days of uptime.
+- **Lost signal:** a thread signalled just before its deadline but scheduled after it returned `ETIMEDOUT` (the code compared the clock again), so the signal was lost.
+
+**Change.**
+- **Deadline:** Rob Heaton's `cond_deadline`:
+  - the remaining time is taken on the condition variable's own clock (`clock_gettime`) and rounded up to whole centiseconds;
+  - an invalid `abstime` fails with nothing changed; a passed one gives `ETIMEDOUT` after letting go of the mutex for a moment and taking it again, as the old code and glibc do (third review: a caller polling with a deadline of "now", such as `SDL_CondWaitTimeout (c, m, 0)`, would otherwise never let the thread that changes its condition have the mutex; 5.0.3.4-rc1 returned with it still held);
+  - waits are capped at 10⁷ s.
+- **Comparison:** the scheduler compares `(int) ((unsigned long) clock () − (unsigned long) condtimeout) > 0`, so the subtraction itself can't overflow.
+- **Timed out or signalled:** when the scheduler ends a wait for its deadline it clears the thread's `cond`, and `pthread_cond_timedwait` reports `ETIMEDOUT` only then. A signal leaves `cond` set.
+
+**Peer review additions.**
+- **No other thread yet:** with no thread started, nothing can signal and the scheduler doesn't run, so `pthread_cond_wait`/`timedwait` return at once (a spurious wakeup, which POSIX allows). Before, the thread was put on the wait list and left there, and the next wait linked it to itself. Nothing in the library waits on a condition variable before threads exist except `sigwait`, which already looped.
+- (5.0.3.4-rc1 also changed `pthread_cancel` to wake a thread in a condition wait, for its semaphores (P5). Not taken: 5.0.3.6's semaphores (P7) wait in slices and see a cancellation themselves.)
+
+**Performance and behaviour.** Timed waits end when asked. No extra cost per switch (one subtraction instead of a comparison).
+- An `abstime` with `tv_nsec` outside 0 to 999,999,999 now gives `EINVAL`, as POSIX says; before it was used as given.
+- A wait longer than 10⁷ s (about 115.7 days) returns `ETIMEDOUT` after 10⁷ s.
+
+**With 5.0.3.6's semaphores (P7).** They use the same `STATE_COND_TIMED_WAIT`, `condtimeout` and `cond` fields; the signed comparison gives them the same answers (and makes their waits wrap-safe), and they take themselves off their queue whether or not the scheduler cleared `cond`.
+
+**Verification.** Pi test `TimedWait` (`tests/riscos/twtest.c`; its semaphore checks now exercise P7):
+- a 300 ms wait on each clock must time out after 29–40 cs;
+- a passed deadline gives `ETIMEDOUT` at once;
+- a signal after 100 ms with a 2 s deadline returns 0.
+
+It starts a dummy thread first, so that these waits go through the scheduler. Pi test to run (5.0.3.11-rc1).
+
+**History (5.0.3.11-rc1).** First taken in 5.0.3.4-rc1 (8a95094, ec05e2d) and withdrawn with it on 2026-10-11, before it ran on RISC OS (section 7). The same code has run since 2026-11-06 in riscos-unixlib-web, the web browser's copy of this library, on the owner's Pi 4. Taken again in 5.0.3.11-rc1, peer-reviewed a third time against everything added since October.
+
+### C2. `sysconf`: the `_SC_` names after `_SC_PAGE_SIZE` get values of their own; one processor (`include/unistd.h`, `unix/sysconf.c`) - commit `a37d09b`
+
+**Problem.** Found and fixed by Rob Heaton (riscos-gcc16, his report 13); confirmed in our tree.
+- In `<unistd.h>`, `_SC_PAGE_SIZE = _SC_PAGESIZE` restarted the enum numbering, so the names after it shared values with earlier ones:
+  - `_SC_PHYS_PAGES` = `_SC_BC_BASE_MAX`;
+  - `_SC_NPROCESSORS_ONLN` = `_SC_BC_DIM_MAX`.
+- So `sysconf (_SC_NPROCESSORS_ONLN)` returned 2048. A program or library that sizes its thread pool by it would start far too many threads on a one-core system.
+- `sysconf.c` tested `#ifdef _SC_NPROCESSORS_ONLN`, which is always false for an enum constant, so its "return 1" case was never compiled.
+
+**Change.** Rob Heaton's patch:
+- `_SC_PAGE_SIZE` moves to the end, so the names before it get new, unique values, with `#define`s so `#ifdef` works.
+- Added: `_SC_NPROCESSORS_CONF`.
+- `sysconf` returns 1 for both processor counts.
+- `_SC_PHYS_PAGES` now has its own value instead of `_SC_BC_BASE_MAX`'s answer. Peer review: it is implemented (OS_ReadMemMapInfo's page count), so a program that sizes caches by it gets a real number rather than an error. Third review (5.0.3.11): capped so that `sysconf (_SC_PHYS_PAGES) * sysconf (_SC_PAGESIZE)` fits in a 32-bit `long` (2 GB at most; a 4 GB Pi gave 0 there).
+- The new values are `_SC_PHYS_PAGES` 27, `_SC_NPROCESSORS_ONLN` 28 and `_SC_NPROCESSORS_CONF` 29.
+
+**Compatibility.** Programs and libraries built with the old header keep the old numbers and the old answers (2048) until rebuilt. That includes any library built against an older UnixLib, such as the toolchain's libstdc++. No other name changes value.
+
+**Performance.** For a rebuilt program, it can only help: thread pools sized by the processor count are sized for one processor.
+
+**Verification.** `tests/abi/check.sh` step 8 (`tests/abi/sysconf.c`, static assertions) checks that:
+- the names are macros;
+- `_SC_PAGE_SIZE == _SC_PAGESIZE`;
+- the processor and physical-page names don't reuse earlier values, and have the values above.
+
+The old header fails it.
+
+**History (5.0.3.11-rc1).** First taken in 5.0.3.4-rc1 (955ef40, 8dbc42e) and withdrawn with it on 2026-10-11, before it ran on RISC OS (section 7). The same code has run since 2026-11-06 in riscos-unixlib-web, the web browser's copy of this library, on the owner's Pi 4. Taken again in 5.0.3.11-rc1, peer-reviewed a third time against everything added since October.
+
+### C3. `scanf` length modifiers `ll`, `hh`, `j`, `q`, `z`, `t` and `%Lf` (`stdio/scanf.c`) - commit `190a1b8`
+
+**Problem.** Found and fixed by Rob Heaton (riscos-gcc16, his report 21). He saw it as the native GCC's LTO linker failing; confirmed in our tree. `scanf` knew only `l`, `L` and `h`:
+- `%lld` and `%llx` stored a `long`, the low 32 bits of the caller's `long long`, leaving the high word unchanged;
+- `%hhd` wrote a `short`, two bytes, into a `char`;
+- `%jd`, `%zu`, `%td` and `%qd` weren't understood;
+- `%Lf` stored a `float`.
+
+**Change.** Rob Heaton's patch:
+- `ll`, `j` and `q` mean `long long`, converted with `strtoll`/`strtoull`;
+- `hh` means `char`;
+- `z` and `t` follow the sizes of `size_t` and `ptrdiff_t` (an `int` here);
+- `%Lf` stores a `long double`;
+- `%n` follows the same sizes.
+
+Peer review: his patch stored `%llp` as an 8-byte value, over the word after the pointer; `%p` now always stores a pointer. `L` on an integer conversion (`%Ld`) still stores an `int`, as before (glibc reads it as `long long`; we leave it, so no existing caller changes).
+
+**Performance and behaviour.** Formats that worked before give the same results. The function is 196 bytes larger (3949 to 4145), with no measurable cost per call. A static program that uses `scanf` now also links `strtoll`, `strtoull`, `strtold` and libgcc's 64-bit division: about 2.8 KB more in a test image.
+
+**Verification.**
+- `tests/host/scanf` (12 checks) builds the real `vfscanf` for the PC: each modifier; `%hhd` leaving the next byte alone; `%*lld` with `%n`, and `%lln`; `%Ld` storing an `int`; the unchanged `%d %ld %hd`. The old code fails 5. (On the PC a `long` is 64 bits, so this checks the conversions and sizes stored, not the 32-bit truncation.)
+- `tests/emu/scanf_test.py` (14 checks; the peer reviewer's idea) links the real library and runs `sscanf` in an ARM emulator, into fields filled with 0x5A, so a store of the wrong size shows on the real 32-bit target. It adds `%llp` and `%Ld`. The old code fails 8.
+
+**History (5.0.3.11-rc1).** First taken in 5.0.3.4-rc1 (03ee865, fb9a088) and withdrawn with it on 2026-10-11, before it ran on RISC OS (section 7). The same code has run since 2026-11-06 in riscos-unixlib-web, the web browser's copy of this library, on the owner's Pi 4. Taken again in 5.0.3.11-rc1, peer-reviewed a third time against everything added since October.
+
+### C4. `fread`/`fwrite` after a short transfer (`stdio/fread.c`, `stdio/fwrite.c`) - commit `fa3472e`
+
+**Problem.** Found and fixed by Rob Heaton (riscos-gcc16, his report 09); confirmed in our tree. He reports it as latent: not seen on RISC OS, where file transfers are rarely short, but possible on sockets, pipes and devices. In the loops that call `read ()` or `write ()` directly (large blocks, unbuffered streams), the data pointer was never advanced:
+- after a short read, the rest was read over the bytes already stored, so the count was right and the data wrong;
+- after a short write, the same bytes were written again.
+
+**Change.** Rob Heaton's patch: advance the pointer by the bytes transferred, in `fread` and in both `fwrite` loops.
+
+**Not changed.** A `write ()` that returns 0 still makes `fwrite` try again, as before. Stopping there was tried and dropped in peer review: a device that is briefly full would then give an error where it now succeeds. `__flsbuf`'s own write of the buffer has the same short-write question; both are left for a later look (section 8).
+
+**Performance and behaviour.** One addition per transfer. Full transfers, the normal case, are unchanged.
+
+**Verification.** `tests/host/stdio` (7 checks) builds the real `fread.c` and `fwrite.c` for the PC with a shim of UnixLib's `FILE`, against a device that moves 30 bytes per call. It covers an unbuffered read and write of 100 bytes and a buffered stream's direct write. The old code fails 3.
+
+**History (5.0.3.11-rc1).** First taken in 5.0.3.4-rc1 (4d33218, 801d238) and withdrawn with it on 2026-10-11, before it ran on RISC OS (section 7). The same code has run since 2026-11-06 in riscos-unixlib-web, the web browser's copy of this library, on the owner's Pi 4. Taken again in 5.0.3.11-rc1, peer-reviewed a third time against everything added since October.
+
 ### Q1. ARMEABISupport's fds with 1.05 and 1.07+: shared memory, shared files (`sys/mman-armeabi.c`, `unix/ul_close.c`, `ul_read.c`, `ul_write.c`, `ul_lseek.c`, `ul_isatty.c`, `ul_open.c`, `fstat.c`, `sync.c`, `truncate.c`, `fcntl.c`, `dup2.c`, `incl-local/internal/fd.h`, `swiparams.h`, `include/fcntl.h`, `swis.h`, `unixlib/buildoptions.h`, `signal/post.c`)
 
 **Problem.** ARMEABISupport 1.07 and 1.08 (Lee Noar; 1.05 is in GCCSDK)
@@ -2494,6 +2675,10 @@ Outside `libunixlib/`, the repository has its own build and test kit:
   SharedUnixLibrary), so nothing from it ships here until it is. The
   commits, their tests and their review notes stay in the history for
   reference.
+  **5.0.3.11-rc1 takes C1, I1, P3, P4, C2, C3 and C4 again** (section 2),
+  after they had run in the web browser's copy of this library on a Pi for
+  over two weeks. K11 and A4 (fork and vfork) stay out: nothing has tested
+  them. P5 stays out: 5.0.3.6's semaphores (P7) replaced it.
 
 ---
 
