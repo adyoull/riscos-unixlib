@@ -213,6 +213,25 @@ index 261be72..0c136f3 100644
 +_Static_assert (offsetof (struct ul_global, pvops) == 120, "GBL_PVOPS");
 +#endif
 +
+diff --git a/gcc4/recipe/files/gcc/libunixlib/common/prefix.c b/gcc4/recipe/files/gcc/libunixlib/common/prefix.c
+index 0653d66..2e6504a 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/common/prefix.c
++++ b/gcc4/recipe/files/gcc/libunixlib/common/prefix.c
+@@ -25,9 +25,12 @@ __get_dde_prefix (void)
+       if (prefix == NULL)
+         return NULL;
+ 
+-      /* Returned string can be control char terminated.  */
++      /* Returned string can be control char terminated.
++	 2026: the test read *prefix, which never changes, so with a
++	 DDEUtils prefix set (*Prefix) this loop never ended: found by Rob
++	 Heaton (riscos-gcc16, his report 20).  */
+       const char *end_prefix;
+-      for (end_prefix = prefix; (unsigned char)*prefix >= ' '; ++end_prefix)
++      for (end_prefix = prefix; (unsigned char)*end_prefix >= ' '; ++end_prefix)
+         /* */;
+       /* Filter out zero length results.  */
+       size_t size = end_prefix - prefix;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/common/riscosify.c b/gcc4/recipe/files/gcc/libunixlib/common/riscosify.c
 index b5e931d..0825bef 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/common/riscosify.c
@@ -1198,7 +1217,7 @@ index 0000000..fc1f0c9
 +\p\()_end:
 +.endm
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
-index 9f57871..6d40752 100644
+index 9f57871..cf76c3b 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
 @@ -208,6 +208,9 @@ struct ul_global
@@ -1262,13 +1281,20 @@ index 9f57871..6d40752 100644
  extern void __munmap_all (void);	/* Deallocate all mappings.  */
  
  /* Stop the interval timers.  */
-@@ -427,8 +446,12 @@ extern void __unixinit (void);
+@@ -427,8 +446,19 @@ extern void __unixinit (void);
  extern void __free_process (struct __sul_process *process)
  	__nonnull ((1));
  
 +/* 2026: end the process with a wait status (<sys/wait.h> encoding);
 +   _exit takes a plain exit code.  */
 +extern void __exit_status (int __status) __attribute__ ((__noreturn__));
++
++#ifdef __ARM_EABI__
++/* 2026: register the program's .fini_array to run at exit (I1;
++   stdlib/atexit.c), called from __main in sys/_syslib.s.  */
++extern void __register_fini_array (void (**__start) (void),
++				   void (**__end) (void));
++#endif
 +
  extern pid_t __fork_post (pid_t pid, int isfork);
 -extern int __fork_pre (int isfork, void **sul_fork, pid_t *pid);
@@ -2045,10 +2071,36 @@ index 95184b4..2ed1933 100644
  
  /* Set file access permissions for file to mode.  */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/unistd.h b/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
-index be382ba..e684348 100644
+index be382ba..19137f5 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/include/unistd.h
-@@ -608,11 +608,39 @@ extern void sync (void) __THROW;
+@@ -343,10 +343,23 @@ enum
+     _SC_2_SW_DEV,
+     _SC_2_LOCALEDEF,
+ 
+-    _SC_PAGE_SIZE = _SC_PAGESIZE,
++    /* 2026: _SC_PAGE_SIZE = _SC_PAGESIZE restarted the numbering, so the
++       names after it shared values with earlier ones: _SC_PHYS_PAGES was
++       _SC_BC_BASE_MAX and _SC_NPROCESSORS_ONLN was _SC_BC_DIM_MAX, so
++       sysconf (_SC_NPROCESSORS_ONLN) returned 2048 and a program sized
++       its thread pool by it.  The alias is now last, so the names before
++       it get values of their own (programs built before keep the old
++       values and answers).  Found and fixed by Rob Heaton (riscos-gcc16,
++       his report 13).  */
+     _SC_PHYS_PAGES,
+-    _SC_NPROCESSORS_ONLN
++    _SC_NPROCESSORS_ONLN,
++    _SC_NPROCESSORS_CONF,
++
++    _SC_PAGE_SIZE = _SC_PAGESIZE
+   };
++#define _SC_PHYS_PAGES _SC_PHYS_PAGES
++#define _SC_NPROCESSORS_ONLN _SC_NPROCESSORS_ONLN
++#define _SC_NPROCESSORS_CONF _SC_NPROCESSORS_CONF
+ 
+ /* Get the value of the system variable NAME.  */
+ extern long int sysconf (int __name) __THROW __attribute__ ((__const__));
+@@ -608,11 +621,39 @@ extern void sync (void) __THROW;
     This function is a cancellation point.  */
  extern int fsync (int __fd);
  
@@ -3405,8 +3457,164 @@ index 0000000..c3f238c
 +  *policy = SCHED_OTHER;
 +  return 0;
 +}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/cond.c b/gcc4/recipe/files/gcc/libunixlib/pthread/cond.c
+index dc80526..ca60585 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/cond.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/cond.c
+@@ -7,6 +7,7 @@
+ #include <sys/time.h>
+ 
+ #include <internal/os.h>
++#include <internal/unix.h>
+ #include <pthread.h>
+ 
+ #ifdef PTHREAD_DEBUG
+@@ -43,12 +44,60 @@ pthread_cond_wait (pthread_cond_t *cond, pthread_mutex_t *mutex)
+   return pthread_cond_timedwait (cond, mutex, NULL);
+ }
+ 
++/* 2026: turn ABSTIME, an absolute time on the condition variable's clock
++   CLOCK_ID, into a deadline on clock (), which the scheduler compares
++   (pthread/context.c).  The old code took ABSTIME minus time (), which has
++   a resolution of one second, so every wait overran by up to a second; for
++   a CLOCK_MONOTONIC condition variable it added clock () to a time that was
++   already absolute.  Both clocks have centisecond resolution or better, so
++   the difference is exact; it's rounded up (a wait may be a little late,
++   never early).  Returns 0 and the deadline in *DEADLINE, ETIMEDOUT if
++   ABSTIME has passed, or EINVAL.  Found and fixed by Rob Heaton
++   (riscos-gcc16, his report 11); his code.  */
++static int
++cond_deadline (clockid_t clock_id, const struct timespec *abstime,
++               clock_t *deadline)
++{
++  struct timespec now;
++  long long secs;
++  long nsecs, cs;
++
++  if (abstime->tv_nsec < 0 || abstime->tv_nsec >= 1000000000L)
++    return EINVAL;
++
++  if (clock_gettime (clock_id, &now) != 0)
++    return EINVAL;
++
++  /* Time remaining: secs + nsecs / 10^9, with 0 <= nsecs < 10^9.  */
++  secs = (long long) abstime->tv_sec - now.tv_sec;
++  nsecs = abstime->tv_nsec - now.tv_nsec;
++  if (nsecs < 0)
++    {
++      secs--;
++      nsecs += 1000000000L;
++    }
++  if (secs < 0 || (secs == 0 && nsecs == 0))
++    return ETIMEDOUT;
++
++  /* Whole centiseconds, rounded up.  A wait of more than 10^7 seconds (115
++     days) is cut to that, which keeps the deadline within the 2^31 cs that
++     the scheduler's signed comparison allows.  */
++  if (secs > 10000000)
++    cs = 1000000000L;
++  else
++    cs = (long) secs * 100 + (nsecs + 9999999) / 10000000;
++
++  *deadline = (clock_t) ((unsigned long) clock () + (unsigned long) cs);
++  return 0;
++}
++
+ /* Wait for a condition variable to be signalled, with a timeout */
+ int
+ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
+                         const struct timespec *abstime)
+ {
+   pthread_t thread;
++  clock_t timeout = 0;
+ 
+   if (cond == NULL || mutex == NULL)
+     return EINVAL;
+@@ -56,6 +105,40 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
+   if (mutex->owner != __pthread_running_thread)
+     return EINVAL;
+ 
++  if (abstime != NULL)
++    {
++      /* An invalid deadline fails with nothing changed.  A deadline that
++         has already passed still lets go of the mutex for a moment, as
++         the old code and glibc do (2026, peer review): a caller polling
++         with a deadline of "now" (SDL_CondWaitTimeout (c, m, 0), say)
++         holds the mutex otherwise, and the thread that would change its
++         condition never gets it.  */
++      int err = cond_deadline (cond->clock_id, abstime, &timeout);
++      if (err == ETIMEDOUT)
++        {
++          pthread_mutex_unlock (mutex);
++          if (__ul_global.pthread_system_running)
++            pthread_yield ();
++          pthread_mutex_lock (mutex);
++          return ETIMEDOUT;
++        }
++      if (err)
++        return err;
++    }
++
++  /* 2026 (peer review): with no other thread started, there is no one to
++     signal and the scheduler doesn't run: return at once (a spurious
++     wakeup, which POSIX allows; a caller's loop, or the deadline check
++     above on its next call, ends the wait).  This used to put the thread
++     on the wait list and return, leaving it there: the next wait linked
++     it to itself.  A single-threaded program using semaphores (P5) does
++     this.  */
++  if (!__ul_global.pthread_system_running)
++    {
++      pthread_mutex_unlock (mutex);
++      return pthread_mutex_lock (mutex);
++    }
++
+   __pthread_disable_ints ();
+ 
+   /* This call will not return an error unless mutex is NULL, which we've
+@@ -73,20 +156,8 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
+     }
+   else
+     {
+-      clock_t diff;
+-
+       __pthread_running_thread->state = STATE_COND_TIMED_WAIT;
+-      if (cond->clock_id == CLOCK_MONOTONIC)
+-        {
+-          diff = (abstime->tv_sec * 100) + (abstime->tv_nsec / 10000000);
+-        }
+-      else
+-        {
+-          /* A bit crude, but... */
+-          diff = (100 * (abstime->tv_sec - time (NULL)))
+-               + (abstime->tv_nsec / 10000000);
+-	}
+-      __pthread_running_thread->condtimeout = clock () + diff;
++      __pthread_running_thread->condtimeout = timeout;
+     }
+ 
+   /* Add this thread to the linked list of threads that are waiting on
+@@ -109,13 +180,13 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
+   pthread_yield ();
+   /* pthread_yield won't return until either the condition var has been signalled, or a timeout occured */
+ 
+-  if (abstime != NULL)
++  /* 2026: timed out only if the scheduler took this thread off the list
++     for its deadline (it clears 'cond'); a thread signalled just before
++     the deadline used to report ETIMEDOUT as well, losing the signal.  */
++  if (abstime != NULL && __pthread_running_thread->cond == NULL)
+     {
+-      if (clock () > __pthread_running_thread->condtimeout)
+-        {
+-          pthread_mutex_lock (mutex);
+-          return ETIMEDOUT;
+-        }
++      pthread_mutex_lock (mutex);
++      return ETIMEDOUT;
+     }
+ 
+   return pthread_mutex_lock (mutex);
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
-index 4343190..87c3335 100644
+index 4343190..d6728ec 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 @@ -89,6 +89,15 @@ __pthread_context_switch (void)
@@ -3436,7 +3644,33 @@ index 4343190..87c3335 100644
        if (__pthread_running_thread->suspended)
  	continue;
  
-@@ -165,7 +178,8 @@ __pthread_context_switch (void)
+@@ -137,9 +150,13 @@ __pthread_context_switch (void)
+         {
+           /* Check that the condition variable wait has not timed out */
+           iter = 0; /* Prevent deadlock error ocurring if we are waiting */
+-          if (clock () > __pthread_running_thread->condtimeout)
++          /* 2026: compared as a signed difference, so it still works
++             when the centisecond clock wraps (it used to be clock () >
++             condtimeout, wrong across the wrap and for deadlines past
++             2^31 cs).  */
++          if ((int) ((unsigned long) clock ()
++                     - (unsigned long) __pthread_running_thread->condtimeout) > 0)
+             {
+-              /* Hmm, this will fail if the monotonic timer wraps around.  */
+               __pthread_running_thread->state = STATE_RUNNING;
+ 
+               /* Remove this thread from the list of threads waiting on the
+@@ -157,6 +174,9 @@ __pthread_context_switch (void)
+                   if (thread->nextwait)
+                     thread->nextwait = thread->nextwait->nextwait;
+                 }
++              /* 2026: tells pthread_cond_timedwait it timed out (a signal
++                 leaves cond set).  */
++              __pthread_running_thread->cond = NULL;
+             }
+         }
+ #ifdef PTHREAD_DEBUG_CONTEXT
+@@ -165,7 +185,8 @@ __pthread_context_switch (void)
  #endif
  
      }
@@ -3570,6 +3804,104 @@ index 37f75aa..bd1410f 100644
    node->joined = NULL;
    node->ret = NULL;
    node->mutex = NULL;
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/once.c b/gcc4/recipe/files/gcc/libunixlib/pthread/once.c
+index 3c9205e..57666d7 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/once.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/once.c
+@@ -4,40 +4,82 @@
+ #include <errno.h>
+ #include <pthread.h>
+ 
+-static pthread_mutex_t once_mutex = PTHREAD_MUTEX_INITIALIZER;
++/* 2026: once_mutex only protects the state of the pthread_once_t objects,
++   and once_cond signals changes of that state.  It is NOT held while an
++   init routine runs.
++
++   It used to be held, one mutex for every pthread_once_t, for the whole of
++   the init routine.  An init routine that waits for another thread which
++   itself calls pthread_once (for a different pthread_once_t) then
++   deadlocked: the C++ library does exactly that in std::async
++   (future::get runs call_once (thread::join) while the other thread runs
++   call_once (set the result)).  Found and fixed by Rob Heaton
++   (riscos-gcc16, his report 10); this is his design, without the C++
++   exception handling (see below), and with a fast path for an object
++   whose init routine has already run.
++
++   State of a pthread_once_t:
++     0 (PTHREAD_ONCE_INIT)  the init routine hasn't run
++     ONCE_DONE              it has completed (1, as before)
++     ONCE_RUNNING           a thread is in it
+ 
++   A C++ exception thrown out of the init routine isn't handled here (as
++   before): handling it needs this file compiled with -fexceptions, which
++   would pull the C++ unwinder into every C program that calls
++   pthread_once.  */
++#define ONCE_DONE    1
++#define ONCE_RUNNING 2
++
++static pthread_mutex_t once_mutex = PTHREAD_MUTEX_INITIALIZER;
++static pthread_cond_t once_cond = PTHREAD_COND_INITIALIZER;
+ 
+-/* Cleanup handler for pthread_once */
++/* Cleanup handler for pthread_once: the init routine was cancelled, or
++   called pthread_exit.  The effect must be as if pthread_once was never
++   called, so another thread may try.  */
+ static void
+ __pthread_once_cleanup (void *arg)
+ {
+-  arg = arg;
++  pthread_once_t *once_control = arg;
++
++  pthread_mutex_lock (&once_mutex);
++  *once_control = 0;
++  pthread_cond_broadcast (&once_cond);
+   pthread_mutex_unlock (&once_mutex);
+ }
+ 
+-/* Ensure a specified function is called exactly once
+-   We need a mutex so that only one call to pthread_once
+-   can proceed at any one time, and we can't have ints
+-   disabled during the init_routine call.
+-   If the init_routine is cancelled then the effect should
+-   be as if pthread_once was never called. */
++/* Ensure a specified function is called exactly once.  A thread that
++   finds the init routine running in another thread waits until that has
++   finished (or been cancelled), as POSIX requires.  */
+ int
+ pthread_once (pthread_once_t *once_control, void (*init_routine) (void))
+ {
+   if (once_control == NULL || init_routine == NULL)
+     return EINVAL;
+ 
++  /* Already done: nothing to wait for.  The value is only ever set to
++     ONCE_DONE after the init routine has returned.  */
++  if (*(volatile pthread_once_t *) once_control == ONCE_DONE)
++    return 0;
++
+   pthread_mutex_lock (&once_mutex); /* This won't fail */
+ 
++  while (*once_control == ONCE_RUNNING)
++    pthread_cond_wait (&once_cond, &once_mutex);
++
+   if (*once_control == 0)
+     {
+-      pthread_cleanup_push (__pthread_once_cleanup, NULL);
++      *once_control = ONCE_RUNNING;
++      pthread_mutex_unlock (&once_mutex);
++
++      pthread_cleanup_push (__pthread_once_cleanup, once_control);
+ 
+       init_routine ();
+ 
+       pthread_cleanup_pop (0);
+ 
+-      *once_control = 1;
++      pthread_mutex_lock (&once_mutex);
++      *once_control = ONCE_DONE;
++      pthread_cond_broadcast (&once_cond);
+     }
+ 
+   pthread_mutex_unlock (&once_mutex);
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c b/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
 index 9457494..f83e03f 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
@@ -6970,6 +7302,21 @@ index 9590f59..d56a0d5 100644
  }
 -#endif
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/fread.c b/gcc4/recipe/files/gcc/libunixlib/stdio/fread.c
+index f1021d3..147a227 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdio/fread.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdio/fread.c
+@@ -91,6 +91,10 @@ fread (void *data, size_t size, size_t count, FILE *stream)
+ 	  else
+ 	    {
+ 	      to_read -= bytes;
++	      /* 2026: a short read continues after the bytes it got; it used
++		 to read the rest over them (the count was right, the data
++		 wasn't).  Rob Heaton (riscos-gcc16, his report 09).  */
++	      data = (void *)((char *)data + bytes);
+ 	      /* Fix the file offset pointer.  */
+ 	      stream->__offset += bytes;
+ 	    }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/fseeko.c b/gcc4/recipe/files/gcc/libunixlib/stdio/fseeko.c
 index 676be70..94d677a 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdio/fseeko.c
@@ -7085,6 +7432,29 @@ index 1759e21..777f924 100644
  }
 -#endif
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/fwrite.c b/gcc4/recipe/files/gcc/libunixlib/stdio/fwrite.c
+index 6bbaba5..fc9b66c 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdio/fwrite.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdio/fwrite.c
+@@ -77,6 +77,10 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
+ 		  break;
+ 		}
+ 	      to_write -= bytes;
++	      /* 2026: a short write continues after the bytes it took; it
++		 used to write the same bytes again.  Rob Heaton
++		 (riscos-gcc16, his report 09).  */
++	      data = (const void *)((const char *)data + bytes);
+ 	      /* Increment the internal file offset.  */
+ 	      stream->__offset += bytes;
+ 	      total_bytes += bytes;
+@@ -172,6 +176,7 @@ fwrite (const void *data, size_t size, size_t count, FILE *stream)
+ 	      break;
+ 	    }
+ 	  to_write -= bytes;
++	  data = (const void *)((const char *)data + bytes);	/* 2026 */
+ 	  stream->__offset += bytes;
+ 	  total_bytes += bytes;
+ 	}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/rename.c b/gcc4/recipe/files/gcc/libunixlib/stdio/rename.c
 index 6bc63ce..e6ffbeb 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdio/rename.c
@@ -7182,6 +7552,217 @@ index 6bc63ce..e6ffbeb 100644
  	return __ul_seterr (err, EOPSYS);
      }
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdio/scanf.c b/gcc4/recipe/files/gcc/libunixlib/stdio/scanf.c
+index 7bb9f46..d41061e 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdio/scanf.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdio/scanf.c
+@@ -44,6 +44,7 @@ static const char rcsid[] =
+ 
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <stddef.h>
+ #include <ctype.h>
+ #include <stdarg.h>
+ #include <string.h>
+@@ -62,11 +63,16 @@ static const char rcsid[] =
+  * Flags used during conversion.
+  */
+ #define	LONG		0x01	/* l: long or double */
+-#define	LONGDBL		0x02	/* L: long double; unimplemented */
++#define	LONGDBL		0x02	/* L: long double */
+ #define	SHORT		0x04	/* h: short */
+ #define	SUPPRESS	0x08	/* suppress assignment */
+ #define	POINTER		0x10	/* weird %p pointer (`fake hex') */
+ #define	NOSKIP		0x20	/* do not skip blanks */
++/* 2026: ll, hh, j, q, z, t and %Lf: Rob Heaton (riscos-gcc16, his report
++   21); only l, L and h were known, so %lld stored a long (the low word of a
++   long long), %hhd a short and %Lf a float.  */
++#define	LONGLONG	0x400	/* ll, j, q: long long (intmax_t) */
++#define	CHARSZ		0x800	/* hh: char (SHORT is set as well) */
+ 
+ /*
+  * The following are used in numeric conversions only:
+@@ -115,6 +121,8 @@ vfscanf (FILE *fp, char const *fmt0, va_list ap)
+ 	int base;		/* base argument to strtol/strtoul */
+ 	u_long (*ccfn)(const char *, char **, int);
+ 				/* conversion function (strtol/strtoul) */
++	unsigned long long (*ccfnll)(const char *, char **, int);
++				/* the same for a long long (strtoll/strtoull) */
+ 	char ccltab[256];	/* character class table for %[...] */
+ 	char buf[BUF];		/* buffer for numeric conversions */
+ 
+@@ -129,6 +137,7 @@ vfscanf (FILE *fp, char const *fmt0, va_list ap)
+ 	nread = 0;
+ 	base = 0;		/* XXX just to keep gcc happy */
+ 	ccfn = NULL;		/* XXX just to keep gcc happy */
++	ccfnll = NULL;
+ 	for (;;) {
+ 		c = *fmt++;
+ 		if (c == 0)
+@@ -174,13 +183,35 @@ literal:
+ 			flags |= SUPPRESS;
+ 			goto again;
+ 		case 'l':
+-			flags |= LONG;
++			if (flags & LONG)	/* ll */
++				flags |= LONGLONG;
++			else
++				flags |= LONG;
+ 			goto again;
+ 		case 'L':
+ 			flags |= LONGDBL;
+ 			goto again;
+ 		case 'h':
+-			flags |= SHORT;
++			if (flags & SHORT)	/* hh */
++				flags |= CHARSZ;
++			else
++				flags |= SHORT;
++			goto again;
++		case 'j':		/* intmax_t */
++		case 'q':		/* BSD: quad_t */
++			flags |= LONGLONG;
++			goto again;
++		case 'z':		/* size_t: as big as an int here, but be right where it is not */
++			if (sizeof (size_t) > sizeof (long))
++				flags |= LONGLONG;
++			else if (sizeof (size_t) > sizeof (int))
++				flags |= LONG;
++			goto again;
++		case 't':		/* ptrdiff_t */
++			if (sizeof (ptrdiff_t) > sizeof (long))
++				flags |= LONGLONG;
++			else if (sizeof (ptrdiff_t) > sizeof (int))
++				flags |= LONG;
+ 			goto again;
+ 
+ 		case '0': case '1': case '2': case '3': case '4':
+@@ -201,12 +232,14 @@ literal:
+ 		case 'd':
+ 			c = CT_INT;
+ 			ccfn = (u_long (*)(const char *, char **, int))strtol;
++			ccfnll = (unsigned long long (*)(const char *, char **, int))strtoll;
+ 			base = 10;
+ 			break;
+ 
+ 		case 'i':
+ 			c = CT_INT;
+ 			ccfn = (u_long (*)(const char *, char **, int))strtol;
++			ccfnll = (unsigned long long (*)(const char *, char **, int))strtoll;
+ 			base = 0;
+ 			break;
+ 
+@@ -216,12 +249,14 @@ literal:
+ 		case 'o':
+ 			c = CT_INT;
+ 			ccfn = strtoul;
++			ccfnll = strtoull;
+ 			base = 8;
+ 			break;
+ 
+ 		case 'u':
+ 			c = CT_INT;
+ 			ccfn = strtoul;
++			ccfnll = strtoull;
+ 			base = 10;
+ 			break;
+ 
+@@ -232,6 +267,7 @@ literal:
+ 			flags |= PFXOK;	/* enable 0x prefixing */
+ 			c = CT_INT;
+ 			ccfn = strtoul;
++			ccfnll = strtoull;
+ 			base = 16;
+ 			break;
+ 
+@@ -264,6 +300,7 @@ literal:
+ 			flags |= POINTER | PFXOK;
+ 			c = CT_INT;
+ 			ccfn = strtoul;
++			ccfnll = strtoull;
+ 			base = 16;
+ 			break;
+ 
+@@ -271,7 +308,11 @@ literal:
+ 			nconversions++;
+ 			if (flags & SUPPRESS)	/* ??? */
+ 				continue;
+-			if (flags & SHORT)
++			if (flags & LONGLONG)
++				*va_arg(ap, long long *) = nread;
++			else if (flags & CHARSZ)
++				*va_arg(ap, char *) = nread;
++			else if (flags & SHORT)
+ 				*va_arg(ap, short *) = nread;
+ 			else if (flags & LONG)
+ 				*va_arg(ap, long *) = nread;
+@@ -290,6 +331,7 @@ literal:
+ 				flags |= LONG;
+ 			c = CT_INT;
+ 			ccfn = (u_long (*)(const char *, char **, int))strtol;
++			ccfnll = (unsigned long long (*)(const char *, char **, int))strtoll;
+ 			base = 10;
+ 			break;
+ 		}
+@@ -565,18 +607,26 @@ fprintf (stderr, "peekc (fp) = %c\n", c);
+ 				(void) ungetc(c, fp);
+ 			}
+ 			if ((flags & SUPPRESS) == 0) {
+-				u_long res;
+-
+ 				*p = 0;
+-				res = (*ccfn)(buf, (char **)NULL, base);
+-				if (flags & POINTER)
+-					*va_arg(ap, void **) = (void *)res;
+-				else if (flags & SHORT)
+-					*va_arg(ap, short *) = (short)res;
+-				else if (flags & LONG)
+-					*va_arg(ap, long *) = res;
+-				else
+-					*va_arg(ap, int *) = (int)res;
++				/* 2026 (peer review): not for %p, whose
++				   store is a pointer whatever the modifier.  */
++				if ((flags & LONGLONG) && !(flags & POINTER))
++					*va_arg(ap, unsigned long long *) =
++					    (*ccfnll)(buf, (char **)NULL, base);
++				else {
++					u_long res = (*ccfn)(buf, (char **)NULL, base);
++
++					if (flags & POINTER)
++						*va_arg(ap, void **) = (void *)res;
++					else if (flags & CHARSZ)
++						*va_arg(ap, char *) = (char)res;
++					else if (flags & SHORT)
++						*va_arg(ap, short *) = (short)res;
++					else if (flags & LONG)
++						*va_arg(ap, long *) = res;
++					else
++						*va_arg(ap, int *) = (int)res;
++				}
+ 				nassigned++;
+ 			}
+ 			nread += p - buf;
+@@ -665,11 +715,15 @@ fprintf (stderr, "peekc (fp) = %c\n", c);
+ #ifdef DEBUG
+ fprintf (stderr, "strtod: '%s'\n", buf);
+ #endif
+-				res = strtod(buf,(char **) NULL);
+-				if (flags & LONG)
+-					*va_arg(ap, double *) = res;
+-				else
+-					*va_arg(ap, float *) = (float)res;
++				if (flags & LONGDBL)
++					*va_arg(ap, long double *) = strtold(buf, (char **) NULL);
++				else {
++					res = strtod(buf,(char **) NULL);
++					if (flags & LONG)
++						*va_arg(ap, double *) = res;
++					else
++						*va_arg(ap, float *) = (float)res;
++				}
+ 				nassigned++;
+ 			}
+ 			nread += p - buf;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c
 index 46a40ba..4376cc8 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdlib/alloc.c
@@ -7270,7 +7851,7 @@ index 46a40ba..4376cc8 100644
      sum = av->sbrked_mem;
      if (sum > (CHUNK_SIZE_T)(av->max_sbrked_mem))
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c
-index 79e92bd..266b0fc 100644
+index 79e92bd..5b53d27 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/stdlib/atexit.c
 @@ -79,11 +79,28 @@ __cxa_atexit(void (*destructor)(void *),
@@ -7334,6 +7915,49 @@ index 79e92bd..266b0fc 100644
  }
  
  #ifndef __TARGET_SCL__
+@@ -117,3 +142,42 @@ atexit (void (*atexit_function) (void))
+   return __cxa_atexit ((void (*) (void *))atexit_function, NULL, NULL);
+ }
+ #endif
++
++#if defined (__ARM_EABI__) && !defined (__TARGET_SCL__)
++/* 2026: the program's .fini_array.  crt0 hands its bounds to the start-up
++   code (CRT1_FINI_ARRAY_START/_END) and __main registers this runner with
++   atexit () before the program's _init and .init_array run, so the array
++   runs at exit after the atexit () functions and the static destructors
++   that the constructors register, last entry first, as glibc's
++   __libc_csu_fini does.  Nothing used to call it: a C function marked
++   __attribute__ ((destructor)) never ran, nor did libgcov's exit hook (no
++   .gcda file was ever written).  Found and fixed by Rob Heaton
++   (riscos-gcc16, his report 22).  */
++static void (**fini_array_start) (void);
++static void (**fini_array_end) (void);
++
++static void
++__run_fini_array (void)
++{
++  void (**p) (void) = fini_array_end;
++
++  while (p > fini_array_start)
++    {
++      void (*fn) (void) = *--p;
++
++      if (fn != NULL && fn != (void (*) (void)) -1)
++	fn ();
++    }
++}
++
++void
++__register_fini_array (void (**start) (void), void (**end) (void))
++{
++  if (start == NULL || start == end)
++    return;
++
++  fini_array_start = start;
++  fini_array_end = end;
++  atexit (__run_fini_array);
++}
++#endif
 diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/mkdtemp.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/mkdtemp.c
 new file mode 100644
 index 0000000..291723d
@@ -7419,7 +8043,7 @@ index 487d724..c5559ff 100644
  	TST	a1, #1<<23
  	MOVEQ	a1, #3			@ ARM7, architecture 3
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
-index 3f7c274..1bd6637 100644
+index 3f7c274..ddcc52f 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
 @@ -45,6 +45,9 @@
@@ -7516,7 +8140,7 @@ index 3f7c274..1bd6637 100644
  #endif
  	STR	a4, [v1, #SULPROC_STATUS]
  #endif
-@@ -621,6 +673,21 @@ no_dynamic_area:
+@@ -621,6 +673,33 @@ no_dynamic_area:
   PICEQ "LDR	a1, [v2, #CRT1_LIB_FINI]"
   PICEQ "TEQ	a1, #0"
   PICEQ "BLNE	atexit"
@@ -7535,10 +8159,31 @@ index 3f7c274..1bd6637 100644
 +	BLNE	atexit
 +1:
 +#endif
++
++#ifdef __ARM_EABI__
++	@ 2026: --- Executable Finalisation, part 1: the .fini_array ---
++	@ Register a function that calls the program's .fini_array functions
++	@ at exit.  Registered BEFORE the constructors below run, so it runs
++	@ after the atexit () functions and the static destructors they
++	@ register, as in glibc.  See stdlib/atexit.c.  Rob Heaton
++	@ (riscos-gcc16, his report 22).
++	LDR	a1, [v2, #CRT1_FINI_ARRAY_START]
++	LDR	a2, [v2, #CRT1_FINI_ARRAY_END]
++	BL	__register_fini_array
++#endif
  
  	@ --- Executable Initialisation ---
  	@ Call the program's _init function.
-@@ -681,6 +748,9 @@ no_init_array:
+@@ -630,7 +709,7 @@ no_dynamic_area:
+ 
+ #ifdef __ARM_EABI__
+ 	@ Call the program's .init_array functions.
+-	@ FIXME: what about FINI_ARRAY?
++	@ (The .fini_array is registered with atexit () above.)
+ 	LDR	v1, [v2, #CRT1_INIT_ARRAY_START]
+ 	LDR	v3, [v2, #CRT1_INIT_ARRAY_END]
+ 	TEQ	v1, v3
+@@ -681,6 +760,9 @@ no_init_array:
  	WORD	__u			@ offset 24
  	WORD	environ			@ offset 28
  	WORD	crt1_data		@ offset 32
@@ -7548,7 +8193,7 @@ index 3f7c274..1bd6637 100644
  
  no_main_routine:
  	.asciz	"There is no main function"
-@@ -724,12 +794,24 @@ __exit_with_error_num:
+@@ -724,12 +806,24 @@ __exit_with_error_num:
  	@ exist, so we need to read the error table first. The errors themselves
  	@ are in the text section, so we're OK there.
   PICEQ "SWI	XSOM_DeregisterClient"
@@ -7573,7 +8218,7 @@ index 3f7c274..1bd6637 100644
  	DECLARE_FUNCTION __exit_with_error_num
  
  	.data
-@@ -835,6 +917,7 @@ __dynamic_area_exit:
+@@ -835,6 +929,7 @@ __dynamic_area_exit:
   PICEQ "LDMFDNE	sp!, {v4, pc}"
  
  	BL	__munmap_all
@@ -7581,7 +8226,7 @@ index 3f7c274..1bd6637 100644
  
  	LDR	a2, .L1+4		@=__ul_global
   PICEQ "LDR	a2, [v4, a2]"
-@@ -1134,7 +1217,7 @@ raise_sigstak:
+@@ -1134,7 +1229,7 @@ raise_sigstak:
  	MOV	a1, #0
  	MOV	a2, #SIGSTAK
  	BL	__unixlib_raise_signal
@@ -7590,7 +8235,7 @@ index 3f7c274..1bd6637 100644
  
  #if __UNIXLIB_EXTREMELY_PARANOID || __UNIXLIB_STACK_CHECK_MAGIC
  stack_corrupt_msg:
-@@ -1455,7 +1538,7 @@ __unixlib_fatal_got_msg:
+@@ -1455,7 +1550,7 @@ __unixlib_fatal_got_msg:
  	SWI	XOS_Write0
  	SWI	XOS_NewLine
  	MOV	a1, #1
@@ -7599,7 +8244,7 @@ index 3f7c274..1bd6637 100644
  	@ Should never return
  #ifdef __ARM_EABI__
  	LDMIA	sp!, {v1, fp, pc}
-@@ -1537,3 +1620,12 @@ __ul_memory:
+@@ -1537,3 +1632,12 @@ __ul_memory:
  	.word	0			@ appspace_limit	offset = 44
  	.word	0			@ old_himem		offset = 48
  	DECLARE_OBJECT __ul_memory
@@ -10186,6 +10831,51 @@ index f6b1a2f..2a96b52 100644
 +{
 +  return fsync (fd);
 +}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/sysconf.c b/gcc4/recipe/files/gcc/libunixlib/unix/sysconf.c
+index 27b8fdd..fa628ac 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/unix/sysconf.c
++++ b/gcc4/recipe/files/gcc/libunixlib/unix/sysconf.c
+@@ -9,6 +9,7 @@
+ #include <time.h>
+ 
+ #include <internal/unix.h>
++#include <swis.h>
+ 
+ /* Get the value of the system variable NAME.  */
+ long int
+@@ -126,10 +127,30 @@ sysconf (int name)
+         return _POSIX2_SW_DEV;
+ #endif
+ 
+-#ifdef	_SC_NPROCESSORS_ONLN
++      /* 2026: one processor.  The #ifdef here was always false (the names
++	 were enum constants, not macros), so this case wasn't compiled and
++	 the value was taken for _SC_BC_DIM_MAX (2048): see <unistd.h>.  */
+       case _SC_NPROCESSORS_ONLN:
++      case _SC_NPROCESSORS_CONF:
+ 	return 1;
+-#endif
++
++      /* 2026: the number of pages of RAM (OS_ReadMemMapInfo).  The name
++	 used to share its value with _SC_BC_BASE_MAX (see <unistd.h>);
++	 now that it is a macro, code that tests #ifdef _SC_PHYS_PAGES calls
++	 it, so it is answered.  Capped (peer review, 2026-11-22) so that
++	 the usual sysconf (_SC_PHYS_PAGES) * sysconf (_SC_PAGESIZE) fits in
++	 a long: 2 GB at most, which is also more than a RISC OS program can
++	 have.  */
++      case _SC_PHYS_PAGES:
++	{
++	  int pagesize, pages;
++	  if (_swix (OS_ReadMemMapInfo, _OUTR(0,1), &pagesize, &pages)
++	      || pagesize <= 0)
++	    return __set_errno (EINVAL);
++	  if ((unsigned) pages > (unsigned) (LONG_MAX / pagesize))
++	    pages = LONG_MAX / pagesize;
++	  return pages;
++	}
+     }
+ 
+   return __set_errno (EINVAL);
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/truncate.c b/gcc4/recipe/files/gcc/libunixlib/unix/truncate.c
 index 64df871..495e32a 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/truncate.c
@@ -10498,7 +11188,7 @@ index 7f47f19..68f802f 100644
    __env_riscos ();
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/vscript b/gcc4/recipe/files/gcc/libunixlib/vscript
-index 606421f..06393e0 100644
+index 606421f..7b5409d 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/vscript
 +++ b/gcc4/recipe/files/gcc/libunixlib/vscript
 @@ -16,12 +16,19 @@ VERSION {
@@ -10533,12 +11223,13 @@ index 606421f..06393e0 100644
       __pthread_init;
       __pthread_fatal_error;
       __pthread_new_node;
-@@ -137,6 +149,8 @@ VERSION {
+@@ -137,6 +149,9 @@ VERSION {
       __pthread_atfork_callparentchild;
       __pthread_new_stack;
       __pthread_context_switch;
 +     __pthread_held_wait;
 +     __servent_generation;
++     __register_fini_array;
       __pthread_init_save_area;
       __pthread_exit;
       __pthread_protect_unsafe;
