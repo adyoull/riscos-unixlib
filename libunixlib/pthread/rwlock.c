@@ -12,9 +12,10 @@ pthread_rwlock_init (pthread_rwlock_t *rwlock, const pthread_rwlockattr_t *attr)
   if (rwlock == NULL)
     return EINVAL;
 
-  /* FIXME:  What if rwlock hasn't been initialised yet? It will have undefined content.  */
-  if (rwlock->type == LOCK_READ || rwlock->type == LOCK_WRITE)
-    return EBUSY;
+  /* 2026 (P8, from riscos-unixlib-web W11): no EBUSY for a lock that looks initialised already: a new lock's
+     memory (from malloc, say) may hold an old lock's words, and GLib
+     aborts when its rwlock_init fails (POSIX leaves initialising a lock
+     twice undefined, and EBUSY optional).  */
 
   rwlock->count = 0;
   rwlock->owner = NULL;

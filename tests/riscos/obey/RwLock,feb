@@ -1,0 +1,5 @@
+| pthread_rwlock_init over memory that looks like a lock (EBUSY before P8,
+| and GLib aborted); the lock then works
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.rwtest
