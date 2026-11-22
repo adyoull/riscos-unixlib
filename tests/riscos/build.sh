@@ -18,6 +18,12 @@ for p in dsptest miditest nosound ejtest fsrotest tickertest schedtest lfstest h
   GCCSDK_ENV="$GCCSDK_ENV" ../../tools/check-lib.sh out/$p.elf >/dev/null
   "$ELF2AIF" -e out/$p.elf $O/$p,ff8
 done
+# C++ tests
+for p in finitest; do
+  arm-riscos-gnueabihf-g++ -O2 -static -fstack-clash-protection -isystem ../../libunixlib/include -L$L $p.cc -o out/$p.elf -lm
+  GCCSDK_ENV="$GCCSDK_ENV" ../../tools/check-lib.sh out/$p.elf >/dev/null
+  "$ELF2AIF" -e out/$p.elf $O/$p,ff8
+done
 # VFPPoll also as Thumb code (VFPSupport's lazy activation and Thumb).
 arm-riscos-gnueabihf-gcc -O2 -static -mthumb -fstack-clash-protection -isystem ../../libunixlib/include -L$L vfppolltest.c -o out/vfppolltestt.elf -lm
 GCCSDK_ENV="$GCCSDK_ENV" ../../tools/check-lib.sh out/vfppolltestt.elf >/dev/null

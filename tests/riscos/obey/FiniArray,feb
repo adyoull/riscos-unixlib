@@ -1,0 +1,5 @@
+| the program's .fini_array runs at exit, after atexit and static
+| destructors (5.0.3.4-rc1)
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.finitest
