@@ -62,6 +62,11 @@ PageMove    a reproducer: claims the physical page at the program's own
 ExitJoin    a thread joined from an atexit() handler: must print PASS,
             no "Aborted" (Warzone 2100 aborted like this on quit)
 FsyncRO     fsync() on a read-only file: must print PASS
+TimedWait   (5.0.3.11, P4) pthread_cond_timedwait on CLOCK_REALTIME and
+            CLOCK_MONOTONIC (a 300 ms wait must take 300 ms), passed
+            deadlines, a signal before the deadline; sem_wait,
+            sem_timedwait and 20000 posts between two threads; a thread
+            cancelled in sem_wait. Must print PASS.
 Ticker      two busy threads in a Wimp task for 20 s while other tasks run
             (have Alarm, a clock or Organizer running). Ends with an error
             box saying PASS: both threads counted more than 0 although the
