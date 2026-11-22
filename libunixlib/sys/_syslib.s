@@ -262,6 +262,7 @@ __main:
 	TEQ	a4, #0
 	LDRNE	a4, [a4, #0]
 	SWI	XARMEABISupport_StackOp
+	MOVVS	a3, #0			@ 2026 (R3): an error is a failure too
 	TEQ	a3, #0
 	MOVEQ	a1, #ERR_NO_STACK
 	BEQ	__exit_with_error_num	@ Failed to allocate stack, exit.
@@ -276,6 +277,8 @@ __main:
 	TEQ	a4, #0
 	LDRNE	a4, [a4, #0]
 	SWI	XARMEABISupport_StackOp
+	MOVVS	a3, #0			@ 2026 (R3): an error is a failure too,
+					@ not a stack at the error block's address
 	MOVS	sp, a3
 	MOVEQ	a1, #ERR_NO_STACK
 	BEQ	__exit_with_error_num	@ Failed to allocate stack, exit.
