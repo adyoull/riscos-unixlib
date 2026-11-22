@@ -1,5 +1,5 @@
 diff --git a/gcc4/recipe/files/gcc/libunixlib/Makefile.am b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-index e887b17..11b1db9 100644
+index e887b17..0e279b2 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 +++ b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 @@ -622,6 +622,7 @@ netlib_src = \
@@ -50,7 +50,15 @@ index e887b17..11b1db9 100644
  	sound/DRender.s
  endif
  
-@@ -1070,6 +1076,8 @@ else
+@@ -956,6 +962,7 @@ stdlib_src = \
+ 	stdlib/ldiv.c \
+ 	stdlib/lldiv.c \
+ 	stdlib/lrand48.c \
++	stdlib/mkdtemp.c \
+ 	stdlib/mkstemp.c \
+ 	stdlib/mrand48.c \
+ 	stdlib/msort.c \
+@@ -1070,6 +1077,8 @@ else
  sys_src += \
  	sys/mman.c
  endif
@@ -59,7 +67,7 @@ index e887b17..11b1db9 100644
  endif
  sys_src += \
  	sys/errlist.c
-@@ -1220,6 +1228,7 @@ unix_src = \
+@@ -1220,6 +1229,7 @@ unix_src = \
  	unix/ul_select.c \
  	unix/ul_setenv.c \
  	unix/stat.c \
@@ -67,7 +75,7 @@ index e887b17..11b1db9 100644
  	unix/statfs.c \
  	unix/sync.c \
  	unix/sysconf.c \
-@@ -1469,6 +1478,7 @@ nobase_noinst_HEADERS = \
+@@ -1469,6 +1479,7 @@ nobase_noinst_HEADERS = \
  	incl-local/internal/sigstate.h \
  	incl-local/internal/swiparams.h \
  	incl-local/internal/symlinks.h \
@@ -75,7 +83,7 @@ index e887b17..11b1db9 100644
  	incl-local/internal/tty.h \
  	incl-local/internal/unix.h \
  	incl-local/locale.h \
-@@ -1499,7 +1509,20 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
+@@ -1499,7 +1510,20 @@ libunixlib_la_SOURCES = $(assert_src) $(common_src) $(crypt_src) $(ctype_src) \
  	$(stdio_src) $(stdlib_src) $(string_src) $(sys_src) \
  	$(termios_src) $(time_src) $(unistd_src) $(unix_src) $(wchar_src)
  
@@ -93,11 +101,11 @@ index e887b17..11b1db9 100644
 +unixlib_asm_objs = $(patsubst %.s,%.lo,$(notdir $(filter %.s,$(libunixlib_la_SOURCES))))
 +$(unixlib_asm_objs) crt0.o gcrt0.o sul.o pthticker.o: $(unixlib_asm_deps)
 +
-+libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 9:2:4 -Wl,--version-script -Wl,$(top_srcdir)/vscript
++libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 10:0:5 -Wl,--version-script -Wl,$(top_srcdir)/vscript
  
  libm_la_SOURCES = libm-support/libm.c
  
-@@ -1553,7 +1576,7 @@ gcrt0.o: crt/gcrt0.s
+@@ -1553,7 +1577,7 @@ gcrt0.o: crt/gcrt0.s
  # SUL module ----------------
  
  # Build the SharedUnixLibrary module
@@ -106,7 +114,7 @@ index e887b17..11b1db9 100644
  
  sul.o: module/sul.s
  	$(CCASCOMPILE) -o sul.o -c `test -f 'module/sul.s' || echo '$(srcdir)/'`module/sul.s
-@@ -1564,6 +1587,14 @@ sul.o: module/sul.s
+@@ -1564,6 +1588,14 @@ sul.o: module/sul.s
  sul$(EXEEXT): sul.o
  	$(STRIP) -O binary -o sul$(EXEEXT) sul.o
  
@@ -224,7 +232,7 @@ index b5e931d..0825bef 100644
  
        if (*in == '<')
 diff --git a/gcc4/recipe/files/gcc/libunixlib/configure.ac b/gcc4/recipe/files/gcc/libunixlib/configure.ac
-index 53fe31c..245ace0 100644
+index 53fe31c..cd7c226 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/configure.ac
 +++ b/gcc4/recipe/files/gcc/libunixlib/configure.ac
 @@ -5,7 +5,7 @@ dnl Process this file with autoconf to produce a configure script
@@ -232,17 +240,17 @@ index 53fe31c..245ace0 100644
  
  AC_PREREQ(2.64)
 -AC_INIT([RISC OS UnixLib C Runtime Library], 5.0, [http://gccsdk.riscos.info/], [libunixlib])
-+AC_INIT([RISC OS UnixLib C Runtime Library], 5.0.3.10, [https://github.com/adyoull/riscos-unixlib/issues], [libunixlib])
++AC_INIT([RISC OS UnixLib C Runtime Library], 5.0.3.11, [https://github.com/adyoull/riscos-unixlib/issues], [libunixlib])
  AC_CONFIG_SRCDIR([assert/assert.c])
  AC_CONFIG_HEADER(config.h)
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help b/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
-index 7775d56..8109a45 100644
+index 7775d56..5f98630 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
 +++ b/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
 @@ -1,4 +1,4 @@
 -                                UnixLib 5.0
-+                               UnixLib 5.0.3.10
++                               UnixLib 5.0.3.11
                                  ~~~~~~~~~~~
  
  This document provides a VERY short introduction to UnixLib, and only covers
@@ -1190,7 +1198,7 @@ index 0000000..fc1f0c9
 +\p\()_end:
 +.endm
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
-index 9f57871..04523ba 100644
+index 9f57871..6d40752 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/unix.h
 @@ -208,6 +208,9 @@ struct ul_global
@@ -1203,7 +1211,7 @@ index 9f57871..04523ba 100644
  };
  
  /* This structure must be kept in perfect synchronisation with:
-@@ -318,20 +321,30 @@ extern struct ul_global __ul_global;
+@@ -318,26 +321,42 @@ extern struct ul_global __ul_global;
     up-to-date.  */
  extern int __get_taskhandle (void);
  
@@ -1242,7 +1250,19 @@ index 9f57871..04523ba 100644
  #define __funcall(f, p) ((f)p)
  #endif
  
-@@ -427,8 +440,12 @@ extern void __unixinit (void);
+ extern unsigned int __dynamic_area_refcount;
+ extern void __dynamic_area_exit (void);
+ 
++/* 2026 (Z2, from riscos-unixlib-web W18): make the main thread's VFP
++   context the active one, saving the running thread's now (pthread/pthinit.c).  Called before the heap
++   goes: other threads' contexts are in the heap, the main thread's is on
++   its stack.  */
++extern void __pthread_vfp_main_context (void);
++
+ extern void __munmap_all (void);	/* Deallocate all mappings.  */
+ 
+ /* Stop the interval timers.  */
+@@ -427,8 +446,12 @@ extern void __unixinit (void);
  extern void __free_process (struct __sul_process *process)
  	__nonnull ((1));
  
@@ -1706,7 +1726,7 @@ index 898d16e..ca57fdb 100644
  
  /* Maximum value that an unsigned long long int can hold.  */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/pthread.h b/gcc4/recipe/files/gcc/libunixlib/include/pthread.h
-index 6879876..e510ceb 100644
+index 6879876..e4495fb 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/pthread.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/include/pthread.h
 @@ -263,6 +263,27 @@ extern int pthread_attr_getstack(const pthread_attr_t *attr,
@@ -1737,6 +1757,18 @@ index 6879876..e510ceb 100644
  /* Mutexes */
  
  /* Static default initialiser for a pthread_mutex_t */
+@@ -509,6 +530,11 @@ int
+ pthread_resume_thread(pthread_t thread);
+ 
+ /* Return the registers for the given thread.  */
++/* 2026 (P9, from riscos-unixlib-web W3): declared at file scope, so
++   that it is the same struct as <ucontext.h>'s mcontext_t; named only in
++   the parameter list, it was a different type in C and every caller got
++   a warning.  */
++struct mcontext;
+ int
+ pthread_get_thread_registers(pthread_t thread, struct mcontext *buffer);
+ 
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/sched.h b/gcc4/recipe/files/gcc/libunixlib/include/sched.h
 index 2e424fb..b2d483d 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/sched.h
@@ -1783,6 +1815,27 @@ index 74baee8..842e6fe 100644
  extern sem_t *sem_open (const char *, int, ...) __THROW;
  __END_DECLS
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/include/stdlib.h b/gcc4/recipe/files/gcc/libunixlib/include/stdlib.h
+index 4d0b744..11bb7ba 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/include/stdlib.h
++++ b/gcc4/recipe/files/gcc/libunixlib/include/stdlib.h
+@@ -153,6 +153,16 @@ extern int __REDIRECT (mkstemp, (char *__template), mkstemp64)
+ extern int mkstemp64 (char *__template) __nonnull ((1)) __wur;
+ # endif
+ #endif
++
++#if defined __USE_MISC || defined __USE_XOPEN_EXTENDED \
++    || defined __USE_XOPEN2K8
++/* Create a unique temporary directory from TEMPLATE, whose last six
++   characters must be "XXXXXX"; they are replaced with a string that makes
++   the name unique.  The directory is made with mode 0700.  Returns
++   TEMPLATE, or a null pointer on error (errno set).  (2026, H3, from
++   riscos-unixlib-web W5; POSIX.1-2008.)  */
++extern char *mkdtemp (char *__template) __THROW __nonnull ((1)) __wur;
++#endif
+ #endif /* __TARGET_SCL__ */
+ 
+ __BEGIN_NAMESPACE_STD
 diff --git a/gcc4/recipe/files/gcc/libunixlib/include/string.h b/gcc4/recipe/files/gcc/libunixlib/include/string.h
 index ace9690..713a6ab 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/include/string.h
@@ -2691,6 +2744,185 @@ index 50bc9f2..62b80e4 100644
 +  fclose (file);
    return serv;
  }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/netlib/ul_socketpair.c b/gcc4/recipe/files/gcc/libunixlib/netlib/ul_socketpair.c
+index 9d432e6..0a3699e 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/netlib/ul_socketpair.c
++++ b/gcc4/recipe/files/gcc/libunixlib/netlib/ul_socketpair.c
+@@ -1,65 +1,137 @@
+ /* socketpair ()
+  * Written by Peter Naulls
+  * Copyright (c) 2003-2010 UnixLib Developers
++ *
++ * 2026 (N3, from riscos-unixlib-web W8): a loopback TCP connection, made so that
++ * it works on RISC OS's Internet stack.  It used to connect to the
++ * address the listening socket was bound to, 0.0.0.0, from a socket set
++ * non-blocking, and gave up when connect () failed, which a non-blocking
++ * connect normally does (EINPROGRESS) until the other end accepts.  The
++ * web browser's first run on a Pi 4 stopped there (2026-10-22).  Now it
++ * connects to 127.0.0.1, accepts, then waits (up to 5 s) for the
++ * client's side to finish; the review (2026-11-22) added a 5 s limit on
++ * the accept, a check that the accepted connection is our own client, and
++ * TCP_NODELAY on both ends.  AF_UNIX is accepted too, for portable code:
++ * RISC OS has no Unix domain sockets, so it gets loopback TCP as well.
+  */
+ 
+ #include <sys/types.h>
+ #include <sys/socket.h>
++#include <sys/select.h>
++#include <sys/time.h>
+ #include <netinet/in.h>
++#include <netinet/tcp.h>
+ #include <arpa/inet.h>
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <stdio.h>
++#include <string.h>
+ #include <unistd.h>
+ 
+ int
+ socketpair (int af, int type, int protocol, int fd[2])
+ {
+-  /* The following is only valid if type == SOCK_STREAM */
++  (void) protocol;
++
++  /* Only a stream (TCP) can be made.  */
+   if (type != SOCK_STREAM)
+-    return -1;
++    return __set_errno (EOPNOTSUPP);
++  if (af != AF_INET && af != AF_UNIX)
++    return __set_errno (EAFNOSUPPORT);
+ 
+-  /* Create a temporary listen socket; temporary, so any port is good */
+-  int listen_socket = socket (af, type, protocol);
+-  if (listen_socket < 0)
+-    return -1;
++  int listener = -1, client = -1, server = -1, save_errno;
++  struct sockaddr_in addr;
++  socklen_t len = sizeof (addr);
+ 
+-  struct sockaddr_in s_in[2];
+-  s_in[0].sin_family = af;
+-  s_in[0].sin_port = 0; /* Use any port number */
+-  s_in[0].sin_addr = inet_makeaddr(INADDR_ANY, 0);
+-  int len = sizeof(s_in[0]);
+-  /* getsockname() : read the port number we got, so that our client can connect to it
+-     listen() : put the listen socket in listening mode
+-     socket() : create the client socket  */
+-  if (bind (listen_socket, (const struct sockaddr *)&s_in[0], sizeof(s_in[0])) < 0
+-      || getsockname (listen_socket, (struct sockaddr *)&s_in[0], (socklen_t *)&len) < 0
+-      || listen (listen_socket, 5) < 0
+-      || (fd[1] = socket (af, type, protocol)) < 0)
+-    {
+-      int save_errno = errno;
+-      close (listen_socket);
+-      return __set_errno (save_errno);
+-    }
++  memset (&addr, 0, sizeof (addr));
++  addr.sin_family = AF_INET;
++  addr.sin_port = 0;			/* any free port */
++  addr.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+ 
+-  /* Put the client socket in non-blocking connecting mode.  */
+-  fcntl (fd[1], F_SETFL, fcntl(fd[1], F_GETFL, 0) | O_NDELAY);
++  if ((listener = socket (AF_INET, SOCK_STREAM, 0)) < 0
++      || bind (listener, (const struct sockaddr *) &addr, sizeof (addr)) < 0
++      || getsockname (listener, (struct sockaddr *) &addr, &len) < 0
++      || listen (listener, 1) < 0
++      || (client = socket (AF_INET, SOCK_STREAM, 0)) < 0)
++    goto fail;
+ 
+-  len = sizeof(s_in[1]);
+-  /* accept() : at the listen-side, accept the incoming connection we generated */
+-  if (connect (fd[1], (const struct sockaddr *)&s_in[0], sizeof(s_in[0])) < 0
+-      || (fd[0] = accept (listen_socket, (struct sockaddr *)&s_in[1], (socklen_t *)&len)) < 0)
++  /* Start connecting without waiting: the accept () completes it.  */
++  int flags = fcntl (client, F_GETFL, 0);
++  if (flags == -1 || fcntl (client, F_SETFL, flags | O_NONBLOCK) == -1)
++    goto fail;
++  if (connect (client, (const struct sockaddr *) &addr, sizeof (addr)) < 0
++      && errno != EINPROGRESS && errno != EALREADY)
++    goto fail;
++
++  /* The connection to accept: wait for it (5 s at most), so a connect
++     that never arrives can't block for ever.  */
++  fd_set rset;
++  struct timeval tv = { 5, 0 };
++  FD_ZERO (&rset);
++  FD_SET (listener, &rset);
++  int n = select (listener + 1, &rset, NULL, NULL, &tv);
++  if (n <= 0)
+     {
+-      int save_errno = errno;
+-      close (fd[1]);
+-      close (listen_socket);
+-      return __set_errno (save_errno);
++      if (n == 0)
++	errno = ETIMEDOUT;
++      goto fail;
+     }
++  struct sockaddr_in peer, mine;
++  socklen_t peer_len = sizeof (peer), mine_len = sizeof (mine);
++  if ((server = accept (listener, (struct sockaddr *) &peer, &peer_len)) < 0)
++    goto fail;
+ 
+-  /* Reset the client socket to blocking mode */
+-  fcntl (fd[1], F_SETFL, fcntl(fd[1], F_GETFL, 0) & ~O_NDELAY);
+-
+-  close (listen_socket);
++  /* The client's side is connected once it's writable; then check that
++     it connected rather than failed.  */
++  fd_set wset;
++  tv.tv_sec = 5;
++  tv.tv_usec = 0;
++  FD_ZERO (&wset);
++  FD_SET (client, &wset);
++  n = select (client + 1, NULL, &wset, NULL, &tv);
++  if (n <= 0)
++    {
++      if (n == 0)
++	errno = ETIMEDOUT;
++      goto fail;
++    }
++  int err = 0;
++  socklen_t err_len = sizeof (err);
++  if (getsockopt (client, SOL_SOCKET, SO_ERROR, &err, &err_len) < 0)
++    goto fail;
++  if (err != 0)
++    {
++      errno = err;
++      goto fail;
++    }
++  /* The accepted connection must be our own client's, not another
++     program's (compared by port, once the client is connected).  */
++  if (getsockname (client, (struct sockaddr *) &mine, &mine_len) < 0)
++    goto fail;
++  if (peer.sin_port != mine.sin_port)
++    {
++      errno = ECONNREFUSED;
++      goto fail;
++    }
+ 
++  /* Both ends blocking, as a socket pair starts, and no Nagle delay: a
++     pair is mostly used for small messages and one-byte wake-ups.  */
++  fcntl (client, F_SETFL, flags);
++  int one = 1;
++  (void) setsockopt (client, IPPROTO_TCP, TCP_NODELAY, &one, sizeof (one));
++  (void) setsockopt (server, IPPROTO_TCP, TCP_NODELAY, &one, sizeof (one));
++  close (listener);
++  fd[0] = server;
++  fd[1] = client;
+   return 0;
++
++fail:
++  save_errno = errno;
++  if (server >= 0)
++    close (server);
++  if (client >= 0)
++    close (client);
++  if (listener >= 0)
++    close (listener);
++  return __set_errno (save_errno);
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s b/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
 index fada843..df7f5da 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/_context.s
@@ -3174,7 +3406,7 @@ index 0000000..c3f238c
 +  return 0;
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
-index 4343190..cd8b1ce 100644
+index 4343190..87c3335 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/context.c
 @@ -89,6 +89,15 @@ __pthread_context_switch (void)
@@ -3193,6 +3425,27 @@ index 4343190..cd8b1ce 100644
    pthread_t next = __pthread_running_thread->next;
  
    /* Loop around the list looking for a thread that is running.  */
+@@ -130,6 +139,10 @@ __pthread_context_switch (void)
+           next = __pthread_running_thread->next;
+         }
+ 
++      /* 2026 (P9, from riscos-unixlib-web W3): a suspended thread is
++	 skipped.  This 'continue' goes to the loop's test, which used to look only
++	 at the state, so a suspended thread (still STATE_RUNNING) was
++	 scheduled anyway; the test now checks 'suspended' too.  */
+       if (__pthread_running_thread->suspended)
+ 	continue;
+ 
+@@ -165,7 +178,8 @@ __pthread_context_switch (void)
+ #endif
+ 
+     }
+-  while (__pthread_running_thread->state < STATE_RUNNING);
++  while (__pthread_running_thread->state < STATE_RUNNING
++	 || __pthread_running_thread->suspended);
+ 
+ #if ! __UNIXLIB_ERRNO_THREADED
+   /* For a thread-based 'errno' we don't need this.  */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/heldwait.c b/gcc4/recipe/files/gcc/libunixlib/pthread/heldwait.c
 new file mode 100644
 index 0000000..4758149
@@ -3318,13 +3571,34 @@ index 37f75aa..bd1410f 100644
    node->ret = NULL;
    node->mutex = NULL;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c b/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
-index 9457494..2f6e2a4 100644
+index 9457494..f83e03f 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/pthinit.c
-@@ -14,8 +14,26 @@
+@@ -13,9 +13,47 @@
+ #include <internal/unix.h>
  
  static struct __pthread_thread mainthread;
- 
++#if !defined(__SOFTFP__) && defined(__VFP_FP__)
++/* 2026 (Z2, from riscos-unixlib-web W18): the main thread's VFP context
++   (on its stack, not in the heap), kept here so that it can be found after the heap has gone.  */
++static int main_vfpcontext;
++#endif
++
++/* 2026 (Z2, from riscos-unixlib-web W18): before the heap's dynamic area
++   is removed (exit, exec).  Other threads' contexts are in the heap; VFPSupport may save into a
++   context's memory at any time while it's active (the PRMs: a context
++   must be inactive before its memory is reused).  Not "no context" (0):
++   the C code that still runs after this is built for VFP and may use it.
++   sul_exit switches it off at the very end.  */
++void
++__pthread_vfp_main_context (void)
++{
++#if !defined(__SOFTFP__) && defined(__VFP_FP__)
++  if (main_vfpcontext != 0)
++    _swix (VFPSupport_ChangeContext, _INR (0, 1), main_vfpcontext, 0);
++#endif
++}
++
 +/* 2026: the RMA block's layout is also in incl-local/internal/asm_dec.s
 +   (PTHREAD_CALLEVERY_RMA_*); the ticker code copy must be where the
 +   assembler expects it.  */
@@ -3339,7 +3613,7 @@ index 9457494..2f6e2a4 100644
 +_Static_assert (sizeof (struct __pthread_callevery_block) == 640,
 +		"__pthread_callevery_block: keep in step with asm_dec.s");
 +#undef OFFSET
-+
+ 
  static const char filter_name[] = "UnixLib pthread";
  
 +/* The block size sys/_syslib.s claimed from the RMA (see there).  */
@@ -3348,7 +3622,7 @@ index 9457494..2f6e2a4 100644
  static void
  __get_main_stack (struct __pthread_thread *thread)
  {
-@@ -37,6 +55,32 @@ __get_main_stack (struct __pthread_thread *thread)
+@@ -37,6 +75,32 @@ __get_main_stack (struct __pthread_thread *thread)
  #endif
  }
  
@@ -3381,7 +3655,15 @@ index 9457494..2f6e2a4 100644
  /* Called once, at program initialisation.  */
  void
  __pthread_prog_init (void)
-@@ -68,8 +112,21 @@ __pthread_prog_init (void)
+@@ -61,6 +125,7 @@ __pthread_prog_init (void)
+ #if !defined(__SOFTFP__) && defined(__VFP_FP__)
+   /* Store the ID of the VFP context that was created earlier on */
+   _swi(VFPSupport_ActiveContext, _OUT(0), &mainthread.saved_context->vfpcontext);
++  main_vfpcontext = mainthread.saved_context->vfpcontext;
+   /* Set the bottom bit to flag that it wasn't malloc'd */
+   mainthread.saved_context->vfpcontext |= 1;
+ #endif
+@@ -68,8 +133,21 @@ __pthread_prog_init (void)
    mainthread.magic = PTHREAD_MAGIC;
    __get_main_stack (&mainthread);
  
@@ -3403,7 +3685,7 @@ index 9457494..2f6e2a4 100644
    __pthread_thread_list = __pthread_running_thread;
    gbl->pthread_num_running_threads = 1;
  }
-@@ -83,12 +140,30 @@ __pthread_prog_fini (void)
+@@ -83,12 +161,30 @@ __pthread_prog_fini (void)
    debug_printf ("-- __pthread_prog_fini: Program finalisation\n");
  #endif
  
@@ -3434,6 +3716,24 @@ index 9457494..2f6e2a4 100644
  
    /* Free the RMA block that was allocated in __pthread_prog_init */
    int regs[10];
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/rwlock.c b/gcc4/recipe/files/gcc/libunixlib/pthread/rwlock.c
+index ab003c6..cd5c68e 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/rwlock.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/rwlock.c
+@@ -12,9 +12,10 @@ pthread_rwlock_init (pthread_rwlock_t *rwlock, const pthread_rwlockattr_t *attr)
+   if (rwlock == NULL)
+     return EINVAL;
+ 
+-  /* FIXME:  What if rwlock hasn't been initialised yet? It will have undefined content.  */
+-  if (rwlock->type == LOCK_READ || rwlock->type == LOCK_WRITE)
+-    return EBUSY;
++  /* 2026 (P8, from riscos-unixlib-web W11): no EBUSY for a lock that looks initialised already: a new lock's
++     memory (from malloc, say) may hold an old lock's words, and GLib
++     aborts when its rwlock_init fails (POSIX leaves initialising a lock
++     twice undefined, and EBUSY optional).  */
+ 
+   rwlock->count = 0;
+   rwlock->owner = NULL;
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/schedparam.c b/gcc4/recipe/files/gcc/libunixlib/pthread/schedparam.c
 index f6fa1f3..641632c 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/schedparam.c
@@ -4949,7 +5249,7 @@ index 2109ed1..b2739cc 100644
  	ADR	a2, __h_sigprof_init
  	MOV	a3, ip
 diff --git a/gcc4/recipe/files/gcc/libunixlib/signal/post.c b/gcc4/recipe/files/gcc/libunixlib/signal/post.c
-index cb0fc62..5a71950 100644
+index cb0fc62..a2068d9 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/signal/post.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/signal/post.c
 @@ -35,6 +35,7 @@ typedef enum abort_error
@@ -5022,7 +5322,87 @@ index cb0fc62..5a71950 100644
  	fputc('\n', stderr);
  #else
        /* Retrieve PC counter.
-@@ -723,7 +721,7 @@ death:
+@@ -458,6 +456,24 @@ __write_backtrace (int signo)
+ 	  fprintf(stderr, abort_msg[0], abort_error_code);
+       }
+   }
++
++  /* 2026 (O2, from riscos-unixlib-web W12): the backtrace below can't
++     say where a fault happened in code without frame records (Thumb, JIT
++     code, most -O2 EABI code), so show the registers the SIGILL/SIGSEGV/
++     SIGBUS handler saved, as a signal handler's ucontext gets them (pc
++     is 4 past an undefined ARM instruction, 2 past a Thumb one; cpsr bit
++     5 set for Thumb).  */
++  if (__signal_have_saved_regs (signo)
++      && __ul_global.pthread_callevery_rma != NULL)
++    {
++      const int *r = __ul_global.pthread_callevery_rma->callback_regs;
++      fputs ("Registers saved at the fault (not meaningful if the program "
++	     "raised the signal itself):\n", stderr);
++      for (int reg = 0; reg < 16; reg++)
++	fprintf (stderr, "  r%-2d %08x%s", reg, (unsigned int) r[reg],
++		 (reg & 3) == 3 ? "\n" : "");
++      fprintf (stderr, "  cpsr %08x\n\n", (unsigned int) r[16]);
++    }
+ #endif
+ 
+ #ifndef __SOFTFP__
+@@ -706,11 +722,53 @@ death:
+ 	    __os_swi (Wimp_CommandWindow, regs);
+ 	  }
+ 
+-	if (signo == SIGOSERROR && __pthread_running_thread->errbuf_valid)
++	/* 2026 (O2, from riscos-unixlib-web W13): SIGEMT (a serious RISC OS error: a hardware exception
++	   such as an abort RISC OS reported as an error) and SIGFPE say
++	   which error too; its text gives the faulting address.  */
++	if ((signo == SIGOSERROR || signo == SIGEMT || signo == SIGFPE)
++	    && __pthread_running_thread->errbuf_valid)
+ 	  fprintf(stderr, "\nError 0x%x: %s\n  pc: %x\n",
+ 			  __ul_errbuf.errnum, __ul_errbuf.errmess,
+ 			  (int)(int *)__ul_errbuf.pc);
+ 
++	/* 2026 (O2, from riscos-unixlib-web W16): for a hardware exception that RISC OS reported as an
++	   error (an abort, an undefined instruction...), the registers at
++	   the exception, from RISC OS's exception dump area
++	   (OS_ChangeEnvironment 13, PRM 1-317).  */
++	if (signo == SIGEMT && __pthread_running_thread->errbuf_valid
++	    && (__ul_errbuf.errnum & 0x80000000u))
++	  {
++	    int regs[10] = { 13, 0, 0, 0 };
++	    if (!__os_swi (OS_ChangeEnvironment, regs) && regs[1])
++	      {
++		const unsigned *d = (const unsigned *) regs[1];
++		fprintf (stderr, "  registers at the exception (RISC OS's dump):\n");
++		for (int i = 0; i < 16; i++)
++		  fprintf (stderr, "  r%-2d %08x%s", i, d[i], (i & 3) == 3 ? "\n" : "");
++		/* and 64 bytes from each register that points at memory */
++		for (int i = 0; i < 13; i++)
++		  {
++		    unsigned a = d[i] & ~3u;
++		    if (a < 0x8000 || !__valid_address ((void *) a, (void *) (a + 64)))
++		      continue;
++		    const unsigned char *m = (const unsigned char *) a;
++		    for (int row = 0; row < 4; row++)
++		      {
++			fprintf (stderr, "  r%-2d+%02x:", i, row * 16);
++			for (int j = 0; j < 16; j++)
++			  fprintf (stderr, " %02x", m[row * 16 + j]);
++			fprintf (stderr, "  ");
++			for (int j = 0; j < 16; j++)
++			  {
++			    unsigned char c = m[row * 16 + j];
++			    fputc (c >= 32 && c < 127 ? c : '.', stderr);
++			  }
++			fputc ('\n', stderr);
++		      }
++		  }
++	      }
++	  }
++
+ 	if (act == term)
+ 	  write_termination (signo);
+ 	else if (act == core)
+@@ -723,7 +781,7 @@ death:
  	  }
  
  	/* Die, returning information about how we died.  */
@@ -5031,7 +5411,7 @@ index cb0fc62..5a71950 100644
  	/* Never reached.  */
  	break;
        }
-@@ -903,5 +901,5 @@ error:
+@@ -903,5 +961,5 @@ error:
    __os_print (err);
    __os_print ("  Exiting.");
    __os_nl ();
@@ -6954,6 +7334,56 @@ index 79e92bd..266b0fc 100644
  }
  
  #ifndef __TARGET_SCL__
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/mkdtemp.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/mkdtemp.c
+new file mode 100644
+index 0000000..291723d
+--- /dev/null
++++ b/gcc4/recipe/files/gcc/libunixlib/stdlib/mkdtemp.c
+@@ -0,0 +1,44 @@
++/* mkdtemp ()
++   Copyright (c) 2026 riscos-unixlib (unofficial fork).
++
++   2026 (H3, from riscos-unixlib-web W5): POSIX.1-2008 mkdtemp was
++   missing; WebKit's WTF (FileSystem.cpp) uses it.  Makes a new directory, mode 0700, from a
++   template whose last six characters are "XXXXXX", the way mkstemp makes
++   a file: mktemp picks a name, and mkdir's EEXIST means try again.  */
++
++#include <errno.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/stat.h>
++#include <sys/types.h>
++
++char *
++mkdtemp (char *file_template)
++{
++  size_t len = strlen (file_template);
++  int tries;
++
++  if (len < 6 || strcmp (file_template + len - 6, "XXXXXX") != 0)
++    {
++      errno = EINVAL;
++      return NULL;
++    }
++
++  for (tries = 0; tries < 100; tries++)
++    {
++      memcpy (file_template + len - 6, "XXXXXX", 6);
++      if (mktemp (file_template) == NULL || file_template[0] == '\0')
++	{
++	  if (errno == 0)
++	    errno = EEXIST;
++	  return NULL;
++	}
++      if (mkdir (file_template, 0700) == 0)
++	return file_template;
++      if (errno != EEXIST)
++	return NULL;
++    }
++
++  errno = EEXIST;
++  return NULL;
++}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s b/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s
 index 487d724..c5559ff 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s
@@ -6989,7 +7419,7 @@ index 487d724..c5559ff 100644
  	TST	a1, #1<<23
  	MOVEQ	a1, #3			@ ARM7, architecture 3
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
-index 3f7c274..7217b16 100644
+index 3f7c274..1bd6637 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
 @@ -45,6 +45,9 @@
@@ -7056,7 +7486,24 @@ index 3f7c274..7217b16 100644
  	@ Obtain the application space limit.  Note that this is different
  	@ to the permitted RAM limit returned by OS_GetEnv, i.e. MEM_APPSPACE_HIMEM
  	MOV	a1, #14
-@@ -556,6 +599,12 @@ no_dynamic_area:
+@@ -219,6 +262,7 @@ __main:
+ 	TEQ	a4, #0
+ 	LDRNE	a4, [a4, #0]
+ 	SWI	XARMEABISupport_StackOp
++	MOVVS	a3, #0			@ 2026 (R3): an error is a failure too
+ 	TEQ	a3, #0
+ 	MOVEQ	a1, #ERR_NO_STACK
+ 	BEQ	__exit_with_error_num	@ Failed to allocate stack, exit.
+@@ -233,6 +277,8 @@ __main:
+ 	TEQ	a4, #0
+ 	LDRNE	a4, [a4, #0]
+ 	SWI	XARMEABISupport_StackOp
++	MOVVS	a3, #0			@ 2026 (R3): an error is a failure too,
++					@ not a stack at the error block's address
+ 	MOVS	sp, a3
+ 	MOVEQ	a1, #ERR_NO_STACK
+ 	BEQ	__exit_with_error_num	@ Failed to allocate stack, exit.
+@@ -556,6 +602,12 @@ no_dynamic_area:
  #endif
  #ifdef PIC
  	ORR	a4, a4, #SULPROC_STATUS_FLAG_IS_DYNAMIC
@@ -7069,7 +7516,7 @@ index 3f7c274..7217b16 100644
  #endif
  	STR	a4, [v1, #SULPROC_STATUS]
  #endif
-@@ -621,6 +670,21 @@ no_dynamic_area:
+@@ -621,6 +673,21 @@ no_dynamic_area:
   PICEQ "LDR	a1, [v2, #CRT1_LIB_FINI]"
   PICEQ "TEQ	a1, #0"
   PICEQ "BLNE	atexit"
@@ -7091,7 +7538,7 @@ index 3f7c274..7217b16 100644
  
  	@ --- Executable Initialisation ---
  	@ Call the program's _init function.
-@@ -681,6 +745,9 @@ no_init_array:
+@@ -681,6 +748,9 @@ no_init_array:
  	WORD	__u			@ offset 24
  	WORD	environ			@ offset 28
  	WORD	crt1_data		@ offset 32
@@ -7101,7 +7548,7 @@ index 3f7c274..7217b16 100644
  
  no_main_routine:
  	.asciz	"There is no main function"
-@@ -724,12 +791,24 @@ __exit_with_error_num:
+@@ -724,12 +794,24 @@ __exit_with_error_num:
  	@ exist, so we need to read the error table first. The errors themselves
  	@ are in the text section, so we're OK there.
   PICEQ "SWI	XSOM_DeregisterClient"
@@ -7126,7 +7573,7 @@ index 3f7c274..7217b16 100644
  	DECLARE_FUNCTION __exit_with_error_num
  
  	.data
-@@ -835,6 +914,7 @@ __dynamic_area_exit:
+@@ -835,6 +917,7 @@ __dynamic_area_exit:
   PICEQ "LDMFDNE	sp!, {v4, pc}"
  
  	BL	__munmap_all
@@ -7134,7 +7581,7 @@ index 3f7c274..7217b16 100644
  
  	LDR	a2, .L1+4		@=__ul_global
   PICEQ "LDR	a2, [v4, a2]"
-@@ -1134,7 +1214,7 @@ raise_sigstak:
+@@ -1134,7 +1217,7 @@ raise_sigstak:
  	MOV	a1, #0
  	MOV	a2, #SIGSTAK
  	BL	__unixlib_raise_signal
@@ -7143,7 +7590,7 @@ index 3f7c274..7217b16 100644
  
  #if __UNIXLIB_EXTREMELY_PARANOID || __UNIXLIB_STACK_CHECK_MAGIC
  stack_corrupt_msg:
-@@ -1455,7 +1535,7 @@ __unixlib_fatal_got_msg:
+@@ -1455,7 +1538,7 @@ __unixlib_fatal_got_msg:
  	SWI	XOS_Write0
  	SWI	XOS_NewLine
  	MOV	a1, #1
@@ -7152,7 +7599,7 @@ index 3f7c274..7217b16 100644
  	@ Should never return
  #ifdef __ARM_EABI__
  	LDMIA	sp!, {v1, fp, pc}
-@@ -1537,3 +1617,12 @@ __ul_memory:
+@@ -1537,3 +1620,12 @@ __ul_memory:
  	.word	0			@ appspace_limit	offset = 44
  	.word	0			@ old_himem		offset = 48
  	DECLARE_OBJECT __ul_memory
@@ -7597,7 +8044,7 @@ index bce2b55..081d3a4 100644
        return (void *) oldbrk;
      }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/exec.c b/gcc4/recipe/files/gcc/libunixlib/sys/exec.c
-index cdee4d5..e2e55d1 100644
+index cdee4d5..8811811 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/exec.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/exec.c
 @@ -10,6 +10,7 @@
@@ -7631,7 +8078,18 @@ index cdee4d5..e2e55d1 100644
  
  #if __UNIXLIB_FEATURE_ITIMERS
    /* Stop any interval timers that might be running.  Technically
-@@ -466,8 +476,9 @@ execve (const char *execname, char *const argv[], char *const envp[])
+@@ -449,6 +459,10 @@ execve (const char *execname, char *const argv[], char *const envp[])
+   __stackalloc_trim ();
+ #endif
+ 
++  /* 2026 (Z2, from riscos-unixlib-web W18): the running thread's VFP
++     context may be in the heap.  */
++  __pthread_vfp_main_context ();
++
+   /* If the DAs are being used, then delete the dynamic area. */
+   __dynamic_area_exit ();
+ 
+@@ -466,8 +480,9 @@ execve (const char *execname, char *const argv[], char *const envp[])
    /* Record the fact that the new process was the result of exec().  */
    sulproc->status.execed = 1;
  
@@ -7643,7 +8101,7 @@ index cdee4d5..e2e55d1 100644
      {
        /* Tell the Shared Object Manager that the current client has exited.
  	 We can still access global variables afterwards, because the PIC
-@@ -477,7 +488,6 @@ execve (const char *execname, char *const argv[], char *const envp[])
+@@ -477,7 +492,6 @@ execve (const char *execname, char *const argv[], char *const envp[])
  
        (void) __os_swi (SOM_DeregisterClient, regs);
      }
@@ -9960,7 +10418,7 @@ index 9fe830b..b11c820 100644
      return __set_errno (EINVAL);
  
 diff --git a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
-index 7f47f19..08ca429 100644
+index 7f47f19..68f802f 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/unix/unix.c
 @@ -47,6 +47,7 @@ static void __badr (void) __attribute__ ((__noreturn__));
@@ -10029,8 +10487,18 @@ index 7f47f19..08ca429 100644
      }
  
    /* Reset the DDEUtils' Prefix variable to the value at startup.  */
+@@ -434,6 +454,9 @@ _exit (int return_code)
+     SWI_OS_Byte (229, 0, 0, NULL, NULL);
+ 
+   __free_process (sulproc);
++  /* 2026 (Z2, from riscos-unixlib-web W18): the running thread's VFP
++     context may be in the heap.  */
++  __pthread_vfp_main_context ();
+   __dynamic_area_exit ();
+   __env_riscos ();
+ 
 diff --git a/gcc4/recipe/files/gcc/libunixlib/vscript b/gcc4/recipe/files/gcc/libunixlib/vscript
-index 606421f..db2d388 100644
+index 606421f..06393e0 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/vscript
 +++ b/gcc4/recipe/files/gcc/libunixlib/vscript
 @@ -16,12 +16,19 @@ VERSION {
@@ -10053,10 +10521,11 @@ index 606421f..db2d388 100644
       __fd_to_name;
       __fork_pre;
       __fork_post;
-@@ -126,6 +133,10 @@ VERSION {
+@@ -126,6 +133,11 @@ VERSION {
       _vsnprintf;
  
       __pthread_prog_init;
++     __pthread_vfp_main_context;
 +     __pthread_call_every_code;
 +     __pthread_call_every_code_end;
 +     __pthread_callevery_block_size;
@@ -10064,7 +10533,7 @@ index 606421f..db2d388 100644
       __pthread_init;
       __pthread_fatal_error;
       __pthread_new_node;
-@@ -137,6 +148,8 @@ VERSION {
+@@ -137,6 +149,8 @@ VERSION {
       __pthread_atfork_callparentchild;
       __pthread_new_stack;
       __pthread_context_switch;
