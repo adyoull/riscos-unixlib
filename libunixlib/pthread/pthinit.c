@@ -13,6 +13,26 @@
 #include <internal/unix.h>
 
 static struct __pthread_thread mainthread;
+#if !defined(__SOFTFP__) && defined(__VFP_FP__)
+/* 2026 (Z2, from riscos-unixlib-web W18): the main thread's VFP context
+   (on its stack, not in the heap), kept here so that it can be found after the heap has gone.  */
+static int main_vfpcontext;
+#endif
+
+/* 2026 (Z2, from riscos-unixlib-web W18): before the heap's dynamic area
+   is removed (exit, exec).  Other threads' contexts are in the heap; VFPSupport may save into a
+   context's memory at any time while it's active (the PRMs: a context
+   must be inactive before its memory is reused).  Not "no context" (0):
+   the C code that still runs after this is built for VFP and may use it.
+   sul_exit switches it off at the very end.  */
+void
+__pthread_vfp_main_context (void)
+{
+#if !defined(__SOFTFP__) && defined(__VFP_FP__)
+  if (main_vfpcontext != 0)
+    _swix (VFPSupport_ChangeContext, _INR (0, 1), main_vfpcontext, 0);
+#endif
+}
 
 /* 2026: the RMA block's layout is also in incl-local/internal/asm_dec.s
    (PTHREAD_CALLEVERY_RMA_*); the ticker code copy must be where the
@@ -105,6 +125,7 @@ __pthread_prog_init (void)
 #if !defined(__SOFTFP__) && defined(__VFP_FP__)
   /* Store the ID of the VFP context that was created earlier on */
   _swi(VFPSupport_ActiveContext, _OUT(0), &mainthread.saved_context->vfpcontext);
+  main_vfpcontext = mainthread.saved_context->vfpcontext;
   /* Set the bottom bit to flag that it wasn't malloc'd */
   mainthread.saved_context->vfpcontext |= 1;
 #endif

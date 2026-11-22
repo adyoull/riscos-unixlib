@@ -351,6 +351,12 @@ extern int __funcall_error (const char *, int, unsigned int);
 extern unsigned int __dynamic_area_refcount;
 extern void __dynamic_area_exit (void);
 
+/* 2026 (Z2, from riscos-unixlib-web W18): make the main thread's VFP
+   context the active one, saving the running thread's now (pthread/pthinit.c).  Called before the heap
+   goes: other threads' contexts are in the heap, the main thread's is on
+   its stack.  */
+extern void __pthread_vfp_main_context (void);
+
 extern void __munmap_all (void);	/* Deallocate all mappings.  */
 
 /* Stop the interval timers.  */

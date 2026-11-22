@@ -454,6 +454,9 @@ __exit_status (int return_code)
     SWI_OS_Byte (229, 0, 0, NULL, NULL);
 
   __free_process (sulproc);
+  /* 2026 (Z2, from riscos-unixlib-web W18): the running thread's VFP
+     context may be in the heap.  */
+  __pthread_vfp_main_context ();
   __dynamic_area_exit ();
   __env_riscos ();
 

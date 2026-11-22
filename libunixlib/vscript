@@ -133,6 +133,7 @@ VERSION {
      _vsnprintf;
 
      __pthread_prog_init;
+     __pthread_vfp_main_context;
      __pthread_call_every_code;
      __pthread_call_every_code_end;
      __pthread_callevery_block_size;

@@ -459,6 +459,10 @@ execve (const char *execname, char *const argv[], char *const envp[])
   __stackalloc_trim ();
 #endif
 
+  /* 2026 (Z2, from riscos-unixlib-web W18): the running thread's VFP
+     context may be in the heap.  */
+  __pthread_vfp_main_context ();
+
   /* If the DAs are being used, then delete the dynamic area. */
   __dynamic_area_exit ();
 
