@@ -614,6 +614,17 @@ program calling all four with `-Werror=implicit-function-declaration` and links 
 strict `-std=c99 -Wall -Werror` program with its own static `strnlen`. The
 first fails with the old header.
 
+### H3. `mkdtemp` (new `stdlib/mkdtemp.c`, `include/stdlib.h`, `Makefile.am`) - commit `5edae6c`
+
+POSIX.1-2008 `mkdtemp` was missing. `mktemp` picks a name and `mkdir`
+makes it with mode 0700; EEXIST means try again (up to 100 times); a
+template not ending in XXXXXX is EINVAL. Declared for `_GNU_SOURCE`,
+X/Open and POSIX.1-2008 (the review added the last). From riscos-unixlib-web (the web browser's private copy of this library), where it has run in the WebKit port on the owner's Pi 4 since W5. A
+program with its own `mkdtemp` (gnulib) keeps it: the library's is linked
+only when nothing else defines it. New interface: libtool 10:0:5.
+**Verification.** Peer-reviewed. Host test `tests/host/mkdtemp` (8
+checks); Pi test `SockPair`.
+
 ### M1. `rename()` and file types (`stdio/rename.c`)
 
 **Problem.** Reported by the GTK port (2026-11-03, RISC OS 5.31-6 test
@@ -848,6 +859,27 @@ What the callers do:
 
 The old code crashes on the blank line.
 
+### N3. `socketpair` works on RISC OS's Internet stack (`netlib/ul_socketpair.c`) - commit `eeb9813`
+
+**Problem.** It bound a listener to 0.0.0.0, connected to that from a
+non-blocking socket and gave up on EINPROGRESS (which a non-blocking
+connect normally gives), so it never worked.
+
+**Change.** A listener on 127.0.0.1, a non-blocking connect, accept, then
+the client's side checked (writable, SO_ERROR); both ends blocking again,
+with TCP_NODELAY. Each wait is at most 5 s (ETIMEDOUT). The accepted
+connection must be from our client's port. Only SOCK_STREAM
+(EOPNOTSUPP otherwise); AF_INET and AF_UNIX (RISC OS has no Unix domain
+sockets, so AF_UNIX gets loopback TCP too); other families EAFNOSUPPORT.
+From riscos-unixlib-web (the web browser's private copy of this library), where it has run in the WebKit port on the owner's Pi 4 since W8 (2026-10-22); the review added the accept timeout, the
+port check and TCP_NODELAY, which are new here.
+
+**Compatibility.** `socketpair` used to fail every time, so programs that
+fall back to pipes on failure now get a socket pair. One passing
+descriptors over it (SCM_RIGHTS) would fail later instead. **Verification.**
+Peer-reviewed. Host test `tests/host/socketpair` (on Linux's stack); Pi
+test `SockPair` (to run).
+
 ### P1. `sched_get_priority_min` / `sched_get_priority_max` (new `sched/sched_prio.c`, `include/sched.h`) - commit `04408eb`
 
 **Problem.** UnixLib has `pthread_setschedparam`, so OpenAL Soft's CMake check
@@ -995,6 +1027,38 @@ the main thread ran at full speed with a thread in `sem_wait`; 100000
 waits and posts took 363 ms; a SIGALRM handler's post ended a wait with
 every thread waiting (396 ms). riscos-mesa's SDL and OpenAL tests are to
 follow.
+
+### P8. `pthread_rwlock_init` no longer says EBUSY (`pthread/rwlock.c`) - commit `66f2a07`
+
+**Problem.** GLib's `g_rw_lock` aborts when `pthread_rwlock_init` fails,
+and UnixLib failed it with EBUSY whenever the memory's type word read like
+a lock already: memory from malloc often holds a freed lock's words.
+
+**Change.** The check is gone (POSIX leaves initialising a lock twice
+undefined and EBUSY optional). It now matches `pthread_mutex_init`, which
+never had one. From riscos-unixlib-web (the web browser's private copy of this library), where it has run in the WebKit port on the owner's Pi 4 since W11 (2026-11-01).
+
+**Compatibility.** Re-initialising a lock that is in use drops its
+waiters instead of EBUSY (undefined in POSIX); nothing in UnixLib relied on
+EBUSY. **Verification.** Peer-reviewed. Pi test `RwLock`.
+
+### P9. `pthread_suspend_thread` really stops the thread (`pthread/context.c`, `include/pthread.h`) - commit `e635a10`
+
+**Problem.** The scheduler's `continue` for a suspended thread went to the
+do-while's test, which looked only at the state, so a suspended thread
+(still running) was scheduled anyway; GCCSDK's UnixLib has the same bug.
+
+**Change.** The loop's test checks `suspended` too. `<pthread.h>` declares
+`struct mcontext` at file scope, so `pthread_get_thread_registers` takes
+the same type as `<ucontext.h>`'s `mcontext_t` (no warning). From riscos-unixlib-web (the web browser's private copy of this library), where it has run in the WebKit port on the owner's Pi 4 since W3
+(WebKit's garbage collector, 2026-10-21).
+
+**Compatibility.** Programs that never suspend are unchanged (the flag is
+always 0). A program that suspends a thread and then waits for something
+only that thread can do now gets the scheduler's "Deadlocked" error
+instead of the thread carrying on; a suspended thread in a timed wait
+times out only once resumed. **Verification.** Peer-reviewed. Pi test
+`Suspend`.
 
 ### Q1. ARMEABISupport's fds with 1.05 and 1.07+: shared memory, shared files (`sys/mman-armeabi.c`, `unix/ul_close.c`, `ul_read.c`, `ul_write.c`, `ul_lseek.c`, `ul_isatty.c`, `ul_open.c`, `fstat.c`, `sync.c`, `truncate.c`, `fcntl.c`, `dup2.c`, `incl-local/internal/fd.h`, `swiparams.h`, `include/fcntl.h`, `swis.h`, `unixlib/buildoptions.h`, `signal/post.c`)
 
@@ -1289,6 +1353,19 @@ New Pi tests VFPPollTR and VFPPollTRThr (the Thumb build calling it) pass
 on a Pi 4 with native RISC OS 5.31 (5.0.3.8-rc1, 2026-11-11): own context
 300 of 300, another 0, none 0.
 
+### Z2. The main thread's VFP context before the heap goes (`unix/unix.c`, `sys/exec.c`, `pthread/pthinit.c`, `internal/unix.h`, `vscript`) - commit `65537e1`
+
+Other threads' VFP contexts are in the heap, and VFPSupport may save into
+an active context's memory at any time, so at exit and exec the running
+context could be written after the heap's dynamic area had gone.
+`__exit_status` and `execve` now make the main thread's context (on its
+stack) the active one before `__dynamic_area_exit`; SharedUnixLibrary's
+`sul_exit` still switches VFP off at the very end. Not "none", because the
+C code still to run is built for VFP. From riscos-unixlib-web (the web browser's private copy of this library), where it has run in the WebKit port on the owner's Pi 4 since W18. A vfork child that exits
+switches to the parent's main context, which SharedUnixLibrary saves and
+the parent takes back (`sys/_vfork.s`). **Verification.** Peer-reviewed;
+in every UnixLib program the browser starts.
+
 ### R1. Inline SWI wrappers: every register and memory the SWI changes - commit `c98c781`
 
 **Problem.** UnixLib calls many SWIs through small inline functions that put
@@ -1430,6 +1507,13 @@ Socket reads, OS_File loads, OS_Args/OS_FSControl results, and `readlink`.
 See section 8.
 
 ---
+
+### R3. Start-up: an error from ARMEABISupport_StackOp is no stack (`sys/_syslib.s`) - commit `2b5f555`
+
+Start-up read the new stack's address from R2 without looking at the V
+flag, so an error left R2's input value as the "stack". Now an error is
+ERR_NO_STACK, as a zero address was. From riscos-unixlib-web (the web browser's private copy of this library), where it has run in the WebKit port on the owner's Pi 4 since W19. **Verification.**
+Peer-reviewed.
 
 ### G1. Group and password lookups: `*result` and return values (`grp/getgrgid_r.c`, `grp/getgrnam_r.c`, `pwd/getpwuid_r.c`, `pwd/getpwnam_r.c`, `pwd/getlogin.c`, `termios/cuserid.c`)
 
@@ -2211,6 +2295,22 @@ paths.
   `ForkThreads`, `Sched`, `ExitJoin`, `EventFD`), check the native paths.
   Not yet run on RISC OS.
 
+### O2. Fatal signal reports: registers and the RISC OS error (`signal/post.c`) - commit `7afcaf6`
+
+EABI backtraces stop at the first function without a frame record (Thumb
+code, most -O2 code), so reports rarely said where a fault was.
+- SIGILL, SIGSEGV and SIGBUS: the registers the fault handler saved
+  (r0-r15, cpsr), labelled as not meaningful if the program raised the
+  signal itself (then they are an older save).
+- SIGEMT and SIGFPE: the RISC OS error's number, message and pc, as for
+  SIGOSERROR.
+- SIGEMT from a hardware exception RISC OS reported as an error: the
+  registers from RISC OS's exception dump area (OS_ChangeEnvironment 13),
+  and 64 bytes at each register that points at memory.
+
+From riscos-unixlib-web (the web browser's private copy of this library), where it has run in the WebKit port on the owner's Pi 4 since W12, W13 and W16. Only the text of a fatal report changes.
+**Verification.** Peer-reviewed. Pi test `Fault` shows it.
+
 ## 5. Files over 2GB (L1-L5)
 
 Background and the compatibility table are in `docs/LARGE-FILES.md`.
@@ -2331,15 +2431,16 @@ file:
 
 ## 6. Version, build and symbols
 
-### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5, 5.0.3.6, 5.0.3.7, 5.0.3.8, 5.0.3.9 and 5.0.3.10 release commits
+### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5, 5.0.3.6, 5.0.3.7, 5.0.3.8, 5.0.3.9, 5.0.3.10 and 5.0.3.11 release commits
 
-`AC_INIT` and the Help file say **5.0.3.10**. Releases continue UnixLib's own
-numbering from GCCSDK's 5.0. The libtool `-version-info` is `9:2:4`:
+`AC_INIT` and the Help file say **5.0.3.11**. Releases continue UnixLib's own
+numbering from GCCSDK's 5.0. The libtool `-version-info` is `10:0:5`:
 interfaces have been added (6:0:1 for 5.0.3.1; `getservbyname_r` and
 friends for 5.0.3.2, 7:0:2; P6's thread attribute functions for 5.0.3.4,
 8:0:3; 5.0.3.5 to 5.0.3.7 changed code only, 8:3:3;
 `__pthread_vfp_reclaim` for 5.0.3.8, 9:0:4; 5.0.3.9 and 5.0.3.10 changed
-code only, 9:1:4 and 9:2:4) and none removed, so the shared library's major
+code only, 9:1:4 and 9:2:4; `mkdtemp` for 5.0.3.11, 10:0:5) and none
+removed, so the shared library's major
 version stays 5.
 
 ### D1. Unofficial fork (`doc/UnixLib/Help`, `configure.ac`; README and other docs)

@@ -5,6 +5,18 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.11-rc1 (2026-11-22, pre-release, tag v5.0.3.11-rc1)
+
+5.0.3.10 plus seven fixes from riscos-unixlib-web, the web browser's private copy of this library, where they have run in the WebKit port on a Pi 4 for weeks. Not yet run on RISC OS as part of this library. libtool `-version-info` 10:0:5 (one new function).
+
+- **`pthread_rwlock_init` no longer says EBUSY (P8)** for memory that held another lock; GLib aborted. Pi test `RwLock`.
+- **`pthread_suspend_thread` really stops the thread (P9).** The scheduler ran suspended threads anyway. Pi test `Suspend`.
+- **`mkdtemp` (H3),** from POSIX.1-2008.
+- **`socketpair` works (N3).** It never did on RISC OS's Internet stack. It makes a loopback TCP pair, also for AF_UNIX. Pi test `SockPair`.
+- **Fatal signal reports say more (O2):** the registers at a SIGILL, SIGSEGV or SIGBUS, and the RISC OS error (and the registers from RISC OS's exception dump) for SIGEMT and SIGFPE.
+- **VFP at exit and exec (Z2):** the main thread's context is made active before the heap, which holds other threads' contexts, is removed.
+- **Start-up (R3):** an error from ARMEABISupport's stack allocation is treated as no stack.
+
 ## 5.0.3.10 (2026-11-14, tag v5.0.3.10)
 
 The same code as 5.0.3.10-rc1: 5.0.3.9 plus Q4. libtool `-version-info`
