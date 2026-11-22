@@ -25,9 +25,12 @@ __get_dde_prefix (void)
       if (prefix == NULL)
         return NULL;
 
-      /* Returned string can be control char terminated.  */
+      /* Returned string can be control char terminated.
+	 2026: the test read *prefix, which never changes, so with a
+	 DDEUtils prefix set (*Prefix) this loop never ended: found by Rob
+	 Heaton (riscos-gcc16, his report 20).  */
       const char *end_prefix;
-      for (end_prefix = prefix; (unsigned char)*prefix >= ' '; ++end_prefix)
+      for (end_prefix = prefix; (unsigned char)*end_prefix >= ' '; ++end_prefix)
         /* */;
       /* Filter out zero length results.  */
       size_t size = end_prefix - prefix;

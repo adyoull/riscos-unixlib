@@ -23,6 +23,8 @@ echo "== host tests: eventfd counter"
 tests/host/eventfd/run.sh
 echo "== host tests: waiting inside a held call"
 tests/host/heldwait/run.sh
+echo "== host tests: the DDEUtils prefix"
+tests/host/prefix/run.sh
 
 echo "== host tests: group and password lookups (getgrgid_r and friends)"
 tests/host/getpwgr/run.sh
