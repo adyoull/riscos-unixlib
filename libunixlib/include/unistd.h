@@ -343,10 +343,23 @@ enum
     _SC_2_SW_DEV,
     _SC_2_LOCALEDEF,
 
-    _SC_PAGE_SIZE = _SC_PAGESIZE,
+    /* 2026: _SC_PAGE_SIZE = _SC_PAGESIZE restarted the numbering, so the
+       names after it shared values with earlier ones: _SC_PHYS_PAGES was
+       _SC_BC_BASE_MAX and _SC_NPROCESSORS_ONLN was _SC_BC_DIM_MAX, so
+       sysconf (_SC_NPROCESSORS_ONLN) returned 2048 and a program sized
+       its thread pool by it.  The alias is now last, so the names before
+       it get values of their own (programs built before keep the old
+       values and answers).  Found and fixed by Rob Heaton (riscos-gcc16,
+       his report 13).  */
     _SC_PHYS_PAGES,
-    _SC_NPROCESSORS_ONLN
+    _SC_NPROCESSORS_ONLN,
+    _SC_NPROCESSORS_CONF,
+
+    _SC_PAGE_SIZE = _SC_PAGESIZE
   };
+#define _SC_PHYS_PAGES _SC_PHYS_PAGES
+#define _SC_NPROCESSORS_ONLN _SC_NPROCESSORS_ONLN
+#define _SC_NPROCESSORS_CONF _SC_NPROCESSORS_CONF
 
 /* Get the value of the system variable NAME.  */
 extern long int sysconf (int __name) __THROW __attribute__ ((__const__));

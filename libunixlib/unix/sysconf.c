@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include <internal/unix.h>
+#include <swis.h>
 
 /* Get the value of the system variable NAME.  */
 long int
@@ -126,10 +127,30 @@ sysconf (int name)
         return _POSIX2_SW_DEV;
 #endif
 
-#ifdef	_SC_NPROCESSORS_ONLN
+      /* 2026: one processor.  The #ifdef here was always false (the names
+	 were enum constants, not macros), so this case wasn't compiled and
+	 the value was taken for _SC_BC_DIM_MAX (2048): see <unistd.h>.  */
       case _SC_NPROCESSORS_ONLN:
+      case _SC_NPROCESSORS_CONF:
 	return 1;
-#endif
+
+      /* 2026: the number of pages of RAM (OS_ReadMemMapInfo).  The name
+	 used to share its value with _SC_BC_BASE_MAX (see <unistd.h>);
+	 now that it is a macro, code that tests #ifdef _SC_PHYS_PAGES calls
+	 it, so it is answered.  Capped (peer review, 2026-11-22) so that
+	 the usual sysconf (_SC_PHYS_PAGES) * sysconf (_SC_PAGESIZE) fits in
+	 a long: 2 GB at most, which is also more than a RISC OS program can
+	 have.  */
+      case _SC_PHYS_PAGES:
+	{
+	  int pagesize, pages;
+	  if (_swix (OS_ReadMemMapInfo, _OUTR(0,1), &pagesize, &pages)
+	      || pagesize <= 0)
+	    return __set_errno (EINVAL);
+	  if ((unsigned) pages > (unsigned) (LONG_MAX / pagesize))
+	    pages = LONG_MAX / pagesize;
+	  return pages;
+	}
     }
 
   return __set_errno (EINVAL);
