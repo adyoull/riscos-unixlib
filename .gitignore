@@ -12,3 +12,5 @@ handoffs/
 /tools/elf2aif/elf2aif
 /tools/elf2aif/elf2aif-elf
 /tools/elf2aif/elf2aif,ff8
+tests/host/mkdtemp/out/
+tests/host/socketpair/out/

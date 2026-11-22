@@ -153,6 +153,16 @@ extern int __REDIRECT (mkstemp, (char *__template), mkstemp64)
 extern int mkstemp64 (char *__template) __nonnull ((1)) __wur;
 # endif
 #endif
+
+#if defined __USE_MISC || defined __USE_XOPEN_EXTENDED \
+    || defined __USE_XOPEN2K8
+/* Create a unique temporary directory from TEMPLATE, whose last six
+   characters must be "XXXXXX"; they are replaced with a string that makes
+   the name unique.  The directory is made with mode 0700.  Returns
+   TEMPLATE, or a null pointer on error (errno set).  (2026, H3, from
+   riscos-unixlib-web W5; POSIX.1-2008.)  */
+extern char *mkdtemp (char *__template) __THROW __nonnull ((1)) __wur;
+#endif
 #endif /* __TARGET_SCL__ */
 
 __BEGIN_NAMESPACE_STD
