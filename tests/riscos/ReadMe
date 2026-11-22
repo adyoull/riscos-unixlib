@@ -147,10 +147,18 @@ LSeek       (5.0.3.9) lseek past the end of a file: a read there gives
             and stdio's fseek then fputc. Each line must say ok, then
             PASS. It uses <Wimp$ScrapDir>; to try another filing system,
             give a directory in Unix form, e.g. "LSeek /RAM::RamDisc0.$".
+RwLock      (5.0.3.11) pthread_rwlock_init over memory that looks like a
+            lock already (EBUSY before, and GLib aborted); the new lock
+            then takes two readers, then a writer. Must print PASS.
 Rename      rename() of files whose type isn't the one MimeMap gives
             their extension (a Text "rntest.xml" renamed to .xml.bak, as
             Claws Mail does): each line must say ok, then PASS. Run it in
             the desktop: without MimeMap it says it proves nothing.
+SockPair    (5.0.3.11) socketpair over loopback TCP (it never worked
+            before) and mkdtemp: messages both ways, 200 one-byte round
+            trips with the time taken, AF_UNIX, 50 pairs, a temporary
+            directory. Needs the Internet module. Each line must say ok,
+            then PASS; please say how long the round trips took.
 Sem         semaphores: sem_timedwait times out after about 200 ms while
             another thread runs, wakes when posted, and rejects a bad
             time; a thread waiting in sem_wait takes no processor time;
@@ -164,6 +172,11 @@ Shm         shared memory (shm_open, ftruncate, mmap twice, msync, dup,
             first line says which ARMEABISupport it found (1.05, or 1.07
             or later); it must work with either. Each line must say ok,
             then PASS. Please say which version it reported.
+Suspend     (5.0.3.11) pthread_suspend_thread really stops a thread: a
+            spinning thread's counter stays still while suspended, its
+            registers can be read, it runs again when resumed, and a
+            suspended waiter doesn't run when signalled until resumed.
+            Must print PASS.
 VFPPoll     floating point straight after Wimp_Poll (a probe for the
             Web Browser's "Illegal Instruction"): run from the desktop.
             It starts 50 short-lived UnixLib tasks (VFPChild) and polls,

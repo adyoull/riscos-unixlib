@@ -1,0 +1,5 @@
+| socketpair over loopback TCP (N3) and mkdtemp (H3). Needs the
+| Internet module. Must print PASS.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.sockpairtest
