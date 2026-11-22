@@ -530,6 +530,11 @@ int
 pthread_resume_thread(pthread_t thread);
 
 /* Return the registers for the given thread.  */
+/* 2026 (P9, from riscos-unixlib-web W3): declared at file scope, so
+   that it is the same struct as <ucontext.h>'s mcontext_t; named only in
+   the parameter list, it was a different type in C and every caller got
+   a warning.  */
+struct mcontext;
 int
 pthread_get_thread_registers(pthread_t thread, struct mcontext *buffer);
 

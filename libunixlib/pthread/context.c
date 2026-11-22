@@ -139,6 +139,10 @@ __pthread_context_switch (void)
           next = __pthread_running_thread->next;
         }
 
+      /* 2026 (P9, from riscos-unixlib-web W3): a suspended thread is
+	 skipped.  This 'continue' goes to the loop's test, which used to look only
+	 at the state, so a suspended thread (still STATE_RUNNING) was
+	 scheduled anyway; the test now checks 'suspended' too.  */
       if (__pthread_running_thread->suspended)
 	continue;
 
@@ -174,7 +178,8 @@ __pthread_context_switch (void)
 #endif
 
     }
-  while (__pthread_running_thread->state < STATE_RUNNING);
+  while (__pthread_running_thread->state < STATE_RUNNING
+	 || __pthread_running_thread->suspended);
 
 #if ! __UNIXLIB_ERRNO_THREADED
   /* For a thread-based 'errno' we don't need this.  */

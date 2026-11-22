@@ -1,0 +1,5 @@
+| pthread_suspend_thread really stops a thread; registers of a suspended
+| thread; resume (riscos-unixlib-web W3)
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.susptest
