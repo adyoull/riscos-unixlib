@@ -1,0 +1,5 @@
+| the monotonic clock (T6): never backwards, finer than a centisecond,
+| keeps pace with OS_ReadMonotonicTime; prints the cost of a read. PASSED.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.clocktest
