@@ -34,6 +34,11 @@ MIDI        scale and chords through /dev/midi. Needs the MIDISynth
             either it says "Operation not supported by device": that's
             the expected result for now.
 
+Clock       (5.0.3.11, T6) the monotonic clock: 200000 reads never go
+            back, finer than a centisecond, keeps pace with
+            OS_ReadMonotonicTime over 3 s, nanosleep 20 ms. Each line must
+            say ok, then PASSED; please say what a read costs and which
+            way it reads (Linux's clock or the HAL counter).
 EABIExit    does ARMEABISupport still know the program when it exits?
             A Wimp task with two threads polls for 3 s, then
             Wimp_CloseDown and exit (as Reel quits). It logs, at each
@@ -171,6 +176,11 @@ SockPair    (5.0.3.11) socketpair over loopback TCP (it never worked
             trips with the time taken, AF_UNIX, 50 pairs, a temporary
             directory. Needs the Internet module. Each line must say ok,
             then PASS; please say how long the round trips took.
+RtTest      (5.0.3.11, T7) the time of day: clock_gettime (CLOCK_REALTIME)
+            and gettimeofday agree with RISC OS's clock at the start and
+            after 3 s, never go back more than 2 cs over 200000 reads.
+            Each line must say ok, then PASS; please say what a read
+            costs.
 Sem         semaphores: sem_timedwait times out after about 200 ms while
             another thread runs, wakes when posted, and rejects a bad
             time; a thread waiting in sem_wait takes no processor time;

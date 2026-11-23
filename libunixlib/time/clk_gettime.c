@@ -69,20 +69,25 @@ static unsigned int hr_last_sec, hr_last_nsec;
 static int linux_call = LINUX_clock_gettime;
 
 static int
-linux_now (unsigned int *sec, unsigned int *nsec)
+linux_clock (int clock, unsigned int *sec, unsigned int *nsec)
 {
   union { struct { int32_t tv_sec, tv_nsec; } t32;
 	  struct { int64_t tv_sec, tv_nsec; } t64; } ts;
   int result;
+#ifdef UNIXLIB_TEST_NO_LINUX_CLOCK
+  /* tests/riscos/rttest-native: the native ways on RISC OS on Linux.  */
+  (void) clock; (void) sec; (void) nsec; (void) result; (void) ts;
+  return 0;
+#endif
   /* IXSupport_LinuxSyscall: r7 the call's number, r0-r6 its arguments,
      r0 its result (negative: -errno).  */
   if (_swix (IXSupport_LinuxSyscall, _INR(0,1)|_IN(7)|_OUT(0),
-	     LINUX_CLOCK_MONOTONIC, &ts, linux_call, &result) != NULL)
+	     clock, &ts, linux_call, &result) != NULL)
     return 0;
   if (result == -38 /* ENOSYS */ && linux_call == LINUX_clock_gettime)
     {
       linux_call = LINUX_clock_gettime64;
-      return linux_now (sec, nsec);
+      return linux_clock (clock, sec, nsec);
     }
   if (result != 0)
     return 0;
@@ -101,6 +106,8 @@ linux_now (unsigned int *sec, unsigned int *nsec)
   *nsec = (unsigned int) ts.t32.tv_nsec;
   return 1;
 }
+
+#define linux_now(sec, nsec) linux_clock (LINUX_CLOCK_MONOTONIC, sec, nsec)
 
 static int
 hr_init (void)
@@ -200,6 +207,108 @@ __ul_monotonic_ns (void)
   return (uint64_t) sec * 1000000000u + nsec;
 }
 
+/* 2026 (T7, from riscos-unixlib-web W39): the time of day without
+   OS_Word 14 each time.  OS_Word 14 and the conversion (64-bit
+   divisions) cost ~8 us a read under RISC OS on Linux; JavaScript's
+   Date.now and new Date() read it all the time (2.6% of Octane's
+   EarleyBoyer just for the harness's timing).  Now it is the monotonic
+   clock (above) plus an offset, taken from OS_Word 14 at the first read
+   and checked again once a second, so a change to RISC OS's clock shows
+   within a second.  The offset is only changed when it moves by 2 cs or
+   more, so the time of day doesn't wobble by a centisecond at each
+   check.  It has the monotonic clock's resolution (nanoseconds under
+   RISC OS on Linux, the HAL counter's natively).
+
+   riscos-unixlib-web W39 read Linux's CLOCK_REALTIME under RISC OS on
+   Linux instead; not here (review, 2026-11-23): RISC OS's own clock is
+   the time of day, even if it has been set apart from Linux's.
+
+   Returns -1 if OS_Word 14 fails (as before).  */
+static int
+realtime_slow (unsigned int *sec_out, unsigned int *nsec_out)
+{
+  unsigned int buf[2];
+  buf[0] = 3;
+  if (_kernel_osword (14, (int *)buf) < 0)
+    return -1;
+
+  /* Convert RISC OS time to Unix time (with csec resolution).  */
+  __int64_t csec = __cvt_riscos_time_csec (((__int64_t)(buf[1] & 0xFF) << 32)
+					   + buf[0]);
+  __int64_t sec = csec / 100;
+  int cs = (int) (csec % 100);
+  if (cs < 0)
+    {
+      cs += 100;
+      sec -= 1;
+    }
+  *sec_out = (unsigned int) sec;
+  *nsec_out = (unsigned int) cs * 10000000u;
+  return 0;
+}
+
+static int rt_valid;			/* offset known */
+static unsigned int rt_off_sec, rt_off_nsec;	/* real - monotonic */
+static unsigned int rt_checked;		/* monotonic second of the last check */
+
+int
+__ul_realtime_now (unsigned int *sec_out, unsigned int *nsec_out)
+{
+  unsigned int msec, mnsec, sec, nsec, off_sec, off_nsec;
+
+  monotonic_now (&msec, &mnsec);
+  HR_LOCK ();
+  int valid = rt_valid && msec - rt_checked < 1;
+  off_sec = rt_off_sec;
+  off_nsec = rt_off_nsec;
+  HR_UNLOCK ();
+
+  if (!valid)
+    {
+      unsigned int rsec, rnsec;
+      if (realtime_slow (&rsec, &rnsec) < 0)
+	return -1;
+      monotonic_now (&msec, &mnsec);
+      /* new offset = real - monotonic (unsigned arithmetic wraps right).  */
+      unsigned int nsec_new, sec_new = rsec - msec;
+      if (rnsec >= mnsec)
+	nsec_new = rnsec - mnsec;
+      else
+	{
+	  nsec_new = rnsec + 1000000000u - mnsec;
+	  sec_new--;
+	}
+      /* Difference from the old offset, in ns, if small.  */
+      int keep = 0;
+      if (rt_valid)
+	{
+	  long long d = ((long long) (int) (sec_new - off_sec)) * 1000000000ll
+			+ (long long) nsec_new - (long long) off_nsec;
+	  keep = d > -20000000ll && d < 20000000ll;
+	}
+      HR_LOCK ();
+      if (!keep)
+	{
+	  rt_off_sec = off_sec = sec_new;
+	  rt_off_nsec = off_nsec = nsec_new;
+	}
+      rt_checked = msec;
+      rt_valid = 1;
+      HR_UNLOCK ();
+    }
+
+  sec = msec + off_sec;
+  nsec = mnsec + off_nsec;
+  if (nsec >= 1000000000u)
+    {
+      nsec -= 1000000000u;
+      sec++;
+    }
+  *sec_out = sec;
+  *nsec_out = nsec;
+  return 0;
+}
+
 int
 clock_gettime (clockid_t clk_id, struct timespec *tp)
 {
@@ -209,25 +318,14 @@ clock_gettime (clockid_t clk_id, struct timespec *tp)
   switch (clk_id)
     {
       case CLOCK_REALTIME:
-        {
-	  unsigned int buf[2];
-	  buf[0] = 3;
-	  if (_kernel_osword (14, (int *)buf) < 0)
+	{
+	  unsigned int sec, nsec;
+	  if (__ul_realtime_now (&sec, &nsec) < 0)
 	    return -1;
-
-	  /* Convert RISC OS time to Unix time (with csec resolution).  */
-	  __int64_t csec = __cvt_riscos_time_csec (((__int64_t)(buf[1] & 0xFF) << 32)
-						   + buf[0]);
-	  tp->tv_sec = csec / 100;
-	  tp->tv_nsec = csec % 100;
-	  if (tp->tv_nsec < 0)
-	    {
-	      tp->tv_nsec = 100 + tp->tv_nsec;
-	      tp->tv_sec -= 1;
-	    }
-	  tp->tv_nsec *= 10000000;
-          break;
-        }
+	  tp->tv_sec = (time_t) sec;
+	  tp->tv_nsec = (long) nsec;
+	  break;
+	}
 
       case CLOCK_MONOTONIC:
 	{
