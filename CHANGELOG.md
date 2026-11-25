@@ -5,6 +5,18 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.11-rc7 (2026-11-25, pre-release, tag v5.0.3.11-rc7)
+
+5.0.3.11-rc6 plus C8. libtool `-version-info` 10:0:5. rc6's `Clock`, `TimedWait` and `SockPair` passed on the owner's Pi 4 (native RISC OS 5.31).
+
+- **Faster string searches (C8).**
+  - `strstr` jumps from one copy of the needle's first byte to the next, instead of measuring the haystack and comparing at every byte: 6 to 10 times faster on a line of text. On the Pi 4, a search that finds nothing went from 1163 to 117 ns.
+  - `strrchr` works a word at a time.
+  - `strspn`, `strcspn` and `strpbrk` look each byte up in a map of the set once past the first 8 bytes.
+  - `memmem` jumps from one copy of the first byte to the next.
+  - Exactly the same results.
+  - Pi test `Search`.
+
 ## 5.0.3.11-rc6 (2026-11-25, pre-release, tag v5.0.3.11-rc6)
 
 5.0.3.11-rc5 without T7. libtool `-version-info` 10:0:5. rc5's `Procs` passed on the owner's Pi 4 (native RISC OS 5.31).

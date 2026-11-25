@@ -1286,6 +1286,82 @@ Peer review: his patch stored `%llp` as an 8-byte value, over the word after the
 
 **Verification.** Peer-reviewed (the review asked for the whole value to be the number, and for the test's `errno` check to call through a pointer). Pi test `Procs`: unset 1, 3, 64 and 2 set as a number are given; 0, 65, "abc" and "3abc" give 1; `errno` unchanged.
 
+### C8. Faster string searches (`string/strstr.c`, `strrchr.c`, `strspn.c`, `strcspn.c`, `strpbrk.c`, `memmem.c`, new `incl-local/internal/byteset.h`) - commit `430c319`
+
+**Problem.** After C5, the searches were the slowest string functions left, and parsers, HTTP and CSS code, path handling and configuration readers call them constantly.
+- `strstr` measured the whole haystack with `strlen`, then called `strncmp` at every byte.
+- `strrchr` went a byte at a time.
+- `strspn`, `strcspn` and `strpbrk` scanned the whole set again for every byte of the string.
+- `memmem` compared the first byte itself at every position.
+
+Instructions in the emulator on a 120-byte line of text:
+
+| Call | Instructions |
+|---|---|
+| `strstr` found | 1833 |
+| `strstr` not found | 2679 |
+| `strrchr` | 851 |
+| `strcspn`, 5-byte set | 1482 |
+| `strpbrk`, 4-byte set | 1786 |
+| `memmem` not found | 892 |
+
+**Change.**
+- **`strstr`:**
+  - It jumps to each copy of the needle's first byte with `strchr` (word at a time, C5), then compares the rest a byte at a time.
+  - It doesn't measure the haystack first.
+  - It returns NULL as soon as the haystack ends inside a partial match: every later start has even less haystack left.
+  - A one-byte needle is `strchr`.
+  - (The old code also worked out `s1 + l1 - l2` before `s1` when the needle was the longer, which is undefined behaviour; that has gone.)
+- **`strrchr`:**
+  - It works a word at a time with C5's exact zero-byte test.
+  - A word with neither the terminator nor the byte is skipped.
+  - A word with the byte records its last copy.
+  - Only aligned words are read, never past the word that holds the terminator.
+- **`strspn`, `strcspn`, `strpbrk`:**
+  - The first 8 bytes are scanned the old way, because short spans are the common case and making the map costs about 90 instructions.
+  - After that, each byte is one lookup in a 256-bit map of the set, made on the stack.
+  - An empty set and a one-byte set are special-cased: `strcspn` with one byte is `__strchrnul`, called by its internal name because a program may define its own `strchrnul`; `strpbrk` with one byte is `strchr`.
+- **`memmem`:** it jumps to each copy of the first byte with `memchr`, then compares the rest with `memcmp`.
+- **Results are exactly the old ones** for every input, including high bytes and `strrchr` arguments outside 0-255.
+
+**Performance.** Emulator instructions on the same line (old -> new):
+
+| Call | Old | New |
+|---|---|---|
+| `strstr` found | 1833 | 302 |
+| `strstr` not found | 2679 | 423 |
+| `strstr` found early | 347 | 86 |
+| `strrchr` | 851 | 404 |
+| `strcspn`, 5-byte set | 1482 | 713 |
+| `strcspn`, 1-byte set | 1098 | 267 |
+| `strpbrk` | 1786 | 842 |
+| `memmem` not found | 892 | 404 |
+| `strspn`, span of 1 | 59 | 69 |
+
+A span of 1 costs 10 instructions more, because of the checks for the special cases.
+
+Pi 4, native RISC OS 5.31 (ns, old -> new):
+
+| Call | Old | New |
+|---|---|---|
+| `strstr` found | 799 | 97 |
+| `strstr` not found | 1163 | 117 |
+| `strrchr` | 298 | 105 |
+| `strcspn` | 447 | 206 |
+| `strpbrk` | 510 | 227 |
+| `memmem` | 190 | 117 |
+| `strspn`, short | 17 | 19 |
+
+**Verification.**
+- **Peer-reviewed:** no defects found. The review's own harness made about 67 million checks: every short case, guard pages on both sides, and out-of-range `strrchr` arguments.
+- **Host test `tests/host/search`** (10.4 million checks):
+  - It compares the new functions against the old ones from git, linked with UnixLib's own `strchr`, `memchr` and `memcmp`.
+  - Haystacks are random, up to 200 bytes, from small alphabets (so there are many near matches), at every alignment.
+  - Needles and sets are up to 47 bytes, often taken from the haystack.
+  - Each haystack is also tried ending at an inaccessible page.
+  - `strrchr` is called with 0, high bytes, 0x161, -1 and INT_MAX.
+- **Pi test `Search`** (`tests/riscos/srchtest.c`) runs the same comparison on the real processor (988,000 checks), and times old against new. It passed on the owner's Pi 4, natively, as did `Strings`.
+
 ### Q1. ARMEABISupport's fds with 1.05 and 1.07+: shared memory, shared files (`sys/mman-armeabi.c`, `unix/ul_close.c`, `ul_read.c`, `ul_write.c`, `ul_lseek.c`, `ul_isatty.c`, `ul_open.c`, `fstat.c`, `sync.c`, `truncate.c`, `fcntl.c`, `dup2.c`, `incl-local/internal/fd.h`, `swiparams.h`, `include/fcntl.h`, `swis.h`, `unixlib/buildoptions.h`, `signal/post.c`)
 
 **Problem.** ARMEABISupport 1.07 and 1.08 (Lee Noar; 1.05 is in GCCSDK)
