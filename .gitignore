@@ -16,3 +16,4 @@ tests/host/mkdtemp/out/
 tests/host/socketpair/out/
 tests/host/strings/out/
 tests/host/strto/out/
+tests/host/search/out/

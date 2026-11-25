@@ -1,0 +1,5 @@
+| string searches (C8): strstr, strrchr, strspn, strcspn, strpbrk and
+| memmem give the old results; prints old and new times. Must print PASS.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.srchtest
