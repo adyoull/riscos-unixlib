@@ -1,5 +1,5 @@
 | sysconf processor count (C7): 1, or UnixLib$Processors (1-64).
-| Must print PASS four times.
+| Must print PASS eight times.
 Set UST$Dir <Obey$Dir>
 WimpSlot -min 8000K
 Unset UnixLib$Processors
@@ -10,4 +10,12 @@ Set UnixLib$Processors 0
 Run <UST$Dir>.proctest 1
 Set UnixLib$Processors abc
 Run <UST$Dir>.proctest 1
+Set UnixLib$Processors 3abc
+Run <UST$Dir>.proctest 1
+Set UnixLib$Processors 64
+Run <UST$Dir>.proctest 64
+Set UnixLib$Processors 65
+Run <UST$Dir>.proctest 1
+SetEval UnixLib$Processors 2
+Run <UST$Dir>.proctest 2
 Unset UnixLib$Processors

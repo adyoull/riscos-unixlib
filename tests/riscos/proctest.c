@@ -11,9 +11,12 @@ int
 main (int argc, char **argv)
 {
   long want = argc > 1 ? atol (argv[1]) : 1;
+  /* Through a pointer: <unistd.h> declares sysconf "const", so a direct
+     call could let the compiler assume errno unchanged.  */
+  long (*volatile sc) (int) = sysconf;
   errno = 1234;
-  long onln = sysconf (_SC_NPROCESSORS_ONLN);
-  long conf = sysconf (_SC_NPROCESSORS_CONF);
+  long onln = sc (_SC_NPROCESSORS_ONLN);
+  long conf = sc (_SC_NPROCESSORS_CONF);
   int ok = onln == want && conf == want && errno == 1234;
   printf ("processors online %ld, configured %ld (want %ld), errno kept: %s\n",
 	  onln, conf, want, ok ? "PASS" : "FAIL");

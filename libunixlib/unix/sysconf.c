@@ -27,7 +27,8 @@ processors (void)
     {
       char *end;
       long int v = strtol (buf, &end, 10);
-      if (end != buf && v >= 1 && v <= 64)
+      /* The whole value must be the number (review: "3abc" was 3).  */
+      if (end != buf && *end == '\0' && v >= 1 && v <= 64)
 	n = v;
     }
   errno = saved;
