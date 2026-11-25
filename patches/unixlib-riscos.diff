@@ -10574,10 +10574,10 @@ index 9b84e27..bcb94e6 100644
        if (s != NULL)
  	s[0] = '\0';
 diff --git a/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c b/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c
-index 9927105..bd312a2 100644
+index 9927105..3b5d3d7 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/time/clk_gettime.c
-@@ -8,6 +8,335 @@
+@@ -8,6 +8,205 @@
  #include <internal/os.h>
  #include <internal/local.h>
  
@@ -10642,25 +10642,20 @@ index 9927105..bd312a2 100644
 +static int linux_call = LINUX_clock_gettime;
 +
 +static int
-+linux_clock (int clock, unsigned int *sec, unsigned int *nsec)
++linux_now (unsigned int *sec, unsigned int *nsec)
 +{
 +  union { struct { int32_t tv_sec, tv_nsec; } t32;
 +	  struct { int64_t tv_sec, tv_nsec; } t64; } ts;
 +  int result;
-+#ifdef UNIXLIB_TEST_NO_LINUX_CLOCK
-+  /* tests/riscos/rttest-native: the native ways on RISC OS on Linux.  */
-+  (void) clock; (void) sec; (void) nsec; (void) result; (void) ts;
-+  return 0;
-+#endif
 +  /* IXSupport_LinuxSyscall: r7 the call's number, r0-r6 its arguments,
 +     r0 its result (negative: -errno).  */
 +  if (_swix (IXSupport_LinuxSyscall, _INR(0,1)|_IN(7)|_OUT(0),
-+	     clock, &ts, linux_call, &result) != NULL)
++	     LINUX_CLOCK_MONOTONIC, &ts, linux_call, &result) != NULL)
 +    return 0;
 +  if (result == -38 /* ENOSYS */ && linux_call == LINUX_clock_gettime)
 +    {
 +      linux_call = LINUX_clock_gettime64;
-+      return linux_clock (clock, sec, nsec);
++      return linux_now (sec, nsec);
 +    }
 +  if (result != 0)
 +    return 0;
@@ -10679,8 +10674,6 @@ index 9927105..bd312a2 100644
 +  *nsec = (unsigned int) ts.t32.tv_nsec;
 +  return 1;
 +}
-+
-+#define linux_now(sec, nsec) linux_clock (LINUX_CLOCK_MONOTONIC, sec, nsec)
 +
 +static int
 +hr_init (void)
@@ -10787,162 +10780,10 @@ index 9927105..bd312a2 100644
 +  return (uint64_t) sec * 1000000000u + nsec;
 +}
 +
-+/* 2026 (T7, from riscos-unixlib-web W39): the time of day without
-+   OS_Word 14 each time.  OS_Word 14 and the conversion (64-bit
-+   divisions) cost ~8 us a read under RISC OS on Linux; JavaScript's
-+   Date.now and new Date() read it all the time (2.6% of Octane's
-+   EarleyBoyer just for the harness's timing).  Now it is the monotonic
-+   clock (above) plus an offset, taken from OS_Word 14 at the first read
-+   and checked again once a second, so a change to RISC OS's clock shows
-+   within a second.  A new reading of the offset replaces the old one if
-+   it is larger or 3 cs or more different (see below), so the time of
-+   day doesn't wobble by a centisecond at each check.  It has the monotonic clock's resolution (nanoseconds under
-+   RISC OS on Linux, the HAL counter's natively).
-+
-+   riscos-unixlib-web W39 read Linux's CLOCK_REALTIME under RISC OS on
-+   Linux instead; not here (review, 2026-11-23): RISC OS's own clock is
-+   the time of day, even if it has been set apart from Linux's.
-+
-+   Returns -1 if OS_Word 14 fails (as before).  */
-+static int
-+realtime_slow (unsigned int *sec_out, unsigned int *nsec_out)
-+{
-+  unsigned int buf[2];
-+  buf[0] = 3;
-+  if (_kernel_osword (14, (int *)buf) < 0)
-+    return -1;
-+
-+  /* Convert RISC OS time to Unix time (with csec resolution).  */
-+  __int64_t csec = __cvt_riscos_time_csec (((__int64_t)(buf[1] & 0xFF) << 32)
-+					   + buf[0]);
-+  __int64_t sec = csec / 100;
-+  int cs = (int) (csec % 100);
-+  if (cs < 0)
-+    {
-+      cs += 100;
-+      sec -= 1;
-+    }
-+  *sec_out = (unsigned int) sec;
-+  *nsec_out = (unsigned int) cs * 10000000u;
-+  return 0;
-+}
-+
-+static int rt_valid;			/* offset known */
-+static unsigned int rt_off_sec, rt_off_nsec;	/* real - monotonic */
-+static unsigned int rt_checked;		/* monotonic second of the last check */
-+
-+int
-+__ul_realtime_now (unsigned int *sec_out, unsigned int *nsec_out)
-+{
-+  unsigned int msec, mnsec, sec, nsec, off_sec, off_nsec;
-+
-+  monotonic_now (&msec, &mnsec);
-+  HR_LOCK ();
-+  int valid = rt_valid && msec == rt_checked;
-+  off_sec = rt_off_sec;
-+  off_nsec = rt_off_nsec;
-+  HR_UNLOCK ();
-+
-+  if (!valid)
-+    {
-+      /* OS_Word 14 between two monotonic readings; again if they are
-+	 more than 1 cs apart (a thread switch or a signal handler between
-+	 them: review, 2026-11-25), up to 3 times.  */
-+      unsigned int rsec, rnsec, bsec, bnsec;
-+      for (int attempt = 0; ; attempt++)
-+	{
-+	  monotonic_now (&bsec, &bnsec);
-+	  if (realtime_slow (&rsec, &rnsec) < 0)
-+	    return -1;
-+	  monotonic_now (&msec, &mnsec);
-+	  unsigned long long gap
-+	    = (unsigned long long) (msec - bsec) * 1000000000ull
-+	      + mnsec - bnsec;
-+	  if (gap <= 10000000ull || attempt == 2)
-+	    break;
-+	}
-+      /* new offset = real - monotonic (unsigned arithmetic wraps right).
-+	 OS_Word 14 gives whole centiseconds, read at or before the second
-+	 monotonic reading, so this is the true offset or up to about 1 cs
-+	 less: never more.  */
-+      unsigned int nsec_new, sec_new = rsec - msec;
-+      if (rnsec >= mnsec)
-+	nsec_new = rnsec - mnsec;
-+      else
-+	{
-+	  nsec_new = rnsec + 1000000000u - mnsec;
-+	  sec_new--;
-+	}
-+      /* Each reading is the true offset or a little less, so within 3 cs
-+	 of the old one the larger is kept (it converges on the true
-+	 offset, and the time of day doesn't wobble or run behind RISC
-+	 OS's: review, 2026-11-25); further out, the clock has been set
-+	 and the new reading is taken.  */
-+      int keep = 0;
-+      if (rt_valid)
-+	{
-+	  long long d = ((long long) (int) (sec_new - off_sec)) * 1000000000ll
-+			+ (long long) nsec_new - (long long) off_nsec;
-+	  keep = d > -30000000ll && d <= 0;
-+	  if (d > 0 && d < 30000000ll)
-+	    keep = 0;			/* a better (larger) reading */
-+	}
-+      HR_LOCK ();
-+      if (!keep)
-+	{
-+	  rt_off_sec = off_sec = sec_new;
-+	  rt_off_nsec = off_nsec = nsec_new;
-+	}
-+      rt_checked = msec;
-+      rt_valid = 1;
-+      HR_UNLOCK ();
-+    }
-+
-+  sec = msec + off_sec;
-+  nsec = mnsec + off_nsec;
-+  if (nsec >= 1000000000u)
-+    {
-+      nsec -= 1000000000u;
-+      sec++;
-+    }
-+  *sec_out = sec;
-+  *nsec_out = nsec;
-+  return 0;
-+}
-+
  int
  clock_gettime (clockid_t clk_id, struct timespec *tp)
  {
-@@ -17,33 +346,21 @@ clock_gettime (clockid_t clk_id, struct timespec *tp)
-   switch (clk_id)
-     {
-       case CLOCK_REALTIME:
--        {
--	  unsigned int buf[2];
--	  buf[0] = 3;
--	  if (_kernel_osword (14, (int *)buf) < 0)
-+	{
-+	  unsigned int sec, nsec;
-+	  if (__ul_realtime_now (&sec, &nsec) < 0)
- 	    return -1;
--
--	  /* Convert RISC OS time to Unix time (with csec resolution).  */
--	  __int64_t csec = __cvt_riscos_time_csec (((__int64_t)(buf[1] & 0xFF) << 32)
--						   + buf[0]);
--	  tp->tv_sec = csec / 100;
--	  tp->tv_nsec = csec % 100;
--	  if (tp->tv_nsec < 0)
--	    {
--	      tp->tv_nsec = 100 + tp->tv_nsec;
--	      tp->tv_sec -= 1;
--	    }
--	  tp->tv_nsec *= 10000000;
--          break;
--        }
-+	  tp->tv_sec = (time_t) sec;
-+	  tp->tv_nsec = (long) nsec;
-+	  break;
-+	}
+@@ -39,11 +238,10 @@ clock_gettime (clockid_t clk_id, struct timespec *tp)
  
        case CLOCK_MONOTONIC:
  	{
@@ -10958,46 +10799,6 @@ index 9927105..bd312a2 100644
  	  break;
  	}
  
-diff --git a/gcc4/recipe/files/gcc/libunixlib/time/gettod.c b/gcc4/recipe/files/gcc/libunixlib/time/gettod.c
-index 03d77bb..1929d4c 100644
---- a/gcc4/recipe/files/gcc/libunixlib/time/gettod.c
-+++ b/gcc4/recipe/files/gcc/libunixlib/time/gettod.c
-@@ -9,6 +9,8 @@
- #include <internal/os.h>
- #include <internal/local.h>
- 
-+extern int __ul_realtime_now (unsigned int *sec, unsigned int *nsec);
-+
- /* The `gettimeofday' function returns the current date and time in
-    the `struct timeval' structure indicated by TP.  Information about
-    the time zone is returned in the structure pointed at TZP.  If the
-@@ -34,22 +36,11 @@ gettimeofday (struct timeval *tv, struct timezone *tz)
-   if (tv == NULL)
-     return __set_errno (EINVAL);
- 
--  unsigned buf[2];
--  buf[0] = 3;
--  if (_kernel_osword (14, buf) < 0)
-+  unsigned int sec, nsec;
-+  if (__ul_realtime_now (&sec, &nsec) < 0)	/* T7: time/clk_gettime.c */
-     return -1;
--
--  /* Convert RISC OS time to Unix time (with csec resolution).  */
--  __int64_t csec = __cvt_riscos_time_csec (((__int64_t)(buf[1] & 0xFF) << 32)
--					   + buf[0]);
--  tv->tv_sec = csec / 100;
--  tv->tv_usec = csec % 100;
--  if (tv->tv_usec < 0)
--    {
--      tv->tv_usec = 100 + tv->tv_usec;
--      tv->tv_sec -= 1;
--    }
--  tv->tv_usec *= 10000;
-+  tv->tv_sec = (time_t) sec;
-+  tv->tv_usec = (suseconds_t) (nsec / 1000u);
- 
-   if (tz != NULL)
-     {
 diff --git a/gcc4/recipe/files/gcc/libunixlib/time/stdtime.c b/gcc4/recipe/files/gcc/libunixlib/time/stdtime.c
 index b08fb6d..8b8c45b 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/time/stdtime.c
