@@ -1268,6 +1268,29 @@ Peer review: his patch stored `%llp` as an 8-byte value, over the word after the
 
 **History (5.0.3.11-rc1).** First taken in 5.0.3.4-rc1 (4d33218, 801d238) and withdrawn with it on 2026-10-11, before it ran on RISC OS (section 7). The same code has run since 2026-11-06 in riscos-unixlib-web, the web browser's copy of this library, on the owner's Pi 4. Taken again in 5.0.3.11-rc1, peer-reviewed a third time against everything added since October.
 
+### C5. String compares and searches a word at a time (`string/strcmp.c`, `strncmp.c`, `memcmp.c`, `strchr.c`, `memchr.c`, `stricmp.c`, `strnicmp.c`, `strcasecmp_l.c`, new `incl-local/internal/wordstr.h`) - commits `e5b068a`, `fa09bf6`
+
+**Problem.** `strcmp`, `strncmp`, `memcmp`, `strchr` and `memchr` were C loops a byte at a time (GCCSDK's), and `strcasecmp`/`strncasecmp` converted the case of every byte, equal or not. These are among the most called functions in C programs (hash tables, parsers, GLib, SQLite, WebKit's CSS code). Instructions in the emulator for 64 equal bytes: `strcmp` 393, `strncmp` 523, `memcmp` 303, `strcasecmp` 724; `strchr`/`memchr` over 32 bytes 164/124. (`memcpy`, `memset`, `strlen` and `strcpy` were already assembly and are unchanged.)
+
+**Change.**
+- When both arguments have the same alignment (`strchr` and `memchr`: always, once aligned), whole aligned 32-bit words are compared or searched, with the exact "has a zero byte" test (`(v - 0x01010101) & ~v & 0x80808080`); the word where something happens is finished a byte at a time, so the result is always the old one.
+- Only aligned words are read: never an unaligned load (RISC OS may fault them), and never past the word holding a string's terminator, a block's last byte, or `memchr`'s match. `strchr` and `memchr` read their second word of a pair only after the first has neither (review: `memchr`'s first version loaded both, which with an `N` larger than the object, as POSIX allows, could read the next page).
+- `memcmp` and `strncmp` never read a word past `N`.
+- `strcasecmp`, `strncasecmp` and `strcasecmp_l` skip equal bytes, and equal words when both strings have the same alignment, without converting case. Converting only bytes that differ gives the same result in any locale (the conversion is a function of the byte).
+- Results are exactly the old ones, not just the same sign: the difference of the first differing bytes as unsigned chars (`strcasecmp`: of their lower-case forms).
+
+**Performance.** Emulator, 64 equal bytes: `strcmp` 163 (was 393), `strncmp` 284 (523), `memcmp` 108 (303), `strcasecmp` 164 (724); `strchr` 106 (164), `memchr` 109 (124). Short strings and differently aligned arguments cost about what they did.
+
+**Verification.** Peer-reviewed (the review found the `memchr` read). Host test `tests/host/strings`: the new functions against the old ones (from git) for every alignment of both arguments (0-7), lengths 0-40, every position of a difference or terminator, bytes above 127 and case differences, with `-funsigned-char` as on ARM (18.4 million checks); and strings and blocks ending at a page boundary before an inaccessible page, including a `memchr` match in the page's last word with `N` = 1 MB and `SIZE_MAX` (the first version faults there). Pi test `Strings` (`tests/riscos/strtest.c`): the same comparison against the old functions on the real processor, and old and new timed. `strcasecmp_l` has no test of its own (it is `strcasecmp`'s code with `tolower_l`).
+
+### C6. `strtol` and friends: base 10 without a division (`stdlib/strtol.c`, `strtoul.c`, `strtoll.c`, `strtoull.c`) - commit `ce90039`
+
+**Problem.** The overflow limits (`cutoff`, `cutlim`) were worked out by dividing by the base, a library call for a variable divisor (64-bit for `strtoll`/`strtoull`): about half the time of a short conversion. `strtol ("123456")` and `atoi` took 373 instructions.
+
+**Change.** For base 10, by far the most used (also base 0 that turns out decimal), the limits are constants worked out by the compiler. Other bases are as before.
+
+**Verification.** Peer-reviewed. Host test `tests/host/strto`: new against old (from git) for bases 0 and 2-36, strings at and around every limit, signs, prefixes and 20000 random strings per base, comparing values, end pointers and `errno` (2.9 million checks). Emulator: `strtol`/`atoi` of "123456" 196 instructions (was 373).
+
 ### Q1. ARMEABISupport's fds with 1.05 and 1.07+: shared memory, shared files (`sys/mman-armeabi.c`, `unix/ul_close.c`, `ul_read.c`, `ul_write.c`, `ul_lseek.c`, `ul_isatty.c`, `ul_open.c`, `fstat.c`, `sync.c`, `truncate.c`, `fcntl.c`, `dup2.c`, `incl-local/internal/fd.h`, `swiparams.h`, `include/fcntl.h`, `swis.h`, `unixlib/buildoptions.h`, `signal/post.c`)
 
 **Problem.** ARMEABISupport 1.07 and 1.08 (Lee Noar; 1.05 is in GCCSDK)

@@ -5,6 +5,13 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.11-rc4 (2026-11-25, pre-release, tag v5.0.3.11-rc4)
+
+5.0.3.11-rc3 plus C5 and C6. libtool `-version-info` 10:0:5. rc3 passed on the owner's Pi 4 under RISC OS on Linux.
+
+- **Faster string compares and searches (C5).** `strcmp`, `strncmp`, `memcmp`, `strchr` and `memchr` work a word at a time, and `strcasecmp`/`strncasecmp` skip equal bytes and words without converting case: 2-4 times fewer instructions on longer strings (`strcmp` of 64 equal bytes 393 -> 163, `strcasecmp` 724 -> 164). Exactly the same results. Pi test `Strings`.
+- **Faster `strtol`, `strtoul`, `strtoll`, `strtoull` and `atoi` in base 10 (C6):** no division to work out the overflow limits (`strtol ("123456")` 373 -> 196 instructions). Exactly the same results.
+
 ## 5.0.3.11-rc3 (2026-11-25, pre-release, tag v5.0.3.11-rc3)
 
 5.0.3.11-rc2 plus T6, T7 and K13. libtool `-version-info` 10:0:5. rc2 passed on the owner's Pi 4 (native RISC OS 5.31) and on RISC OS on Linux 1.0.0058 in QEMU.
