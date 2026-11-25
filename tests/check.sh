@@ -86,6 +86,14 @@ else
   echo "SKIP (no build/work/build, cross toolchain or python3 unicorn module)"
 fi
 
+echo "== emulator: memcpy, memmove, memset and bcopy, pages touched first (M3, B2; needs a build + unicorn)"
+if [ -f build/work/build/.libs/libunixlib.a ] && [ -x "$GCCSDK_ENV/bin/arm-riscos-gnueabihf-gcc" ] &&
+   python3 -c 'import unicorn' 2>/dev/null; then
+  python3 tests/emu/memtouch_test.py
+else
+  echo "SKIP (no build/work/build, cross toolchain or python3 unicorn module)"
+fi
+
 echo "== emulator: interval timer repeat delay (needs the cross assembler + unicorn)"
 if [ -x "$GCCSDK_ENV/bin/arm-riscos-gnueabihf-gcc" ] && python3 -c 'import unicorn' 2>/dev/null; then
   python3 tests/emu/itimer_test.py

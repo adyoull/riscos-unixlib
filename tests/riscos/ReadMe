@@ -197,6 +197,12 @@ Shm         shared memory (shm_open, ftruncate, mmap twice, msync, dup,
             first line says which ARMEABISupport it found (1.05, or 1.07
             or later); it must work with either. Each line must say ok,
             then PASS. Please say which version it reported.
+FirstTouch  (5.0.3.11, M3, B2) memcpy, memmove, memset, mempcpy and bcopy
+            into and out of stack pages never touched before (in a
+            thread with a 4 MB stack) and fresh mmap pages; setjmp into
+            a fresh page; and bcopy copies the right way. Before rc8 it
+            could die (an abort, or "Unixlib detected that ARMEABISupport
+            could not handle an abort"). Must print PASS.
 Search      (5.0.3.11, C8) strstr, strrchr, strspn, strcspn, strpbrk
             and memmem give exactly the old results for every alignment
             and many near matches, then old and new are timed on a line

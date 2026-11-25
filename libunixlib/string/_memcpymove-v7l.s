@@ -27,6 +27,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "arm-mem.h"
 #include "internal/asm_dec.s"
+#include "internal/firsttouch.s"
 
 /* Prevent the stack from becoming executable */
 #if defined(__linux__) && defined(__ELF__)
@@ -611,9 +612,27 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * a1 preserved
  */
 
+/* 2026 (M3): before a copy of 64 bytes or more, touch both blocks' pages
+   from ARM code (internal/firsttouch.s): such a copy moves 64 bytes at a
+   time with VLDM/VSTM.  A shorter copy moves at most 32 at a time, which
+   ARMEABISupport copes with, and its VPUSH of d8-d9 is 16 bytes.  Uses
+   ip and a4 only, which the copy sets before it reads them.  */
+.macro first_touch_copy
+        cmp     a3, #64
+        blo     95f
+        first_touch_ends a1
+        first_touch_ends a2
+        cmp     a3, #4096
+        bls     95f
+        first_touch_pages a1
+        first_touch_pages a2
+95:
+.endm
+
 .set prefetch_distance, 2
 myfunc memcpy
-1000:   memcpy  0
+1000:   first_touch_copy
+1001:   memcpy  0
 .endfunc
         DECLARE_FUNCTION memcpy
 
@@ -630,8 +649,9 @@ myfunc memcpy
 .set prefetch_distance, 2
 
 myfunc memmove
+        first_touch_copy
         cmp     a2, a1
-        bpl     1000b   /* pl works even over -1 - 0 and 0x7fffffff - 0x80000000 boundaries */
+        bpl     1001b   /* pl works even over -1 - 0 and 0x7fffffff - 0x80000000 boundaries */
         memcpy  1
 .endfunc
 	DECLARE_FUNCTION memmove

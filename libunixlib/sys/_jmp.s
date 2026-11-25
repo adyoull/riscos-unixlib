@@ -69,6 +69,11 @@ setjmp:
 
 #ifndef __SOFTFP__
 #ifdef __VFP_FP__
+	@ 2026 (M3): a jmp_buf is often on the stack, and a store of 64
+	@ bytes can't be the first touch of a stack page (ARMEABISupport
+	@ 1.07+ copies at most 60): touch both ends from ARM code first.
+	LDRB	a4, [a1]
+	LDRB	a4, [a1, #63]
 	VSTMIA	a1!, {d8-d15}
 #else
  	SFM	f4, 4, [a1], #4*12
