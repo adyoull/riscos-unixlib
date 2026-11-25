@@ -358,19 +358,6 @@ doesn't do. That is long-standing behaviour, so it's left for a decision
 
 **Verification.** Peer-reviewed. Pi test `Clock` (`tests/riscos/clocktest.c`): 200000 reads never go back, finer than a centisecond, keeps pace with `OS_ReadMonotonicTime` over 3 s, a 20 ms `nanosleep` takes 20 to 40 ms. In riscos-unixlib-web on a Pi 4 natively: 3.90 µs a read before, 1.70 µs after.
 
-### T7. The time of day without OS_Word 14 each time (`time/clk_gettime.c`, `time/gettod.c`) - commits `d015c5d`, `9f3d507`
-
-**Problem.** Found by riscos-unixlib-web (W39). `gettimeofday` and `clock_gettime (CLOCK_REALTIME)` read OS_Word 14 and converted it (64-bit divisions) on every call, about 8 µs under RISC OS on Linux, and had centisecond resolution.
-
-**Change.**
-- They give the monotonic clock (T6) plus an offset, read from OS_Word 14 at the first call and again in each new monotonic second, so a change to RISC OS's clock shows within a second. Resolution is the monotonic clock's (about 1 µs natively on a Pi; nanoseconds under RISC OS on Linux).
-- Review (5.0.3.11): OS_Word 14 is read between two monotonic readings, again (up to 3 times) if they are more than 1 cs apart. A reading of the offset is the true one or up to about 1 cs less, so within 3 cs the larger is kept; it converges on the true offset, and the time of day neither wobbles nor runs behind RISC OS's. A reading 3 cs or more different means the clock was set, and is taken.
-- riscos-unixlib-web read Linux's CLOCK_REALTIME under RISC OS on Linux instead. Not here: RISC OS's own clock stays the time of day, even if it has been set apart from Linux's.
-
-**Compatibility.** `time ()` still reads OS_Word 14 (whole seconds). A program comparing `gettimeofday` with `time ()` just after a second boundary may see them differ by a second for up to a centisecond, as with any two clocks read one after the other.
-
-**Verification.** Peer-reviewed. Pi test `RealTime` (`tests/riscos/rttest.c`): `clock_gettime (CLOCK_REALTIME)` and `gettimeofday` agree with OS_Word 14 to 3 cs at the start and after 3 s, never go back more than 2 cs in 200000 reads, and advance within a centisecond.
-
 ### A1. No `mmap` for large blocks on EABI (`stdlib/alloc.c`) - commit `98a9287`
 
 **Problem.** `malloc` served large requests with `mmap`. On EABI each mapping
@@ -2722,6 +2709,7 @@ Outside `libunixlib/`, the repository has its own build and test kit:
 
 ## 7. Withdrawn
 
+- **T7. The time of day without OS_Word 14 each time** (`time/clk_gettime.c`, `time/gettod.c`; commits `d015c5d`, `9f3d507`; withdrawn by `4b3c498` in 5.0.3.11-rc6). From riscos-unixlib-web W39: `gettimeofday` and `CLOCK_REALTIME` as the monotonic clock (T6) plus an offset from OS_Word 14 checked once a second, for microsecond resolution and cheaper reads under RISC OS on Linux. Taken out for compatibility: the time could disagree with `time ()` and file timestamps by a second near a second boundary, saw a change to the clock up to a second late, and on the Pi cost more per call natively (2.05 µs, against 0.50 µs for OS_Word 14 itself; under RISC OS on Linux 2.50 µs against 1.50 µs). `CLOCK_MONOTONIC` (T6) already gives microseconds to programs that time things. `gettimeofday` and `CLOCK_REALTIME` are exactly 5.0.3.10's. If a port needs a finer time of day, the safer design is OS_Word 14's seconds and centiseconds on every call plus only the fraction of a centisecond from the fine clock. Pi test `RealTime` (`rttest.c`) removed with it.
 - **SharedUnixLibrary "1.17"** (`fb74e2f`, 2026-09-27). It put the ticker
   routines into SUL behind a new SWI, `SharedUnixLibrary_Ticker`. It was
   undone the same day by `2b7f8f8`, and `module/sul.s` is GCCSDK's 1.16
