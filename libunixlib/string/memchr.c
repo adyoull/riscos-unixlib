@@ -23,16 +23,21 @@ memchr (const void *s, int c_, size_t n)
 
   const __ul_word_t *w = (const __ul_word_t *) p;
   unsigned int pattern = c * __UL_ONES;
-  /* Two words a time, then one.  */
-  const __ul_word_t *end = w + (n >> 3) * 2;
-  while (w != end)
+  /* Two words a time, then one.  The second word is only read once the
+     first has no match: a caller may give an N larger than the object
+     (POSIX: memchr stops at the first match), so nothing past the word
+     holding the match is read (review, 2026-11-25).  */
+  while (n >= 8)
     {
-      unsigned int a = w[0] ^ pattern, b = w[1] ^ pattern;
-      if (__UL_HASZERO (a) | __UL_HASZERO (b))
+      if (__UL_HASZERO (w[0] ^ pattern))
 	break;
-      w += 2;
+      if (__UL_HASZERO (w[1] ^ pattern))
+	{
+	  w++, n -= 4;
+	  break;
+	}
+      w += 2, n -= 8;
     }
-  n -= (const unsigned char *) w - p;
   if (n >= 4 && !__UL_HASZERO (*w ^ pattern))
     w++, n -= 4;
 

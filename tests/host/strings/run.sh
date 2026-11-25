@@ -15,7 +15,7 @@ REN() { echo "-Dstrcmp=$1strcmp -Dstrncmp=$1strncmp -Dmemcmp=$1memcmp -Dstrchr=$
 objs=
 for v in old new; do
   for f in out/$v/*.c; do
-    gcc $CF $(REN ${v}_) -include string.h -include strings.h -include ctype.h -c $f -o ${f%.c}.o 2>/dev/null
+    gcc $CF $(REN ${v}_) -include string.h -include strings.h -include ctype.h -c $f -o ${f%.c}.o
     objs="$objs ${f%.c}.o"
   done
 done

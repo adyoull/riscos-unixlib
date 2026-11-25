@@ -89,6 +89,27 @@ main (void)
       CHECK (new_strchr (c1, 0) == (char *) e1 - 1, "strchr 0 at page end");
       CHECK (new_memcmp (e1 - len, e2 - len, len) == 0, "memcmp at page end");
       CHECK (new_memchr (e1 - len, 'z', len) == NULL, "memchr at page end");
+      /* A match in the last word(s) of the page and an N far larger than
+	 the object (POSIX lets memchr stop at the match).  */
+      e1[-1 - (len % 8)] = 'z';
+      CHECK (new_memchr (e1 - 8 - (len % 8), 'z', 1u << 20) == e1 - 1 - (len % 8),
+	     "memchr with a large n at page end");
+      CHECK (new_memchr (e1 - 8 - (len % 8), 'z', (size_t) -1) == e1 - 1 - (len % 8),
+	     "memchr with n = SIZE_MAX at page end");
+      e1[-1 - (len % 8)] = 'k';
+      e1[-4 + (len % 4)] = 'z';	/* in the page's last word, read from its start */
+      CHECK (new_memchr (e1 - 4, 'z', 1u << 20) == e1 - 4 + (len % 4),
+	     "memchr: match in the last word, large n");
+      e1[-4 + (len % 4)] = 'k';
+      /* s1 longer than s2 at s2's page end, and a difference in the
+	 last word.  */
+      memset (e1 - 64, 'k', 64);
+      e1[-1] = 0;
+      CHECK (new_strcmp (c1 - 4, c2) != 0 || len < 0, "strcmp longer s1");
+      e2[-2] = 'j';
+      if (len >= 1)
+	CHECK ((new_strcmp (c1, c2) > 0) == (strcmp (c1, c2) > 0), "strcmp last-word difference");
+      e2[-2] = 'k';
     }
 
   printf ("strings: %ld checks, %ld failed\n", checks, fails);
