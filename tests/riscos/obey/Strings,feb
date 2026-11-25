@@ -1,0 +1,5 @@
+| string compares and searches (C5): the same results as the old ones,
+| for every alignment; prints old and new times. Must print PASS.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.strtest

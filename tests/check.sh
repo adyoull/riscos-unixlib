@@ -17,6 +17,8 @@ echo "== host tests: the services database"
 tests/host/services/run.sh
 echo "== host tests: mkdtemp"
 tests/host/mkdtemp/run.sh
+echo "== host tests: string compares and searches (against the old versions)"
+tests/host/strings/run.sh
 echo "== host tests: socketpair (loopback TCP)"
 tests/host/socketpair/run.sh
 echo "== host tests: eventfd counter"

@@ -198,6 +198,11 @@ Shm         shared memory (shm_open, ftruncate, mmap twice, msync, dup,
             first line says which ARMEABISupport it found (1.05, or 1.07
             or later); it must work with either. Each line must say ok,
             then PASS. Please say which version it reported.
+Strings     (5.0.3.11, C5) strcmp, strncmp, memcmp, strchr, memchr,
+            strcasecmp and strncasecmp give exactly the old results for
+            every alignment, length and difference, then old and new are
+            timed on 64-byte strings. Must print PASS; please say the
+            times.
 Suspend     (5.0.3.11) pthread_suspend_thread really stops a thread: a
             spinning thread's counter stays still while suspended, its
             registers can be read, it runs again when resumed, and a

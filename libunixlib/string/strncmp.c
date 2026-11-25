@@ -1,19 +1,47 @@
 /* strncmp ()
  * Copyright (c) 2000-2007 UnixLib Developers
+ *
+ * 2026 (C5): a word at a time when both strings have the same alignment.
+ * Same results as before.
  */
 
 #include <string.h>
+#include <internal/wordstr.h>
 
 int
 strncmp (const char *s1, const char *s2, size_t n)
 {
-  int i;
+  const unsigned char *p1 = (const unsigned char *) s1;
+  const unsigned char *p2 = (const unsigned char *) s2;
 
-  if (!n)
-    return 0;
+  if (__UL_SAMEALIGN (p1, p2))
+    {
+      while (n != 0 && !__UL_ALIGNED (p1))
+	{
+	  unsigned int c1 = *p1, c2 = *p2;
+	  if (c1 != c2 || c1 == 0)
+	    return (int) c1 - (int) c2;
+	  p1++, p2++, n--;
+	}
+      const __ul_word_t *w1 = (const __ul_word_t *) p1;
+      const __ul_word_t *w2 = (const __ul_word_t *) p2;
+      while (n >= 4)
+	{
+	  unsigned int a = *w1, b = *w2;
+	  if (a != b || __UL_HASZERO (a))
+	    break;
+	  w1++, w2++, n -= 4;
+	}
+      p1 = (const unsigned char *) w1;
+      p2 = (const unsigned char *) w2;
+    }
 
-  while ((i = *s1) && i == *s2 && --n)
-    s1++, s2++;
-
-  return *(const unsigned char *) s1 - *(const unsigned char *) s2;
+  while (n != 0)
+    {
+      unsigned int c1 = *p1, c2 = *p2;
+      if (c1 != c2 || c1 == 0)
+	return (int) c1 - (int) c2;
+      p1++, p2++, n--;
+    }
+  return 0;
 }
