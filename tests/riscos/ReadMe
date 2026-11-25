@@ -180,6 +180,9 @@ SockPair    (5.0.3.11) socketpair over loopback TCP (it never worked
             trips with the time taken, AF_UNIX, 50 pairs, a temporary
             directory. Needs the Internet module. Each line must say ok,
             then PASS; please say how long the round trips took.
+Procs       (5.0.3.11, C7) sysconf's processor count: 1, or what the
+            variable UnixLib$Processors says (here 3; 0 and "abc" are
+            ignored). Must print PASS four times.
 RealTime    (5.0.3.11, T7) the time of day: clock_gettime (CLOCK_REALTIME)
             and gettimeofday agree with RISC OS's clock at the start and
             after 3 s, never go back more than 2 cs over 200000 reads.

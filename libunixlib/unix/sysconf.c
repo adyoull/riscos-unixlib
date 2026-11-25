@@ -2,6 +2,7 @@
    Copyright (c) 2001, 2005, 2007, 2008, 2020 UnixLib Developers.  */
 
 #include <errno.h>
+#include <stdlib.h>
 #include <limits.h>
 #include <unistd.h>
 #include <stddef.h>
@@ -10,6 +11,28 @@
 
 #include <internal/unix.h>
 #include <swis.h>
+
+/* 2026 (C7): the processor count: 1, since a program's threads all run
+   on one processor; or the system variable UnixLib$Processors, 1 to 64,
+   for a program that needs more (one that starts "processors - 1" worker
+   threads, say).  Set it before the program starts, e.g. in its !Run.  */
+static long int
+processors (void)
+{
+  char buf[16];
+  int saved = errno;
+  long int n = 1;
+
+  if (__getenv_from_os ("UnixLib$Processors", buf, sizeof (buf), NULL))
+    {
+      char *end;
+      long int v = strtol (buf, &end, 10);
+      if (end != buf && v >= 1 && v <= 64)
+	n = v;
+    }
+  errno = saved;
+  return n;
+}
 
 /* Get the value of the system variable NAME.  */
 long int
@@ -127,12 +150,13 @@ sysconf (int name)
         return _POSIX2_SW_DEV;
 #endif
 
-      /* 2026: one processor.  The #ifdef here was always false (the names
-	 were enum constants, not macros), so this case wasn't compiled and
-	 the value was taken for _SC_BC_DIM_MAX (2048): see <unistd.h>.  */
+      /* 2026: one processor (C7: or UnixLib$Processors).  The #ifdef
+	 here was always false (the names were enum constants, not
+	 macros), so this case wasn't compiled and the value was taken for
+	 _SC_BC_DIM_MAX (2048): see <unistd.h>.  */
       case _SC_NPROCESSORS_ONLN:
       case _SC_NPROCESSORS_CONF:
-	return 1;
+	return processors ();
 
       /* 2026: the number of pages of RAM (OS_ReadMemMapInfo).  The name
 	 used to share its value with _SC_BC_BASE_MAX (see <unistd.h>);
