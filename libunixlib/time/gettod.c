@@ -9,8 +9,6 @@
 #include <internal/os.h>
 #include <internal/local.h>
 
-extern int __ul_realtime_now (unsigned int *sec, unsigned int *nsec);
-
 /* The `gettimeofday' function returns the current date and time in
    the `struct timeval' structure indicated by TP.  Information about
    the time zone is returned in the structure pointed at TZP.  If the
@@ -36,11 +34,22 @@ gettimeofday (struct timeval *tv, struct timezone *tz)
   if (tv == NULL)
     return __set_errno (EINVAL);
 
-  unsigned int sec, nsec;
-  if (__ul_realtime_now (&sec, &nsec) < 0)	/* T7: time/clk_gettime.c */
+  unsigned buf[2];
+  buf[0] = 3;
+  if (_kernel_osword (14, buf) < 0)
     return -1;
-  tv->tv_sec = (time_t) sec;
-  tv->tv_usec = (suseconds_t) (nsec / 1000u);
+
+  /* Convert RISC OS time to Unix time (with csec resolution).  */
+  __int64_t csec = __cvt_riscos_time_csec (((__int64_t)(buf[1] & 0xFF) << 32)
+					   + buf[0]);
+  tv->tv_sec = csec / 100;
+  tv->tv_usec = csec % 100;
+  if (tv->tv_usec < 0)
+    {
+      tv->tv_usec = 100 + tv->tv_usec;
+      tv->tv_sec -= 1;
+    }
+  tv->tv_usec *= 10000;
 
   if (tz != NULL)
     {

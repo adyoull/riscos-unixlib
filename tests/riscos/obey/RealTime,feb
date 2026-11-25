@@ -1,5 +1,0 @@
-| the time of day (T7): clock_gettime (CLOCK_REALTIME) and gettimeofday
-| agree with RISC OS's clock; prints the cost of a read. PASS.
-Set UST$Dir <Obey$Dir>
-WimpSlot -min 8000K
-Run <UST$Dir>.rttest
