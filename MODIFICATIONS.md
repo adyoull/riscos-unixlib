@@ -1141,6 +1141,71 @@ instead of the thread carrying on; a suspended thread in a timed wait
 times out only once resumed. **Verification.** Peer-reviewed. Pi test
 `Suspend`.
 
+### P10. `pthread_mutex_lock` and `pthread_mutex_unlock`: a fast path for the common case (`pthread/mutex.c`) - commit `32ee6ee`
+
+**Problem.** Every lock and unlock went through the general code in `pthread/lock.c`, which handles read/write locks, waiters and every mutex type. It held thread switching off with calls to `__pthread_disable_ints`/`__pthread_enable_ints`. A lock/unlock pair took 104 instructions in the emulator. C++ `std::mutex`, GLib and Mesa lock and unlock constantly, and malloc's lock does not use this code.
+
+**Change.**
+- **Lock:** if the mutex is free, take it while thread switching is held off. That means setting the owner to the running thread and adding one to the count, which is all `__pthread_lock_acquire` does for a free mutex of any type.
+- **Unlock:** if this thread holds it once (count 1) and nobody is waiting, give it up while switching is held off: count 0, no owner. That is all `__pthread_lock_unlock` does in that case; there is nobody to wake, so there is no yield.
+- **Everything else goes the old way,** and that code looks at the mutex again:
+  - a mutex already held, by this thread or another;
+  - a recursive count above 1;
+  - waiters;
+  - not the owner (`EPERM`);
+  - a NULL or destroyed mutex.
+- **Holding switching off** uses the operations of `pthread/_ints.s`, written in line: an exclusive increment and a plain decrement of the same semaphore. Compiler barriers keep the mutex's fields between them.
+- **Unchanged:** read/write locks, `pthread_mutex_trylock`, and condition variables (which call `lock.c` directly).
+
+**Performance.** Emulator: a lock/unlock pair takes 68 instructions (was 104).
+
+**Verification.**
+- **Peer-reviewed.** The review checked:
+  - that the fast paths are exactly the general code's free and held-once cases for every mutex type;
+  - that condition variables don't use the mutex's waiter list;
+  - that the in-line semaphore code matches `_ints.s`, and nothing else can change the semaphore under it in a way the old code didn't already allow.
+- **Pi test `LockKeys`** (`tests/riscos/locktest.c`):
+  - 4 threads each lock, change a counter with a delay inside and unlock, 100000 times; the total must be exact;
+  - recursive, error-checking and normal mutexes (counts, `EDEADLK`, `EBUSY`, `EPERM`, `EINVAL`);
+  - a thread that blocks on a held mutex (checked to be on its waiting list) gets it when it is given up;
+  - times.
+
+### P11. `pthread_getspecific` remembers the last node and doesn't hold switching off (`pthread/key.c`, `pthread/keydest.c`, `pthread/newnode.c`, `incl-local/pthread.h`) - commit `dd47d06`
+
+**Problem.** Every C++ `thread_local` and `__thread` variable is read through `pthread_getspecific`, because GCC here emulates TLS under one key. `pthread_getspecific` held thread switching off and searched the thread's list of key values, which `pthread_setspecific` adds to at the front. So the TLS key, set early, ends up behind every key the thread set later. In the emulator:
+
+| Key | Instructions |
+|---|---|
+| set last | 49 |
+| the first of 10 | 90 |
+
+**Change.**
+- **No switching held off:** only the thread itself changes its key list.
+  - `pthread_setspecific` adds at the front of the running thread's list.
+  - `__pthread_key_calldestructors` takes nodes off it as the thread exits.
+  - `pthread_key_delete` frees only the global key record, and key ids are never reused.
+  
+  So the list is read without holding switching off: a switch can't change it under the reader.
+- **The node found last is remembered** in the thread, in a new last field `key_cache` of `struct __pthread_thread`, and tried first.
+  - It is cleared whenever `__pthread_key_calldestructors` frees a node, so a destructor calling `pthread_getspecific` never finds a freed one.
+  - It is set to NULL when the thread record is made, the main thread's included.
+- **The new field is internal:** nothing in assembler refers to it, since `asm_dec.s`'s offsets stop at `errbuf_valid`, and `pthread_t` is an opaque pointer.
+
+**Performance.** Emulator: 14 instructions for a key remembered, whether it was set first or last (was 49 and 90).
+
+**Verification.**
+- **Peer-reviewed.** The review checked:
+  - every place a thread's key list is changed or freed;
+  - that key ids are never reused;
+  - what a signal handler or a destructor can see;
+  - the struct layout.
+- **Pi test `LockKeys`:**
+  - 4 threads each set their own values for 24 keys in a scrambled order, then read them 100000 times in a changing order (the remembered node and the search), plus a `__thread` counter;
+  - a second `pthread_setspecific` of the same key;
+  - each destructor runs once with the thread's own value;
+  - a thread made later reads NULL for every key and 0 for its `__thread` counter;
+  - times for the same key, two keys in turn, and a `__thread` access.
+
 ### C1. The DDEUtils prefix is measured correctly (`common/prefix.c`) - commit `b36e287`
 
 **Problem.** Found by Rob Heaton (riscos-gcc16, his report 20, 2026-10); confirmed in our tree. With a DDEUtils prefix set for the task (`*Prefix <dir>`), `__get_dde_prefix ()` never returned: the program hung at start-up. StrongED, DDE make and UnixLib's own `chdir ()` set the prefix. The function is called at start-up (`__unixinit`), in vfork, `getcwd ()` and `chdir ()`.
@@ -1428,6 +1493,28 @@ Pi 4, native RISC OS 5.31 (ns, old -> new):
   - Each haystack is also tried ending at an inaccessible page.
   - `strrchr` is called with 0, high bytes, 0x161, -1 and INT_MAX.
 - **Pi test `Search`** (`tests/riscos/srchtest.c`) runs the same comparison on the real processor (988,000 checks), and times old against new. It passed on the owner's Pi 4, natively, as did `Strings`.
+
+### C9. `strncpy` a word at a time (`string/strncpy.c`) - commit `8101e73`
+
+**Problem.** `strncpy` copied, and then padded with zeros, a byte at a time. It took 467 instructions for 64 bytes in the emulator, against 126 for `strcpy`.
+
+**Change.**
+- **Copying:** while source and destination have the same alignment, whole aligned words with no terminator are copied at once, using C5's exact zero-byte test. The rest is copied a byte at a time.
+- **Padding:** the padding after the terminator is one `memset`.
+- **Reads:** a source word is read only when at least 4 of the `N` bytes are left and it is aligned. So nothing is read outside the `N` bytes, nor past the aligned word that holds the terminator.
+- **Results:** exactly the old ones, including the padding. Nothing is written past `N`.
+
+**Performance.** Emulator instructions:
+
+| Case | Old | New |
+|---|---|---|
+| 64 bytes | 467 | 211 |
+| a short string padded to 64 | 95 | 100 |
+| 8 bytes, unaligned | 75 | 83 |
+
+**Verification.**
+- **Peer-reviewed.**
+- **Host test `tests/host/search`** compares it with the old one: every pair of alignments, strings of 0-40 bytes, `N` of 0-48, and the whole destination including bytes past `N`. It also tries an unterminated source whose `N` bytes end at an inaccessible page. 10.8 million checks in all, together with C8's.
 
 ### Q1. ARMEABISupport's fds with 1.05 and 1.07+: shared memory, shared files (`sys/mman-armeabi.c`, `unix/ul_close.c`, `ul_read.c`, `ul_write.c`, `ul_lseek.c`, `ul_isatty.c`, `ul_open.c`, `fstat.c`, `sync.c`, `truncate.c`, `fcntl.c`, `dup2.c`, `incl-local/internal/fd.h`, `swiparams.h`, `include/fcntl.h`, `swis.h`, `unixlib/buildoptions.h`, `signal/post.c`)
 

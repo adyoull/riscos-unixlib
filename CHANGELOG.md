@@ -5,6 +5,15 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.11-rc9 (2026-11-25, pre-release, tag v5.0.3.11-rc9)
+
+5.0.3.11-rc8 plus C9, P10 and P11. libtool `-version-info` 10:0:5. rc8 was confirmed by riscos-mesa (30 runs of 30 with no EMT trap) and by TORCS, which runs and quits cleanly.
+
+- **Faster `pthread_mutex_lock` and `unlock` (P10).** Locking a free mutex and unlocking one held once with nobody waiting take a short path: a pair costs 68 instructions instead of 104.
+- **Faster `pthread_getspecific`, and so C++ `thread_local` and `__thread` (P11).** It no longer holds thread switching off, and it remembers the last key it found: 14 instructions instead of 49-90.
+- **Faster `strncpy` (C9).** A word at a time, with the padding done by one `memset`: 64 bytes in 211 instructions instead of 467. Exactly the same results.
+- **New Pi test `LockKeys`.**
+
 ## 5.0.3.11-rc8 (2026-11-25, pre-release, tag v5.0.3.11-rc8)
 
 5.0.3.11-rc7 plus M3 and B2. libtool `-version-info` 10:0:5. rc7's `Search` and `Strings` passed on the owner's Pi 4 (native RISC OS 5.31).
