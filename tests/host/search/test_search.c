@@ -1,6 +1,7 @@
 /* C8: compare the new strrchr, strstr, strspn, strcspn, strpbrk and memmem
    with the old ones on random input, at every alignment, and with the
-   haystack ending at a page with no access after it.  */
+   haystack ending at a page with no access after it.  C9: strncpy, the
+   whole destination compared (padding, and nothing written past N).  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,7 +14,8 @@
   size_t v##_strspn (const char *, const char *); \
   size_t v##_strcspn (const char *, const char *); \
   char *v##_strpbrk (const char *, const char *); \
-  void *v##_memmem (const void *, size_t, const void *, size_t);
+  void *v##_memmem (const void *, size_t, const void *, size_t); \
+  char *v##_strncpy (char *, const char *, size_t);
 DECL (old)
 DECL (new)
 
@@ -73,6 +75,41 @@ main (void)
       memcpy (e, h, hl + 1);
       one (e, hl, nd, nl);
     }
+  /* C9: strncpy.  Source and destination at every pair of alignments,
+     strings of 0-40 bytes, N of 0-48, and the source ending at the
+     guard page (so a read past what strncpy may read faults).  */
+  {
+    static unsigned char d1[128], d2[128];
+    for (int sa = 0; sa < 8; sa++)
+      for (int da = 0; da < 8; da++)
+	for (size_t len = 0; len <= 40; len++)
+	  for (size_t n = 0; n <= 48; n++)
+	    {
+	      char *src = buf + sa;
+	      for (size_t i = 0; i < len; i++)
+		src[i] = (char) (1 + rnd () % 255);
+	      src[len] = 0;
+	      memset (d1, 0xEE, sizeof d1);
+	      memset (d2, 0xEE, sizeof d2);
+	      char *r1 = old_strncpy ((char *) d1 + da, src, n);
+	      char *r2 = new_strncpy ((char *) d2 + da, src, n);
+	      CHECK ("strncpy result", r1 - (char *) d1, r2 - (char *) d2);
+	      checks++;
+	      if (memcmp (d1, d2, sizeof d1) && fails++ < 20)
+		printf ("FAIL strncpy: src +%d dst +%d len %zu n %zu\n", sa, da, len, n);
+	      /* Unterminated: the N bytes end at the guard page.  */
+	      if (n > 0 && n <= 48)
+		{
+		  char *e = map + pg - n;
+		  memset (e, 'x', n);
+		  memset (d2, 0xEE, sizeof d2);
+		  new_strncpy ((char *) d2 + da, e, n);
+		  checks++;
+		  if ((memcmp (d2 + da, e, n) || d2[da + n] != 0xEE) && fails++ < 20)
+		    printf ("FAIL strncpy unterminated: dst +%d n %zu\n", da, n);
+		}
+	    }
+  }
   printf ("search: %lu checks, %lu failures\n", checks, fails);
   return fails != 0;
 }
