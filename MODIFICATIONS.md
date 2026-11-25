@@ -746,7 +746,7 @@ owner's Pi (native RISC OS, 5.0.3.9-rc1, 2026-11-11).
 - Each was at Mesa's first shader compile. The backtraces stop in `blake3_compress_subtree_wide` (which calls memcpy and memset) and in `ttn_compile_init`, about 8 KB down the main stack.
 
 **The cause.**
-- ARMEABISupport maps a stack page in only when it is first touched. (So is an mmap page given back with `madvise` `MADV_DONTNEED`/`MADV_FREE`. Ordinary mmap memory is claimed and mapped when it is allocated, and so is malloc's: its heap is a dynamic area, and blocks of 256 KB and more come from mmap and mremap.)
+- ARMEABISupport maps a stack page in only when it is first touched. (So is an mmap page given back with `madvise` `MADV_DONTNEED`/`MADV_FREE`. Ordinary mmap memory is claimed and mapped when it is allocated. malloc's memory is all in its heap, a dynamic area mapped as it grows: in the EABI build malloc doesn't use mmap at all, `DEFAULT_MMAP_MAX` 0 in `stdlib/alloc.c`.)
 - With 1.07 and later on a kernel with AbortTrap, it then completes the access that touched the page by copying the data itself.
 - Its copy (`aborttrap_handler__storeop`/`__loadop` in `abort-asm.s`) has a table of 15 words, so it handles at most 60 bytes. A longer transfer jumps outside the table: in SVC mode, the program dies with an abort or with "could not handle an abort".
 - **memcpy, memmove and mempcpy** of 64 bytes or more move 64 bytes at a time with `VLDM`/`VSTM {d0-d7}` (ROOL's arm-mem code). So whenever such an instruction was the first touch of a page, the program died.
