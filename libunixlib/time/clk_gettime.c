@@ -150,8 +150,15 @@ monotonic_now (unsigned int *sec_out, unsigned int *nsec_out)
     case 2:
       if (linux_now (&sec, &nsec))
 	break;
-      hr_state = -1;			/* (it worked before: shouldn't happen) */
-      /* fall through */
+      /* It worked before, so this shouldn't happen.  Don't fall back to
+	 clock (), which counts from RISC OS's start, not Linux's: the
+	 clock would then stop until clock () caught up (review,
+	 2026-11-25).  Give the last time again and try Linux next time.  */
+      HR_LOCK ();
+      sec = hr_last_sec;
+      nsec = hr_last_nsec;
+      HR_UNLOCK ();
+      break;
     case -1:
       cs1 = (unsigned int) clock ();
       sec = cs1 / 100;
@@ -214,9 +221,9 @@ __ul_monotonic_ns (void)
    EarleyBoyer just for the harness's timing).  Now it is the monotonic
    clock (above) plus an offset, taken from OS_Word 14 at the first read
    and checked again once a second, so a change to RISC OS's clock shows
-   within a second.  The offset is only changed when it moves by 2 cs or
-   more, so the time of day doesn't wobble by a centisecond at each
-   check.  It has the monotonic clock's resolution (nanoseconds under
+   within a second.  A new reading of the offset replaces the old one if
+   it is larger or 3 cs or more different (see below), so the time of
+   day doesn't wobble by a centisecond at each check.  It has the monotonic clock's resolution (nanoseconds under
    RISC OS on Linux, the HAL counter's natively).
 
    riscos-unixlib-web W39 read Linux's CLOCK_REALTIME under RISC OS on
@@ -258,18 +265,33 @@ __ul_realtime_now (unsigned int *sec_out, unsigned int *nsec_out)
 
   monotonic_now (&msec, &mnsec);
   HR_LOCK ();
-  int valid = rt_valid && msec - rt_checked < 1;
+  int valid = rt_valid && msec == rt_checked;
   off_sec = rt_off_sec;
   off_nsec = rt_off_nsec;
   HR_UNLOCK ();
 
   if (!valid)
     {
-      unsigned int rsec, rnsec;
-      if (realtime_slow (&rsec, &rnsec) < 0)
-	return -1;
-      monotonic_now (&msec, &mnsec);
-      /* new offset = real - monotonic (unsigned arithmetic wraps right).  */
+      /* OS_Word 14 between two monotonic readings; again if they are
+	 more than 1 cs apart (a thread switch or a signal handler between
+	 them: review, 2026-11-25), up to 3 times.  */
+      unsigned int rsec, rnsec, bsec, bnsec;
+      for (int attempt = 0; ; attempt++)
+	{
+	  monotonic_now (&bsec, &bnsec);
+	  if (realtime_slow (&rsec, &rnsec) < 0)
+	    return -1;
+	  monotonic_now (&msec, &mnsec);
+	  unsigned long long gap
+	    = (unsigned long long) (msec - bsec) * 1000000000ull
+	      + mnsec - bnsec;
+	  if (gap <= 10000000ull || attempt == 2)
+	    break;
+	}
+      /* new offset = real - monotonic (unsigned arithmetic wraps right).
+	 OS_Word 14 gives whole centiseconds, read at or before the second
+	 monotonic reading, so this is the true offset or up to about 1 cs
+	 less: never more.  */
       unsigned int nsec_new, sec_new = rsec - msec;
       if (rnsec >= mnsec)
 	nsec_new = rnsec - mnsec;
@@ -278,13 +300,19 @@ __ul_realtime_now (unsigned int *sec_out, unsigned int *nsec_out)
 	  nsec_new = rnsec + 1000000000u - mnsec;
 	  sec_new--;
 	}
-      /* Difference from the old offset, in ns, if small.  */
+      /* Each reading is the true offset or a little less, so within 3 cs
+	 of the old one the larger is kept (it converges on the true
+	 offset, and the time of day doesn't wobble or run behind RISC
+	 OS's: review, 2026-11-25); further out, the clock has been set
+	 and the new reading is taken.  */
       int keep = 0;
       if (rt_valid)
 	{
 	  long long d = ((long long) (int) (sec_new - off_sec)) * 1000000000ll
 			+ (long long) nsec_new - (long long) off_nsec;
-	  keep = d > -20000000ll && d < 20000000ll;
+	  keep = d > -30000000ll && d <= 0;
+	  if (d > 0 && d < 30000000ll)
+	    keep = 0;			/* a better (larger) reading */
 	}
       HR_LOCK ();
       if (!keep)

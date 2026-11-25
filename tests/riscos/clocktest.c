@@ -95,7 +95,7 @@ main (void)
   uint64_t s0 = now_ns ();
   nanosleep (&want, NULL);
   uint64_t slept = now_ns () - s0;
-  CHECK (slept >= 19000000 && slept <= 40000000, "nanosleep 20 ms took %.1f ms", slept / 1e6);
+  CHECK (slept >= 20000000 && slept <= 40000000, "nanosleep 20 ms took %.1f ms", slept / 1e6);
 
   printf ("%s: %d failure%s\n", failures ? "FAILED" : "PASSED", failures,
 	  failures == 1 ? "" : "s");
