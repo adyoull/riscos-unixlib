@@ -646,15 +646,16 @@ index 776bd64..bc52b0d 100644
  /* Macro for checking file descriptor validity.  */
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/firsttouch.s b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/firsttouch.s
 new file mode 100644
-index 0000000..067dd9d
+index 0000000..f9e6e6a
 --- /dev/null
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/firsttouch.s
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,47 @@
 +@ 2026 (M3): touch a block's pages from ARM code before a VFP or NEON
 +@ instruction that moves more than 60 bytes writes or reads it.
 +@
-+@ ARMEABISupport maps stack pages, and anonymous mmap pages, in when they
-+@ are first touched.  With 1.07 and later on a kernel with AbortTrap, it
++@ ARMEABISupport maps stack pages in when they are first touched (and
++@ mmap pages given back with madvise MADV_DONTNEED/MADV_FREE; ordinary
++@ mmap memory, and malloc's heap, are mapped when they are allocated).  With 1.07 and later on a kernel with AbortTrap, it
 +@ completes the access that touched the page by copying the data itself,
 +@ but its copy handles at most 60 bytes (15 words).  memcpy moves 64
 +@ bytes at a time with VLDM/VSTM, and setjmp stores d8-d15 (64 bytes),
@@ -1432,10 +1433,10 @@ index 0000000..3aec8d6
 +
 +#endif
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
-index eed3e61..e3acf0a 100644
+index eed3e61..1565065 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
 +++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
-@@ -102,6 +102,13 @@ struct __pthread_thread
+@@ -102,12 +102,25 @@ struct __pthread_thread
    /* Is the thread suspended.  */
    unsigned int suspended : 1;
  
@@ -1449,7 +1450,19 @@ index eed3e61..e3acf0a 100644
    __sigset_t blocked; /* Signal mask for this thread. */
    __sigset_t pending; /* Pending signals for this thread */
    pthread_cond_t sigwait_cond;
-@@ -180,8 +187,41 @@ struct __pthread_callevery_block
+ 
+   /* Human readable name of thread.  */
+   char name[PTHREAD_MAX_NAMELEN_NP];
++
++  /* 2026 (P11): the node of this thread's key list that
++     pthread_getspecific found last, or NULL.  Only this thread changes
++     its key list, so it reads it without holding switching off.  Added
++     at the end: nothing in assembler refers to it.  */
++  struct __pthread_key *key_cache;
+ };
+ 
+ extern pthread_t __pthread_running_thread; /* Currently running thread */
+@@ -180,8 +193,41 @@ struct __pthread_callevery_block
    volatile int pthread_callback_semaphore; /* Prevent a callback being set
      whilst servicing another callback.  */
    char filter_name[20];
@@ -1491,7 +1504,7 @@ index eed3e61..e3acf0a 100644
  extern pthread_t __pthread_thread_list; /* Linked list of all threads */
  
  /* Called once early in program initialisation */
-@@ -216,6 +256,11 @@ extern stack_t __pthread_new_stack (pthread_t node);
+@@ -216,6 +262,11 @@ extern stack_t __pthread_new_stack (pthread_t node);
  /* Main scheduling code */
  extern void __pthread_context_switch (void);
  
@@ -3912,11 +3925,60 @@ index 0efb1a8..886a6cf 100644
      {
  #ifdef PTHREAD_DEBUG
        __os_print ("-- pthread_join: Target thread does not exist\r\n");
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/key.c b/gcc4/recipe/files/gcc/libunixlib/pthread/key.c
+index 598bf3d..fcf5618 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/key.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/key.c
+@@ -141,25 +141,30 @@ pthread_setspecific (pthread_key_t key, const void *value)
+ }
+ 
+ /* Read value associated with given key for the current thread.
+-   Returns NULL if no value has been set for this thread yet.  */
++   Returns NULL if no value has been set for this thread yet.
++
++   2026 (P11): every C++ thread_local and __thread variable comes here
++   (GCC's emulated TLS keeps them all under one key), so the node found
++   last is remembered and tried first.  A thread's key list is changed
++   only by that thread (pthread_setspecific adds to its front, and
++   __pthread_key_calldestructors takes nodes off as it exits, forgetting
++   the remembered one), so it is read here without holding thread
++   switching off: a switch can't change it under us.  */
+ void *
+ pthread_getspecific (pthread_key_t key)
+ {
+-  struct __pthread_key *keylist;
++  pthread_t self = __pthread_running_thread;
++  struct __pthread_key *keylist = self->key_cache;
+ 
+-  __pthread_disable_ints ();
+-  keylist = __pthread_running_thread->keys;
+-  while (keylist != NULL)
+-    {
+-      if (keylist->keyid == key)
+-        {
+-          __pthread_enable_ints ();
+-          return keylist->value.nonconst;
+-        }
++  if (keylist != NULL && keylist->keyid == key)
++    return keylist->value.nonconst;
+ 
+-      keylist = keylist->next;
+-    }
++  for (keylist = self->keys; keylist != NULL; keylist = keylist->next)
++    if (keylist->keyid == key)
++      {
++	self->key_cache = keylist;
++	return keylist->value.nonconst;
++      }
+ 
+-  __pthread_enable_ints ();
+   return NULL;
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/keydest.c b/gcc4/recipe/files/gcc/libunixlib/pthread/keydest.c
-index 54bb6bf..d9db1b0 100644
+index 54bb6bf..51eabca 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/keydest.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/keydest.c
-@@ -17,14 +17,36 @@ __pthread_key_calldestructors (void)
+@@ -17,14 +17,38 @@ __pthread_key_calldestructors (void)
    struct __pthread_key *key;
    int tries = 0;
  
@@ -3940,6 +4002,8 @@ index 54bb6bf..d9db1b0 100644
 +      if (key != NULL)
 +	{
 +	  __pthread_running_thread->keys = key->next;
++	  /* P11: pthread_getspecific mustn't find a freed node.  */
++	  __pthread_running_thread->key_cache = NULL;
 +	  value = key->value.nonconst;
 +	  destructor = key->destructor;
 +	  free_unlocked (__ul_global.malloc_state, key);
@@ -3958,12 +4022,94 @@ index 54bb6bf..d9db1b0 100644
 -      free_unlocked (__ul_global.malloc_state, key);
      }
  }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/mutex.c b/gcc4/recipe/files/gcc/libunixlib/pthread/mutex.c
+index b83909d..68fa274 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/pthread/mutex.c
++++ b/gcc4/recipe/files/gcc/libunixlib/pthread/mutex.c
+@@ -5,6 +5,28 @@
+ #include <errno.h>
+ #include <pthread.h>
+ 
++#include <internal/unix.h>
++
++/* 2026 (P10): __pthread_disable_ints and __pthread_enable_ints
++   (pthread/_ints.s) in line, for the fast paths below: the same
++   operations on the same word (an exclusive increment, a plain
++   decrement), with compiler barriers so that nothing between them is
++   moved outside.  */
++static inline void
++hold_switching (void)
++{
++  __atomic_fetch_add (&__ul_global.pthread_callevery_rma->pthread_worksemaphore,
++		      1, __ATOMIC_RELAXED);
++  __asm__ volatile ("" ::: "memory");
++}
++
++static inline void
++release_switching (void)
++{
++  __asm__ volatile ("" ::: "memory");
++  __ul_global.pthread_callevery_rma->pthread_worksemaphore--;
++}
++
+ /* Initialise a mutex object with the specified attributes */
+ int
+ pthread_mutex_init (pthread_mutex_t *mutex, const pthread_mutexattr_t *attr)
+@@ -67,6 +89,20 @@ pthread_mutex_lock (pthread_mutex_t *mutex)
+   if (mutex == NULL || mutex->type != LOCK_MUTEX)
+     return EINVAL;
+ 
++  /* 2026 (P10): the common case, a free mutex, without the general code
++     (lock.c): with switching held off, take it as __pthread_lock_acquire
++     does.  Anything else (held by this thread or another) goes the old
++     way, which looks at the mutex again.  */
++  hold_switching ();
++  if (mutex->owner == NULL)
++    {
++      mutex->owner = __pthread_running_thread;
++      mutex->count++;
++      release_switching ();
++      return 0;
++    }
++  release_switching ();
++
+   return __pthread_lock_lock (mutex, LOCK_MUTEX, 0);
+ }
+ 
+@@ -74,5 +110,24 @@ pthread_mutex_lock (pthread_mutex_t *mutex)
+ int
+ pthread_mutex_unlock (pthread_mutex_t *mutex)
+ {
++  /* 2026 (P10): the common case, a mutex this thread holds once with
++     nobody waiting for it, without the general code: with switching held
++     off, give it up as __pthread_lock_unlock does (there is nobody to
++     wake, and so no yield).  Anything else goes the old way.  */
++  if (mutex != NULL)
++    {
++      hold_switching ();
++      if (mutex->type == LOCK_MUTEX
++	  && mutex->owner == __pthread_running_thread
++	  && mutex->count == 1 && mutex->waiting == NULL)
++	{
++	  mutex->count = 0;
++	  mutex->owner = NULL;
++	  release_switching ();
++	  return 0;
++	}
++      release_switching ();
++    }
++
+   return __pthread_lock_unlock (mutex,1);
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/pthread/newnode.c b/gcc4/recipe/files/gcc/libunixlib/pthread/newnode.c
-index 37f75aa..bd1410f 100644
+index 37f75aa..1542904 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/pthread/newnode.c
 +++ b/gcc4/recipe/files/gcc/libunixlib/pthread/newnode.c
-@@ -71,11 +71,16 @@ __pthread_new_node (pthread_t node)
+@@ -69,13 +69,19 @@ __pthread_new_node (pthread_t node)
+   node->next = NULL;
+   node->stack = NULL;
    node->keys = NULL;
++  node->key_cache = NULL;
    node->cleanupfns = NULL;
    node->state = STATE_RUNNING;
 +  /* 2026: these were left uninitialised, so pthread_getschedparam
@@ -8888,6 +9034,71 @@ index 9422b84..204368c 100644
 +      p1++, p2++, n--;
 +    }
 +  return 0;
+ }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strncpy.c b/gcc4/recipe/files/gcc/libunixlib/string/strncpy.c
+index faac527..6a6ffe6 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/strncpy.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/strncpy.c
+@@ -3,19 +3,52 @@
+  */
+ 
+ #include <string.h>
++#include <internal/wordstr.h>
+ 
++/* 2026 (C9): a word at a time while both strings have the same alignment
++   and the word holds no terminator, then a byte at a time; the padding
++   after the terminator is one memset.  Exactly the old results.  A
++   source word is read only when at least 4 of the N bytes are left and
++   it is aligned, so nothing is read outside the N bytes, nor past the
++   aligned word that holds the terminator.  */
+ char *
+ strncpy (char *s, const char *s2, size_t n)
+ {
+-  char *s1 = s;
++  unsigned char *d = (unsigned char *) s;
++  const unsigned char *p = (const unsigned char *) s2;
+ 
+-  while (n--)
+-    if (!(*s1++ = *s2++))
+-      {
+-	while (n--)
+-	  *s1++ = 0;
+-	return s;
+-      }
++  if (__UL_SAMEALIGN (d, p))
++    {
++      while (n != 0 && !__UL_ALIGNED (p))
++	{
++	  n--;
++	  if ((*d++ = *p++) == 0)
++	    goto pad;
++	}
++      __ul_word_t *wd = (__ul_word_t *) d;
++      const __ul_word_t *ws = (const __ul_word_t *) p;
++      while (n >= 4)
++	{
++	  unsigned int v = *ws;
++	  if (__UL_HASZERO (v))
++	    break;
++	  *wd++ = v;
++	  ws++;
++	  n -= 4;
++	}
++      d = (unsigned char *) wd;
++      p = (const unsigned char *) ws;
++    }
+ 
++  while (n != 0)
++    {
++      n--;
++      if ((*d++ = *p++) == 0)
++	goto pad;
++    }
++  return s;
++
++pad:
++  memset (d, 0, n);
+   return s;
  }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strnicmp.c b/gcc4/recipe/files/gcc/libunixlib/string/strnicmp.c
 index cc4440d..d6842f7 100644
