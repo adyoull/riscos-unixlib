@@ -34,6 +34,8 @@ __pthread_key_calldestructors (void)
       if (key != NULL)
 	{
 	  __pthread_running_thread->keys = key->next;
+	  /* P11: pthread_getspecific mustn't find a freed node.  */
+	  __pthread_running_thread->key_cache = NULL;
 	  value = key->value.nonconst;
 	  destructor = key->destructor;
 	  free_unlocked (__ul_global.malloc_state, key);

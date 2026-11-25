@@ -141,25 +141,30 @@ pthread_setspecific (pthread_key_t key, const void *value)
 }
 
 /* Read value associated with given key for the current thread.
-   Returns NULL if no value has been set for this thread yet.  */
+   Returns NULL if no value has been set for this thread yet.
+
+   2026 (P11): every C++ thread_local and __thread variable comes here
+   (GCC's emulated TLS keeps them all under one key), so the node found
+   last is remembered and tried first.  A thread's key list is changed
+   only by that thread (pthread_setspecific adds to its front, and
+   __pthread_key_calldestructors takes nodes off as it exits, forgetting
+   the remembered one), so it is read here without holding thread
+   switching off: a switch can't change it under us.  */
 void *
 pthread_getspecific (pthread_key_t key)
 {
-  struct __pthread_key *keylist;
+  pthread_t self = __pthread_running_thread;
+  struct __pthread_key *keylist = self->key_cache;
 
-  __pthread_disable_ints ();
-  keylist = __pthread_running_thread->keys;
-  while (keylist != NULL)
-    {
-      if (keylist->keyid == key)
-        {
-          __pthread_enable_ints ();
-          return keylist->value.nonconst;
-        }
+  if (keylist != NULL && keylist->keyid == key)
+    return keylist->value.nonconst;
 
-      keylist = keylist->next;
-    }
+  for (keylist = self->keys; keylist != NULL; keylist = keylist->next)
+    if (keylist->keyid == key)
+      {
+	self->key_cache = keylist;
+	return keylist->value.nonconst;
+      }
 
-  __pthread_enable_ints ();
   return NULL;
 }

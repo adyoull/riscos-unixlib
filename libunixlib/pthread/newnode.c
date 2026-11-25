@@ -69,6 +69,7 @@ __pthread_new_node (pthread_t node)
   node->next = NULL;
   node->stack = NULL;
   node->keys = NULL;
+  node->key_cache = NULL;
   node->cleanupfns = NULL;
   node->state = STATE_RUNNING;
   /* 2026: these were left uninitialised, so pthread_getschedparam

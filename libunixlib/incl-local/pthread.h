@@ -115,6 +115,12 @@ struct __pthread_thread
 
   /* Human readable name of thread.  */
   char name[PTHREAD_MAX_NAMELEN_NP];
+
+  /* 2026 (P11): the node of this thread's key list that
+     pthread_getspecific found last, or NULL.  Only this thread changes
+     its key list, so it reads it without holding switching off.  Added
+     at the end: nothing in assembler refers to it.  */
+  struct __pthread_key *key_cache;
 };
 
 extern pthread_t __pthread_running_thread; /* Currently running thread */
