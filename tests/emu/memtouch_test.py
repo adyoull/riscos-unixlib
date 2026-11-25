@@ -7,8 +7,7 @@ emulator (Unicorn), on the built libunixlib.a.
   the wrong way).
 - Blocks flush against memory that isn't there: nothing outside the block
   is read or written.
-- Pages mapped in on first touch, as ARMEABISupport's stacks and mmap
-  memory are, except that, as with ARMEABISupport 1.07+ and AbortTrap, a
+- Pages mapped in on first touch, as ARMEABISupport's stacks are, except that, as with ARMEABISupport 1.07+ and AbortTrap, a
   first touch by an instruction that moves more than 60 bytes (VLDM/VSTM,
   NEON VLD1/VST1, LDM/STM) is refused: ARMEABISupport copies at most 60.
   memcpy of 64 bytes and more, and setjmp (64 bytes of d8-d15), used to

@@ -11,7 +11,7 @@ How to release: docs/MAINTAINING.md.
 
 - **No more deaths when memcpy or setjmp is the first to touch a page (M3).**
   - **The symptom:** a program could die with "Unixlib detected that ARMEABISupport could not handle an abort" (EMT trap), or an abort in SVC mode. riscos-mesa saw it in about 1 run in 8, at its first shader compile.
-  - **The cause:** ARMEABISupport (1.07+) maps stack and mmap pages on first touch, but can complete at most 60 bytes of the access that touched the page. memcpy of 64 bytes or more, and setjmp, store 64 bytes at once.
+  - **The cause:** ARMEABISupport (1.07+) maps stack pages on first touch, but can complete at most 60 bytes of the access that touched the page. memcpy of 64 bytes or more, and setjmp, store 64 bytes at once.
   - **The fix:** both now touch such pages with an ordinary load first.
   - Pi test `FirstTouch`.
 - **`bcopy` copies the right way (B2).** In the EABI build it was another name for memcpy, so it copied from its second argument to its first.

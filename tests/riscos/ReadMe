@@ -199,7 +199,7 @@ Shm         shared memory (shm_open, ftruncate, mmap twice, msync, dup,
             then PASS. Please say which version it reported.
 FirstTouch  (5.0.3.11, M3, B2) memcpy, memmove, memset, mempcpy and bcopy
             into and out of stack pages never touched before (in a
-            thread with a 4 MB stack) and fresh mmap pages; setjmp into
+            thread with a 4 MB stack) and new mmap memory; setjmp into
             a fresh page; and bcopy copies the right way. Before rc8 it
             could die (an abort, or "Unixlib detected that ARMEABISupport
             could not handle an abort"). Must print PASS.

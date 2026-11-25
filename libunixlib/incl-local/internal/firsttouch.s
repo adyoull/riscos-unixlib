@@ -1,8 +1,9 @@
 @ 2026 (M3): touch a block's pages from ARM code before a VFP or NEON
 @ instruction that moves more than 60 bytes writes or reads it.
 @
-@ ARMEABISupport maps stack pages, and anonymous mmap pages, in when they
-@ are first touched.  With 1.07 and later on a kernel with AbortTrap, it
+@ ARMEABISupport maps stack pages in when they are first touched (and
+@ mmap pages given back with madvise MADV_DONTNEED/MADV_FREE; ordinary
+@ mmap memory, and so malloc's, is mapped when it is allocated).  With 1.07 and later on a kernel with AbortTrap, it
 @ completes the access that touched the page by copying the data itself,
 @ but its copy handles at most 60 bytes (15 words).  memcpy moves 64
 @ bytes at a time with VLDM/VSTM, and setjmp stores d8-d15 (64 bytes),

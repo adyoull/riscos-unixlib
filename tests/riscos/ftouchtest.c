@@ -1,7 +1,8 @@
 /* ftouchtest: memcpy, memmove, memset, mempcpy and bcopy into and out of
    stack pages that have never been touched (M3), in a new thread whose
-   stack ARMEABISupport maps a page at a time, and into fresh anonymous
-   mmap pages; setjmp with its jmp_buf running into a fresh page; and
+   stack ARMEABISupport maps a page at a time, and into new anonymous
+   mmap memory (mapped when allocated: a check that nothing changed
+   there); setjmp with its jmp_buf running into a fresh page; and
    bcopy's direction (B2).  Before 5.0.3.11-rc8 the program could die here
    (an abort in SVC mode, or "Unixlib detected that ARMEABISupport could
    not handle an abort", EMT trap): memcpy's 64-byte VSTM, or setjmp's,
@@ -102,7 +103,7 @@ main (void)
       CHECK (!memcmp (b, want, 64), "bcopy with a shift of %d", shift);
     }
 
-  /* Fresh anonymous mmap pages.  */
+  /* New anonymous mmap memory (ARMEABISupport maps it at mmap time).  */
   unsigned char *m = mmap (NULL, 256 * 1024, PROT_READ | PROT_WRITE,
 			   MAP_PRIVATE | MAP_ANON, -1, 0);
   CHECK (m != MAP_FAILED, "mmap");
