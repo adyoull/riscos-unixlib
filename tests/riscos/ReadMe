@@ -158,6 +158,10 @@ Fault       a SIGILL caught by a handler ("caught SIGILL: ok"), then an
             uncaught one: must print "Fatal signal received: Illegal
             instruction" and a backtrace, and end the program. Nothing else
             on the machine should be affected.
+KeyDest     (5.0.3.11, K13) for about 10 s, threads that set 8
+            thread-specific values each end while 4 other threads malloc
+            and free without stopping: every destructor runs once and the
+            heap stays intact. Must print PASS.
 LSeek       (5.0.3.9) lseek past the end of a file: a read there gives
             end of file and the file stays empty, a write fills the gap
             with zeros, SEEK_CUR and SEEK_END count from the right place,
@@ -176,7 +180,7 @@ SockPair    (5.0.3.11) socketpair over loopback TCP (it never worked
             trips with the time taken, AF_UNIX, 50 pairs, a temporary
             directory. Needs the Internet module. Each line must say ok,
             then PASS; please say how long the round trips took.
-RtTest      (5.0.3.11, T7) the time of day: clock_gettime (CLOCK_REALTIME)
+RealTime    (5.0.3.11, T7) the time of day: clock_gettime (CLOCK_REALTIME)
             and gettimeofday agree with RISC OS's clock at the start and
             after 3 s, never go back more than 2 cs over 200000 reads.
             Each line must say ok, then PASS; please say what a read

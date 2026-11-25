@@ -1,0 +1,5 @@
+| pthread key destructors at thread exit while other threads use
+| malloc (K13). About 10 s. Must print PASS.
+Set UST$Dir <Obey$Dir>
+WimpSlot -min 8000K
+Run <UST$Dir>.keydtest
