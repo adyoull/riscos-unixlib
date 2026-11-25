@@ -612,13 +612,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 .set prefetch_distance, 2
-        .global bcopy
-bcopy:
 myfunc memcpy
 1000:   memcpy  0
 .endfunc
         DECLARE_FUNCTION memcpy
-        DECLARE_FUNCTION bcopy
 
 /*
  * void *memmove(void *s1, const void *s2, size_t n);
@@ -638,6 +635,20 @@ myfunc memmove
         memcpy  1
 .endfunc
 	DECLARE_FUNCTION memmove
+
+/*
+ * void bcopy(const void *src, void *dest, size_t n);
+ * 2026 (B2): its arguments are the other way round from memmove's, and the
+ * blocks may overlap.  It used to be another name for memcpy here, so it
+ * copied from DEST to SRC.
+ */
+        .global bcopy
+bcopy:
+        mov     ip, a1
+        mov     a1, a2
+        mov     a2, ip
+        b       memmove
+        DECLARE_FUNCTION bcopy
 
 /*
  * void *mempcpy(void * restrict s1, const void * restrict s2, size_t n);
