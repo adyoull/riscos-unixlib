@@ -482,6 +482,57 @@ index 7f01c57..e851d26 100644
  PTHREAD_CALLEVERY_STRUCT_SIZE:
  
  	.text
+diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/byteset.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/byteset.h
+new file mode 100644
+index 0000000..45605aa
+--- /dev/null
++++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/byteset.h
+@@ -0,0 +1,45 @@
++/* A set of byte values as a 256-bit map, for strspn, strcspn and strpbrk.
++   Copyright (c) 2026 UnixLib Developers.  */
++
++#ifndef __INTERNAL_BYTESET_H
++#define __INTERNAL_BYTESET_H
++
++typedef struct
++{
++  unsigned int w[8];
++} __ul_byteset;
++
++#define __UL_BS_HAS(bs, c) (((bs)->w[(c) >> 5] >> ((c) & 31)) & 1u)
++
++/* Clear BS, then add every byte of the string SET (not its terminator).  */
++static inline void
++__ul_byteset_make (__ul_byteset *bs, const unsigned char *set)
++{
++  unsigned int c;
++
++  for (int i = 0; i < 8; i++)
++    bs->w[i] = 0;
++  while ((c = *set++) != 0)
++    bs->w[c >> 5] |= 1u << (c & 31);
++}
++
++/* Short spans are the common case (skipping a space or two), and making
++   the map costs about 90 instructions, so the first 8 bytes are scanned
++   the old way and the map is made only for a longer span.  With 8, a
++   span of 1 costs 10 instructions more than before, and a long span
++   with a 5-byte set costs half.  */
++#define __UL_BS_FIRST 8
++
++/* Non-zero if byte C is in the string SET (never true for 0).  */
++static inline int
++__ul_inset (unsigned int c, const unsigned char *set)
++{
++  unsigned int d;
++
++  while ((d = *set++) != 0)
++    if (d == c)
++      return 1;
++  return 0;
++}
++
++#endif
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h
 index e45417e..8374c9f 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/dev.h
@@ -8355,6 +8406,29 @@ index f6b4fd6..1c1df80 100644
 +  return 0;
  }
  strong_alias (memcmp, bcmp)
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/memmem.c b/gcc4/recipe/files/gcc/libunixlib/string/memmem.c
+index 5e3e98c..9c88119 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/memmem.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/memmem.c
+@@ -57,9 +57,16 @@ memmem(const void *l, size_t l_len, const void *s, size_t s_len)
+   /* the last position where its possible to find "s" in "l" */
+   last = (char *)cl + l_len - s_len;
+ 
++  /* C8: jump to each copy of the first byte with memchr (a word at a
++     time), then compare the rest.  */
+   for (cur = (char *)cl; cur <= last; cur++)
+-    if (cur[0] == cs[0] && memcmp(cur, cs, s_len) == 0)
+-      return cur;
++    {
++      cur = memchr(cur, cs[0], last - cur + 1);
++      if (cur == NULL)
++        return NULL;
++      if (memcmp(cur + 1, cs + 1, s_len - 1) == 0)
++        return cur;
++    }
+ 
+   return NULL;
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strcasecmp_l.c b/gcc4/recipe/files/gcc/libunixlib/string/strcasecmp_l.c
 index 28de5e3..c390223 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/string/strcasecmp_l.c
@@ -8528,6 +8602,56 @@ index 4341bbe..c2dd6c4 100644
 +      p1++, p2++;
 +    }
  }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strcspn.c b/gcc4/recipe/files/gcc/libunixlib/string/strcspn.c
+index 3b1402e..dfa5e9d 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/strcspn.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/strcspn.c
+@@ -3,22 +3,33 @@
+  */
+ 
+ #include <string.h>
++#include <internal/byteset.h>
+ 
++/* The internal name: a program may define its own strchrnul.  */
++extern char *__strchrnul (const char *__s, int __c);
++
++/* C8: after the first bytes, one lookup per byte in a 256-bit map of the set (the terminator
++   included, so it stops there too), instead of a scan of the set for
++   every byte.  A one-byte set uses strchrnul.  */
+ size_t
+ strcspn (const char *s1, const char *s)
+ {
+-  int c1, c2;
+-  const char *s2;
+-  size_t n = 0;
++  const unsigned char *p = (const unsigned char *) s1;
++  const unsigned char *set = (const unsigned char *) s;
++
++  if (set[0] == 0)
++    return strlen (s1);
++  if (set[1] == 0)
++    return __strchrnul (s1, set[0]) - s1;
+ 
+-  while ((c1 = *s1++))
+-    {
+-      s2 = s;
+-      while ((c2 = *s2++))
+-	if (c2 == c1)
+-	  return n;
+-      n++;
+-    }
++  for (int i = 0; i < __UL_BS_FIRST; i++, p++)
++    if (*p == 0 || __ul_inset (*p, set))
++      return p - (const unsigned char *) s1;
+ 
+-  return n;
++  __ul_byteset bs;
++  __ul_byteset_make (&bs, set);
++  bs.w[0] |= 1;
++  while (!__UL_BS_HAS (&bs, *p))
++    p++;
++  return p - (const unsigned char *) s1;
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/string/stricmp.c b/gcc4/recipe/files/gcc/libunixlib/string/stricmp.c
 index d7e9bc5..d08e4e0 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/string/stricmp.c
@@ -8689,6 +8813,220 @@ index cc4440d..d6842f7 100644
 +  return 0;
  }
  strong_alias (strnicmp, strncasecmp)
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strpbrk.c b/gcc4/recipe/files/gcc/libunixlib/string/strpbrk.c
+index 2a7e6dd..fc51a31 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/strpbrk.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/strpbrk.c
+@@ -3,21 +3,30 @@
+  */
+ 
+ #include <string.h>
++#include <internal/byteset.h>
+ 
++/* C8: after the first bytes, one lookup per byte in a 256-bit map of the set (the terminator
++   included, so it stops there too), instead of a scan of the set for
++   every byte.  A one-byte set uses strchr.  */
+ char *
+ strpbrk (const char *s1, const char *s)
+ {
+-  int c1, c2;
+-  const char *s2;
++  const unsigned char *p = (const unsigned char *) s1;
++  const unsigned char *set = (const unsigned char *) s;
+ 
+-  while ((c1 = *s1))
+-    {
+-      s2 = s;
+-      while ((c2 = *s2++))
+-	if (c2 == c1)
+-	  return (char *) s1;
+-      s1++;
+-    }
++  if (set[0] == 0)
++    return NULL;
++  if (set[1] == 0)
++    return strchr (s1, set[0]);
+ 
+-  return NULL;
++  for (int i = 0; i < __UL_BS_FIRST; i++, p++)
++    if (*p == 0 || __ul_inset (*p, set))
++      return *p ? (char *) p : NULL;
++
++  __ul_byteset bs;
++  __ul_byteset_make (&bs, set);
++  bs.w[0] |= 1;
++  while (!__UL_BS_HAS (&bs, *p))
++    p++;
++  return *p ? (char *) p : NULL;
+ }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strrchr.c b/gcc4/recipe/files/gcc/libunixlib/string/strrchr.c
+index 515a256..5e56312 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/strrchr.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/strrchr.c
+@@ -3,20 +3,58 @@
+  */
+ 
+ #include <string.h>
++#include <internal/wordstr.h>
+ 
++/* A word at a time (C8): a word with neither the terminator nor C is
++   skipped; one with C is searched for its last C.  Only aligned words
++   are read, so never past the word that holds the terminator.  */
+ char *
+ strrchr (const char *s, int c_)
+ {
+-  int i;
+-  const char *_s;
+-  char c = (char) c_;
++  const unsigned char *p = (const unsigned char *) s;
++  const unsigned char *last = NULL;
++  unsigned int c = (unsigned char) c_;
+ 
+-  _s = 0;
+-  do
+-    if ((i = *s) == c)
+-      _s = s;
+-  while (s++, i);
++  if (c == 0)
++    return (char *) s + strlen (s);
+ 
+-  return ((char *) _s);
++  while (!__UL_ALIGNED (p))
++    {
++      if (*p == c)
++	last = p;
++      if (*p == 0)
++	return (char *) last;
++      p++;
++    }
++
++  const __ul_word_t *w = (const __ul_word_t *) p;
++  unsigned int pattern = c * __UL_ONES;
++  for (;;)
++    {
++      unsigned int v = *w;
++      if (__UL_HASZERO (v))
++	break;
++      if (__UL_HASZERO (v ^ pattern))
++	{
++	  const unsigned char *b = (const unsigned char *) w;
++	  if (b[3] == c)
++	    last = b + 3;
++	  else if (b[2] == c)
++	    last = b + 2;
++	  else if (b[1] == c)
++	    last = b + 1;
++	  else
++	    last = b;
++	}
++      w++;
++    }
++
++  for (p = (const unsigned char *) w; ; p++)
++    {
++      if (*p == c)
++	last = p;
++      if (*p == 0)
++	return (char *) last;
++    }
+ }
+ strong_alias (strrchr, rindex)
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strspn.c b/gcc4/recipe/files/gcc/libunixlib/string/strspn.c
+index 008185e..cfab7c2 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/strspn.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/strspn.c
+@@ -3,22 +3,33 @@
+  */
+ 
+ #include <string.h>
++#include <internal/byteset.h>
+ 
++/* C8: after the first bytes, one lookup per byte in a 256-bit map of the set, instead of a
++   scan of the set for every byte.  */
+ size_t
+ strspn (const char *s1, const char *s)
+ {
+-  int c1, c2;
+-  const char *s2;
+-  size_t n = 0;
++  const unsigned char *p = (const unsigned char *) s1;
++  const unsigned char *set = (const unsigned char *) s;
+ 
+-  while ((c1 = *s1++))
++  if (set[0] == 0)
++    return 0;
++  if (set[1] == 0)
+     {
+-      s2 = s;
+-      while ((c2 = *s2++) != c1)
+-	if (!c2)
+-	  return n;
+-      n++;
++      unsigned int c = set[0];
++      while (*p == c)
++	p++;
++      return p - (const unsigned char *) s1;
+     }
+ 
+-  return n;
++  for (int i = 0; i < __UL_BS_FIRST; i++, p++)
++    if (!__ul_inset (*p, set))
++      return p - (const unsigned char *) s1;
++
++  __ul_byteset bs;
++  __ul_byteset_make (&bs, set);
++  while (__UL_BS_HAS (&bs, *p))
++    p++;
++  return p - (const unsigned char *) s1;
+ }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strstr.c b/gcc4/recipe/files/gcc/libunixlib/string/strstr.c
+index 1e76dec..49058b0 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/strstr.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/strstr.c
+@@ -5,18 +5,35 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
++/* C8: jump to each copy of the needle's first byte with strchr (a word
++   at a time), then compare the rest.  The haystack is no longer measured
++   first, and the search stops as soon as the haystack is too short for
++   a match.  */
+ char *
+ strstr (const char *s1, const char *s2)
+ {
+-  size_t l1 = strlen (s1), l2 = strlen (s2);
+-  const char *e1 = s1 + l1 - l2;
++  const unsigned char *h = (const unsigned char *) s1;
++  const unsigned char *n = (const unsigned char *) s2;
++  unsigned int first = n[0];
+ 
+-  while (s1 <= e1)
++  if (first == 0)
++    return (char *) s1;
++  if (n[1] == 0)
++    return strchr (s1, first);
++
++  for (;;)
+     {
+-      if (!strncmp (s1, s2, l2))
+-	return (char *) s1;
+-      s1++;
+-    }
++      h = (const unsigned char *) strchr ((const char *) h, first);
++      if (h == NULL)
++	return NULL;
+ 
+-  return NULL;
++      size_t i = 1;
++      while (n[i] != 0 && h[i] == n[i])
++	i++;
++      if (n[i] == 0)
++	return (char *) h;
++      if (h[i] == 0)
++	return NULL;		/* Less haystack left than needle.  */
++      h++;
++    }
+ }
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s b/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s
 index 487d724..c5559ff 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s
