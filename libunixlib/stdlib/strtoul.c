@@ -83,8 +83,16 @@ strtoul(const char * __restrict nptr, char ** __restrict endptr, int base)
 	if (base < 2 || base > 36)
 		goto noconv;
 
-	cutoff = ULONG_MAX / base;
-	cutlim = ULONG_MAX % base;
+	/* 2026 (C6): base 10, by far the most used, without dividing by a
+	   variable (a library call that was about half the time of a
+	   short conversion).  The same values.  */
+	if (base == 10) {
+		cutoff = ULONG_MAX / 10;
+		cutlim = ULONG_MAX % 10;
+	} else {
+		cutoff = ULONG_MAX / base;
+		cutlim = ULONG_MAX % base;
+	}
 	for ( ; ; c = *s++) {
 		if (c >= '0' && c <= '9')
 			c -= '0';

@@ -19,6 +19,8 @@ echo "== host tests: mkdtemp"
 tests/host/mkdtemp/run.sh
 echo "== host tests: string compares and searches (against the old versions)"
 tests/host/strings/run.sh
+echo "== host tests: strtol and friends (against the old versions)"
+tests/host/strto/run.sh
 echo "== host tests: socketpair (loopback TCP)"
 tests/host/socketpair/run.sh
 echo "== host tests: eventfd counter"
