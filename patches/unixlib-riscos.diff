@@ -1302,6 +1302,32 @@ index 9f57871..cf76c3b 100644
  
  extern unsigned int __get_cpu_arch (void);
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/wordstr.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/wordstr.h
+new file mode 100644
+index 0000000..3aec8d6
+--- /dev/null
++++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/wordstr.h
+@@ -0,0 +1,20 @@
++/* Word-at-a-time helpers for the string functions (2026, C5).
++
++   Only aligned words are read, so a read never crosses into the next page
++   (a word holding a string's last byte is on that byte's page).  No
++   unaligned loads: RISC OS may fault them.  */
++#ifndef __INTERNAL_WORDSTR_H
++#define __INTERNAL_WORDSTR_H
++
++#include <stdint.h>
++
++typedef unsigned int __attribute__ ((__may_alias__)) __ul_word_t;
++
++#define __UL_ONES  0x01010101u
++#define __UL_HIGHS 0x80808080u
++/* Non-zero if any byte of V is 0 (exact, no false positives).  */
++#define __UL_HASZERO(v) (((v) - __UL_ONES) & ~(v) & __UL_HIGHS)
++#define __UL_ALIGNED(p) (((uintptr_t) (p) & 3) == 0)
++#define __UL_SAMEALIGN(p, q) ((((uintptr_t) (p) ^ (uintptr_t) (q)) & 3) == 0)
++
++#endif
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
 index eed3e61..e3acf0a 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/pthread.h
@@ -8054,6 +8080,615 @@ index 0000000..291723d
 +  errno = EEXIST;
 +  return NULL;
 +}
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/strtol.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/strtol.c
+index 9dd6060..53051da 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdlib/strtol.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdlib/strtol.c
+@@ -103,10 +103,20 @@ strtol(const char * __restrict nptr, char ** __restrict endptr, int base)
+ 	 * Set 'any' if any `digits' consumed; make it negative to indicate
+ 	 * overflow.
+ 	 */
+-	cutoff = neg ? (unsigned long)-(LONG_MIN + LONG_MAX) + LONG_MAX
+-	    : LONG_MAX;
+-	cutlim = cutoff % base;
+-	cutoff /= base;
++	/* 2026 (C6): base 10, by far the most used, without dividing by a
++	   variable (a library call that was about half the time of a
++	   short conversion).  The same values.  */
++	if (base == 10) {
++		cutoff = neg ? ((unsigned long)-(LONG_MIN + LONG_MAX) + LONG_MAX) / 10
++		    : LONG_MAX / 10;
++		cutlim = neg ? ((unsigned long)-(LONG_MIN + LONG_MAX) + LONG_MAX) % 10
++		    : LONG_MAX % 10;
++	} else {
++		cutoff = neg ? (unsigned long)-(LONG_MIN + LONG_MAX) + LONG_MAX
++		    : LONG_MAX;
++		cutlim = cutoff % base;
++		cutoff /= base;
++	}
+ 	for ( ; ; c = *s++) {
+ 		if (c >= '0' && c <= '9')
+ 			c -= '0';
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/strtoll.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/strtoll.c
+index 3436923..a3cd479 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdlib/strtoll.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdlib/strtoll.c
+@@ -103,10 +103,20 @@ strtoll(const char * __restrict nptr, char ** __restrict endptr, int base)
+ 	 * Set 'any' if any `digits' consumed; make it negative to indicate
+ 	 * overflow.
+ 	 */
+-	cutoff = neg ? (unsigned long long)-(LLONG_MIN + LLONG_MAX) + LLONG_MAX
+-	    : LLONG_MAX;
+-	cutlim = cutoff % base;
+-	cutoff /= base;
++	/* 2026 (C6): base 10, by far the most used, without dividing by a
++	   variable (a library call that was about half the time of a
++	   short conversion).  The same values.  */
++	if (base == 10) {
++		cutoff = neg ? ((unsigned long long)-(LLONG_MIN + LLONG_MAX) + LLONG_MAX) / 10
++		    : LLONG_MAX / 10;
++		cutlim = neg ? ((unsigned long long)-(LLONG_MIN + LLONG_MAX) + LLONG_MAX) % 10
++		    : LLONG_MAX % 10;
++	} else {
++		cutoff = neg ? (unsigned long long)-(LLONG_MIN + LLONG_MAX) + LLONG_MAX
++		    : LLONG_MAX;
++		cutlim = cutoff % base;
++		cutoff /= base;
++	}
+ 	for ( ; ; c = *s++) {
+ 		if (c >= '0' && c <= '9')
+ 			c -= '0';
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/strtoul.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/strtoul.c
+index c805b99..4c6120f 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdlib/strtoul.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdlib/strtoul.c
+@@ -83,8 +83,16 @@ strtoul(const char * __restrict nptr, char ** __restrict endptr, int base)
+ 	if (base < 2 || base > 36)
+ 		goto noconv;
+ 
+-	cutoff = ULONG_MAX / base;
+-	cutlim = ULONG_MAX % base;
++	/* 2026 (C6): base 10, by far the most used, without dividing by a
++	   variable (a library call that was about half the time of a
++	   short conversion).  The same values.  */
++	if (base == 10) {
++		cutoff = ULONG_MAX / 10;
++		cutlim = ULONG_MAX % 10;
++	} else {
++		cutoff = ULONG_MAX / base;
++		cutlim = ULONG_MAX % base;
++	}
+ 	for ( ; ; c = *s++) {
+ 		if (c >= '0' && c <= '9')
+ 			c -= '0';
+diff --git a/gcc4/recipe/files/gcc/libunixlib/stdlib/strtoull.c b/gcc4/recipe/files/gcc/libunixlib/stdlib/strtoull.c
+index 6860bb8..562c9ec 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/stdlib/strtoull.c
++++ b/gcc4/recipe/files/gcc/libunixlib/stdlib/strtoull.c
+@@ -83,8 +83,16 @@ strtoull(const char * __restrict nptr, char ** __restrict endptr, int base)
+ 	if (base < 2 || base > 36)
+ 		goto noconv;
+ 
+-	cutoff = ULLONG_MAX / base;
+-	cutlim = ULLONG_MAX % base;
++	/* 2026 (C6): base 10, by far the most used, without dividing by a
++	   variable (a library call that was about half the time of a
++	   short conversion).  The same values.  */
++	if (base == 10) {
++		cutoff = ULLONG_MAX / 10;
++		cutlim = ULLONG_MAX % 10;
++	} else {
++		cutoff = ULLONG_MAX / base;
++		cutlim = ULLONG_MAX % base;
++	}
+ 	for ( ; ; c = *s++) {
+ 		if (c >= '0' && c <= '9')
+ 			c -= '0';
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/memchr.c b/gcc4/recipe/files/gcc/libunixlib/string/memchr.c
+index b6af555..dc0646f 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/memchr.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/memchr.c
+@@ -1,45 +1,48 @@
+ /* memchr ()
+- * Copyright (c) 2000-2007 UnixLib Developers
++ * Copyright (c) 2000-2008 UnixLib Developers
++ *
++ * 2026 (C5): a word at a time once aligned (it was about 2 instructions
++ * a byte).  Same results as before.
+  */
+ 
+ #include <string.h>
++#include <internal/wordstr.h>
+ 
+ void *
+ memchr (const void *s, int c_, size_t n)
+ {
+-  unsigned char *_s = (unsigned char *)(int) s;
+-  char c = (char) c_;
++  const unsigned char *p = s;
++  unsigned int c = (unsigned char) c_;
+ 
+-  while (n & 0x07)
++  while (n != 0 && !__UL_ALIGNED (p))
+     {
+-      n--;
+-      if (*_s++ == c)
+-	{
+-ret:
+-	  return (void *) (--_s);
+-	}
++      if (*p == c)
++	return (void *) p;
++      p++, n--;
+     }
+-  n >>= 3;
+-  while (n)
++
++  const __ul_word_t *w = (const __ul_word_t *) p;
++  unsigned int pattern = c * __UL_ONES;
++  /* Two words a time, then one.  The second word is only read once the
++     first has no match: a caller may give an N larger than the object
++     (POSIX: memchr stops at the first match), so nothing past the word
++     holding the match is read (review, 2026-11-25).  */
++  while (n >= 8)
+     {
+-      n--;
+-      if (*_s++ == c)
+-	goto ret;
+-      if (*_s++ == c)
+-	goto ret;
+-      if (*_s++ == c)
+-	goto ret;
+-      if (*_s++ == c)
+-	goto ret;
+-      if (*_s++ == c)
+-	goto ret;
+-      if (*_s++ == c)
+-	goto ret;
+-      if (*_s++ == c)
+-	goto ret;
+-      if (*_s++ == c)
+-	goto ret;
++      if (__UL_HASZERO (w[0] ^ pattern))
++	break;
++      if (__UL_HASZERO (w[1] ^ pattern))
++	{
++	  w++, n -= 4;
++	  break;
++	}
++      w += 2, n -= 8;
+     }
++  if (n >= 4 && !__UL_HASZERO (*w ^ pattern))
++    w++, n -= 4;
+ 
++  for (p = (const unsigned char *) w; n != 0; p++, n--)
++    if (*p == c)
++      return (void *) p;
+   return NULL;
+ }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/memcmp.c b/gcc4/recipe/files/gcc/libunixlib/string/memcmp.c
+index f6b4fd6..1c1df80 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/memcmp.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/memcmp.c
+@@ -1,57 +1,43 @@
+ /* memcmp (), bcmp ()
+  * Copyright (c) 2000-2008 UnixLib Developers
++ *
++ * 2026 (C5): a word at a time when both blocks have the same alignment
++ * (it was about 5 instructions a byte).  Same results as before: the
++ * difference of the first bytes that differ.
+  */
+ 
+ #include <string.h>
+ #include <strings.h>
++#include <internal/wordstr.h>
+ 
+ int
+ memcmp (const void *s1, const void *s2, size_t n)
+ {
+-  const unsigned char *_s1 = s1;
+-  const unsigned char *_s2 = s2;
++  const unsigned char *p1 = s1;
++  const unsigned char *p2 = s2;
+ 
+-  while (n & 0x07)
++  if (__UL_SAMEALIGN (p1, p2))
+     {
+-      if (*_s1 != *_s2)
+-	goto differs;
+-      _s1++, _s2++;
+-      n--;
++      while (n != 0 && !__UL_ALIGNED (p1))
++	{
++	  if (*p1 != *p2)
++	    return *p1 - *p2;
++	  p1++, p2++, n--;
++	}
++      const __ul_word_t *w1 = (const __ul_word_t *) p1;
++      const __ul_word_t *w2 = (const __ul_word_t *) p2;
++      while (n >= 16 && w1[0] == w2[0] && w1[1] == w2[1]
++	     && w1[2] == w2[2] && w1[3] == w2[3])
++	w1 += 4, w2 += 4, n -= 16;
++      while (n >= 4 && *w1 == *w2)
++	w1++, w2++, n -= 4;
++      p1 = (const unsigned char *) w1;
++      p2 = (const unsigned char *) w2;
+     }
+-  n >>= 3;
+-  while (n)
+-    {
+-      if (*_s1 != *_s2)
+-	goto differs;
+-      _s1++, _s2++;
+-      if (*_s1 != *_s2)
+-	goto differs;
+-      _s1++, _s2++;
+-      if (*_s1 != *_s2)
+-	goto differs;
+-      _s1++, _s2++;
+-      if (*_s1 != *_s2)
+-	goto differs;
+-      _s1++, _s2++;
+-      if (*_s1 != *_s2)
+-	goto differs;
+-      _s1++, _s2++;
+-      if (*_s1 != *_s2)
+-	goto differs;
+-      _s1++, _s2++;
+-      if (*_s1 != *_s2)
+-	goto differs;
+-      _s1++, _s2++;
+-      if (*_s1 != *_s2)
+-	goto differs;
+-      _s1++, _s2++;
+-      n--;
+-    }
+-
+-  if (n == 0)
+-    return 0;
+ 
+-differs:
+-  return *_s1 - *_s2;
++  for (; n != 0; p1++, p2++, n--)
++    if (*p1 != *p2)
++      return *p1 - *p2;
++  return 0;
+ }
+ strong_alias (memcmp, bcmp)
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strcasecmp_l.c b/gcc4/recipe/files/gcc/libunixlib/string/strcasecmp_l.c
+index 28de5e3..c390223 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/strcasecmp_l.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/strcasecmp_l.c
+@@ -7,6 +7,7 @@
+ #include <strings.h>
+ #include <ctype.h>
+ #include <locale.h>
++#include <internal/wordstr.h>
+ 
+ int
+ strcasecmp_l (const char *s1, const char *s2, locale_t locobj)
+@@ -18,13 +19,30 @@ strcasecmp_l (const char *s1, const char *s2, locale_t locobj)
+   if (p1 == p2)
+     return result;
+ 
+-  while (! result)
++  /* 2026 (C5): equal bytes need no case conversion (it was about 11
++     instructions a byte), and with both strings at the same alignment,
++     equal words are skipped a word at a time.  Same results as before.  */
++  const int same = __UL_SAMEALIGN (p1, p2);
++  for (;;)
+     {
+-      result = tolower_l (*p1, locobj) - tolower_l (*p2, locobj);
+-      if (*p1++ == '\0')
+-        break;
+-      p2 ++;
++      if (same && __UL_ALIGNED (p1))
++	{
++	  const __ul_word_t *w1 = (const __ul_word_t *) p1;
++	  const __ul_word_t *w2 = (const __ul_word_t *) p2;
++	  while (*w1 == *w2 && !__UL_HASZERO (*w1))
++	    w1++, w2++;
++	  p1 = (const unsigned char *) w1;
++	  p2 = (const unsigned char *) w2;
++	}
++      unsigned int c1 = *p1++, c2 = *p2++;
++      if (c1 == c2)
++	{
++	  if (c1 == '\0')
++	    return 0;
++	  continue;
++	}
++      result = tolower_l (c1, locobj) - tolower_l (c2, locobj);
++      if (result != 0 || c1 == '\0')
++	return result;
+     }
+-
+-  return result;
+ }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strchr.c b/gcc4/recipe/files/gcc/libunixlib/string/strchr.c
+index 4a78ce8..44c7149 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/strchr.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/strchr.c
+@@ -1,22 +1,55 @@
+ /* strchr ()
+  * Copyright (c) 2000-2008 UnixLib Developers
++ *
++ * 2026 (C5): a word at a time once aligned (it was about 2.5
++ * instructions a byte).  Same results as before; strchr (s, 0) finds the
++ * terminator.
+  */
+ 
+ #include <stdlib.h>
+ #include <string.h>
++#include <internal/wordstr.h>
+ 
+ char *
+ strchr (const char *s, int c_)
+ {
+-  int i;
+-  char c = (char) c_;
++  const unsigned char *p = (const unsigned char *) s;
++  unsigned int c = (unsigned char) c_;
+ 
+-  while ((i = *s) && (i != c))
+-    s++;
++  while (!__UL_ALIGNED (p))
++    {
++      if (*p == c)
++	return (char *) p;
++      if (*p == 0)
++	return NULL;
++      p++;
++    }
+ 
+-  if (i == c)
+-    return (char *) s;
++  const __ul_word_t *w = (const __ul_word_t *) p;
++  unsigned int pattern = c * __UL_ONES;
++  /* Two words a time: the first word is always safe to read (aligned,
++     and the string goes on into it); the second only once the first has
++     no terminator, so never past the word holding it.  */
++  for (;;)
++    {
++      unsigned int v = w[0];
++      if (__UL_HASZERO (v) | __UL_HASZERO (v ^ pattern))
++	break;
++      v = w[1];
++      if (__UL_HASZERO (v) | __UL_HASZERO (v ^ pattern))
++	{
++	  w++;
++	  break;
++	}
++      w += 2;
++    }
+ 
+-  return NULL;
++  for (p = (const unsigned char *) w; ; p++)
++    {
++      if (*p == c)
++	return (char *) p;
++      if (*p == 0)
++	return NULL;
++    }
+ }
+ strong_alias (strchr, index)
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strcmp.c b/gcc4/recipe/files/gcc/libunixlib/string/strcmp.c
+index 4341bbe..c2dd6c4 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/strcmp.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/strcmp.c
+@@ -1,16 +1,47 @@
+ /* strcmp ()
+  * Copyright (c) 2000-2007 UnixLib Developers
++ *
++ * 2026 (C5): a word at a time when both strings have the same alignment
++ * (it was about 6 instructions a byte).  Same results as before: the
++ * difference of the first bytes that differ, as unsigned chars.
+  */
+ 
+ #include <string.h>
++#include <internal/wordstr.h>
+ 
+ int
+ strcmp (const char *s1, const char *s2)
+ {
+-  int i;
++  const unsigned char *p1 = (const unsigned char *) s1;
++  const unsigned char *p2 = (const unsigned char *) s2;
+ 
+-  while ((i = *s1) && i == *s2)
+-    s1++, s2++;
++  if (__UL_SAMEALIGN (p1, p2))
++    {
++      while (!__UL_ALIGNED (p1))
++	{
++	  unsigned int c1 = *p1, c2 = *p2;
++	  if (c1 != c2 || c1 == 0)
++	    return (int) c1 - (int) c2;
++	  p1++, p2++;
++	}
++      const __ul_word_t *w1 = (const __ul_word_t *) p1;
++      const __ul_word_t *w2 = (const __ul_word_t *) p2;
++      for (;;)
++	{
++	  unsigned int a = *w1, b = *w2;
++	  if (a != b || __UL_HASZERO (a))
++	    break;
++	  w1++, w2++;
++	}
++      p1 = (const unsigned char *) w1;
++      p2 = (const unsigned char *) w2;
++    }
+ 
+-  return *(const unsigned char *) s1 - *(const unsigned char *) s2;
++  for (;;)
++    {
++      unsigned int c1 = *p1, c2 = *p2;
++      if (c1 != c2 || c1 == 0)
++	return (int) c1 - (int) c2;
++      p1++, p2++;
++    }
+ }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/stricmp.c b/gcc4/recipe/files/gcc/libunixlib/string/stricmp.c
+index d7e9bc5..d08e4e0 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/stricmp.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/stricmp.c
+@@ -5,6 +5,7 @@
+ #include <strings.h>
+ #include <ctype.h>
+ #include <locale.h>
++#include <internal/wordstr.h>
+ 
+ int
+ stricmp (const char *s1, const char *s2)
+@@ -16,14 +17,31 @@ stricmp (const char *s1, const char *s2)
+   if (p1 == p2)
+     return result;
+ 
+-  while (! result)
++  /* 2026 (C5): equal bytes need no case conversion (it was about 11
++     instructions a byte), and with both strings at the same alignment,
++     equal words are skipped a word at a time.  Same results as before.  */
++  const int same = __UL_SAMEALIGN (p1, p2);
++  for (;;)
+     {
+-      result = tolower (*p1) - tolower (*p2);
+-      if (*p1++ == '\0')
+-	break;
+-      p2 ++;
++      if (same && __UL_ALIGNED (p1))
++	{
++	  const __ul_word_t *w1 = (const __ul_word_t *) p1;
++	  const __ul_word_t *w2 = (const __ul_word_t *) p2;
++	  while (*w1 == *w2 && !__UL_HASZERO (*w1))
++	    w1++, w2++;
++	  p1 = (const unsigned char *) w1;
++	  p2 = (const unsigned char *) w2;
++	}
++      unsigned int c1 = *p1++, c2 = *p2++;
++      if (c1 == c2)
++	{
++	  if (c1 == '\0')
++	    return 0;
++	  continue;
++	}
++      result = tolower (c1) - tolower (c2);
++      if (result != 0 || c1 == '\0')
++	return result;
+     }
+-
+-  return result;
+ }
+ strong_alias (stricmp, strcasecmp)
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strncmp.c b/gcc4/recipe/files/gcc/libunixlib/string/strncmp.c
+index 9422b84..204368c 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/strncmp.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/strncmp.c
+@@ -1,19 +1,47 @@
+ /* strncmp ()
+  * Copyright (c) 2000-2007 UnixLib Developers
++ *
++ * 2026 (C5): a word at a time when both strings have the same alignment.
++ * Same results as before.
+  */
+ 
+ #include <string.h>
++#include <internal/wordstr.h>
+ 
+ int
+ strncmp (const char *s1, const char *s2, size_t n)
+ {
+-  int i;
++  const unsigned char *p1 = (const unsigned char *) s1;
++  const unsigned char *p2 = (const unsigned char *) s2;
+ 
+-  if (!n)
+-    return 0;
++  if (__UL_SAMEALIGN (p1, p2))
++    {
++      while (n != 0 && !__UL_ALIGNED (p1))
++	{
++	  unsigned int c1 = *p1, c2 = *p2;
++	  if (c1 != c2 || c1 == 0)
++	    return (int) c1 - (int) c2;
++	  p1++, p2++, n--;
++	}
++      const __ul_word_t *w1 = (const __ul_word_t *) p1;
++      const __ul_word_t *w2 = (const __ul_word_t *) p2;
++      while (n >= 4)
++	{
++	  unsigned int a = *w1, b = *w2;
++	  if (a != b || __UL_HASZERO (a))
++	    break;
++	  w1++, w2++, n -= 4;
++	}
++      p1 = (const unsigned char *) w1;
++      p2 = (const unsigned char *) w2;
++    }
+ 
+-  while ((i = *s1) && i == *s2 && --n)
+-    s1++, s2++;
+-
+-  return *(const unsigned char *) s1 - *(const unsigned char *) s2;
++  while (n != 0)
++    {
++      unsigned int c1 = *p1, c2 = *p2;
++      if (c1 != c2 || c1 == 0)
++	return (int) c1 - (int) c2;
++      p1++, p2++, n--;
++    }
++  return 0;
+ }
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/strnicmp.c b/gcc4/recipe/files/gcc/libunixlib/string/strnicmp.c
+index cc4440d..d6842f7 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/strnicmp.c
++++ b/gcc4/recipe/files/gcc/libunixlib/string/strnicmp.c
+@@ -6,6 +6,7 @@
+ #include <strings.h>
+ #include <ctype.h>
+ #include <locale.h>
++#include <internal/wordstr.h>
+ 
+ int
+ strnicmp (const char *s1, const char *s2, size_t n)
+@@ -15,14 +16,34 @@ strnicmp (const char *s1, const char *s2, size_t n)
+   if (!n)
+     return 0;
+ 
++  /* 2026 (C5): equal bytes need no tolower (), and with both strings at
++     the same alignment, equal words are skipped a word at a time.  Same
++     results as before.  */
++  const int same = __UL_SAMEALIGN (s1, s2);
+   do
+     {
+-      i = *s1++, j = *s2++;
++      if (same && __UL_ALIGNED (s1) && n > 4)
++	{
++	  const __ul_word_t *w1 = (const __ul_word_t *) s1;
++	  const __ul_word_t *w2 = (const __ul_word_t *) s2;
++	  while (n > 4 && *w1 == *w2 && !__UL_HASZERO (*w1))
++	    w1++, w2++, n -= 4;
++	  s1 = (const char *) w1;
++	  s2 = (const char *) w2;
++	}
++      i = (unsigned char) *s1++, j = (unsigned char) *s2++;
++      if (i == j)
++	{
++	  if (i == 0)
++	    return 0;
++	  continue;
++	}
+       i = tolower (i);
+       j = tolower (j);
++      if (i != j || i == 0)
++	return i - j;
+     }
+-  while (i && i == j && --n);
+-
+-  return i - j;
++  while (--n);
++  return 0;
+ }
+ strong_alias (strnicmp, strncasecmp)
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s b/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s
 index 487d724..c5559ff 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/_getcpuarch.s
