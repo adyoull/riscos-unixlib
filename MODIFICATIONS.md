@@ -344,6 +344,33 @@ in under 2 s. Not yet run on RISC OS.
 doesn't do. That is long-standing behaviour, so it's left for a decision
 (section 8). `ITimer` re-installs its handler.
 
+### T6. A cheaper monotonic clock (`time/clk_gettime.c`) - commits `56de7bd`, `9f3d507`
+
+**Problem.** Found by riscos-unixlib-web (W32). `clock_gettime (CLOCK_MONOTONIC)`, and through `__ul_monotonic_ns` `nanosleep` and the timed waits, cost three SWIs and three 64-bit divisions a read. A browser's main loops read it thousands of times a second; on a Pi 4 under RISC OS on Linux it was 13% of a busy task's time.
+
+**Change.**
+- **Under RISC OS on Linux:** one call to Linux's own `clock_gettime (CLOCK_MONOTONIC)` through `IXSupport_LinuxSyscall` (32-bit syscall 263, or 403 where the kernel has no 32-bit time calls). Nanosecond resolution. Natively IXSupport isn't there, the SWI fails, and the HAL way is used.
+- **Natively:** the same reads as T1 (`OS_ReadMonotonicTime`, `HAL_CounterRead`, `OS_ReadMonotonicTime`), but the fraction of the centisecond is a multiply by a factor worked out once, and seconds and nanoseconds come from the centisecond count, so no divisions.
+- The way is chosen at the first read and kept for the program's life (the two count from different starts). The clock still never goes backwards (T4).
+- Review (5.0.3.11): if Linux's clock fails after it has worked, the last time is given and Linux tried again, instead of falling back to `clock ()`, whose different start would have stopped the clock.
+
+**Compatibility.** Only differences between readings are meaningful, as before; under RISC OS on Linux the clock now counts from Linux's start, not RISC OS's. `OS_ReadMonotonicTime` and `clock ()` are unchanged.
+
+**Verification.** Peer-reviewed. Pi test `Clock` (`tests/riscos/clocktest.c`): 200000 reads never go back, finer than a centisecond, keeps pace with `OS_ReadMonotonicTime` over 3 s, a 20 ms `nanosleep` takes 20 to 40 ms. In riscos-unixlib-web on a Pi 4 natively: 3.90 µs a read before, 1.70 µs after.
+
+### T7. The time of day without OS_Word 14 each time (`time/clk_gettime.c`, `time/gettod.c`) - commits `d015c5d`, `9f3d507`
+
+**Problem.** Found by riscos-unixlib-web (W39). `gettimeofday` and `clock_gettime (CLOCK_REALTIME)` read OS_Word 14 and converted it (64-bit divisions) on every call, about 8 µs under RISC OS on Linux, and had centisecond resolution.
+
+**Change.**
+- They give the monotonic clock (T6) plus an offset, read from OS_Word 14 at the first call and again in each new monotonic second, so a change to RISC OS's clock shows within a second. Resolution is the monotonic clock's (about 1 µs natively on a Pi; nanoseconds under RISC OS on Linux).
+- Review (5.0.3.11): OS_Word 14 is read between two monotonic readings, again (up to 3 times) if they are more than 1 cs apart. A reading of the offset is the true one or up to about 1 cs less, so within 3 cs the larger is kept; it converges on the true offset, and the time of day neither wobbles nor runs behind RISC OS's. A reading 3 cs or more different means the clock was set, and is taken.
+- riscos-unixlib-web read Linux's CLOCK_REALTIME under RISC OS on Linux instead. Not here: RISC OS's own clock stays the time of day, even if it has been set apart from Linux's.
+
+**Compatibility.** `time ()` still reads OS_Word 14 (whole seconds). A program comparing `gettimeofday` with `time ()` just after a second boundary may see them differ by a second for up to a centisecond, as with any two clocks read one after the other.
+
+**Verification.** Peer-reviewed. Pi test `RealTime` (`tests/riscos/rttest.c`): `clock_gettime (CLOCK_REALTIME)` and `gettimeofday` agree with OS_Word 14 to 3 cs at the start and after 3 s, never go back more than 2 cs in 200000 reads, and advance within a centisecond.
+
 ### A1. No `mmap` for large blocks on EABI (`stdlib/alloc.c`) - commit `98a9287`
 
 **Problem.** `malloc` served large requests with `mmap`. On EABI each mapping
@@ -2396,6 +2423,16 @@ is not used: it was a withdrawn release's ID.)
 error number (211 checks). `tools/make-release.sh` reads 0.04 from the
 help string. Not run on RISC OS separately (only the error number
 changed).
+
+### K13. Key nodes freed with thread switching held off at thread exit (`pthread/keydest.c`) - commit `360fe53`
+
+**Problem.** Found by riscos-unixlib-web (W46) while tracing a crash at thread exit in the web browser under RISC OS on Linux. `pthread_exit` calls `__pthread_key_calldestructors` with thread switching on, so that the destructors can block. But that function also freed each of the thread's key nodes with `free_unlocked` there: another thread inside `malloc` or `free` at the same moment could find the heap half-changed. Any program whose threads use `pthread_setspecific` (C++ `thread_local` with destructors, GLib, Mesa) and end while other threads allocate could have corrupted its heap.
+
+**Change.** Each node is taken off the thread's list and freed with switching held off, as `pthread_setspecific` and `pthread_key_delete` already do; its value and destructor are copied first, and the destructor is called with switching on, as before.
+
+**Not changed.** `PTHREAD_DESTRUCTOR_ITERATIONS` (50) still counts destructor calls rather than rounds over the keys, so a thread with more than 50 keys holding values doesn't get the rest destroyed (section 8).
+
+**Verification.** Peer-reviewed. New Pi test `KeyDest` (`tests/riscos/keydtest.c`): for about 10 s, short-lived threads each set 8 keys and end while 4 threads allocate and free blocks without stopping; every destructor must run once, every block keep its pattern, and the heap work for every size afterwards.
 
 ### O1. Threads and signals on RISC OS for Linux (`incl-local/internal/pvops.s` (new), `asm_dec.s`, `unix.h`, `common/global.c`, `pthread/_context.s`, `pthread/_yield.s`, `signal/_signal.s`, `sys/_getcpuarch.s`, `sys/_syslib.s`)
 

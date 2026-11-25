@@ -5,6 +5,14 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.11-rc3 (2026-11-25, pre-release, tag v5.0.3.11-rc3)
+
+5.0.3.11-rc2 plus T6, T7 and K13. libtool `-version-info` 10:0:5. rc2 passed on the owner's Pi 4 (native RISC OS 5.31) and on RISC OS on Linux 1.0.0058 in QEMU.
+
+- **A cheaper monotonic clock (T6).** `clock_gettime (CLOCK_MONOTONIC)`, `nanosleep` and the timed waits read the clock with one call to Linux's own clock under RISC OS on Linux (nanosecond resolution), and natively without the 64-bit divisions (1.7 µs a read on a Pi 4, was 3.9 µs). Pi test `Clock`.
+- **A finer time of day (T7).** `gettimeofday` and `clock_gettime (CLOCK_REALTIME)` have the monotonic clock's resolution (was a centisecond) and no longer read OS_Word 14 every time; RISC OS's clock is checked once a second. Pi test `RealTime`.
+- **Thread exit and the heap (K13).** A thread ending with thread-specific values set freed their records with thread switching on, so another thread in `malloc` or `free` at that moment could corrupt the heap. Found by the web browser. Pi test `KeyDest`.
+
 ## 5.0.3.11-rc2 (2026-11-22, pre-release, tag v5.0.3.11-rc2)
 
 5.0.3.11-rc1 plus seven fixes first taken in 5.0.3.4-rc1 and withdrawn with it before they ran on RISC OS. They have run since 6 November in the web browser's copy of this library on a Pi 4, and were reviewed a third time against everything added since October. libtool `-version-info` 10:0:5. rc1's own changes passed on the owner's Pi 4 (native RISC OS 5.31) and on RISC OS on Linux 1.0.0058 in QEMU.
