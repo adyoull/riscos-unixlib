@@ -5,6 +5,12 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.11-rc5 (2026-11-25, pre-release, tag v5.0.3.11-rc5)
+
+5.0.3.11-rc4 plus C7. libtool `-version-info` 10:0:5. rc4 passed on the owner's Pi 4 (native RISC OS 5.31).
+
+- **`UnixLib$Processors` (C7).** `sysconf`'s processor count stays 1, but a port that needs another answer (one that starts "processors - 1" worker threads, say) can set `UnixLib$Processors` (1 to 64) in its `!Run`. Pi test `Procs`.
+
 ## 5.0.3.11-rc4 (2026-11-25, pre-release, tag v5.0.3.11-rc4)
 
 5.0.3.11-rc3 plus C5 and C6. libtool `-version-info` 10:0:5. rc3 passed on the owner's Pi 4 under RISC OS on Linux.

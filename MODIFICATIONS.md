@@ -1291,6 +1291,14 @@ Peer review: his patch stored `%llp` as an 8-byte value, over the word after the
 
 **Verification.** Peer-reviewed. Host test `tests/host/strto`: new against old (from git) for bases 0 and 2-36, strings at and around every limit, signs, prefixes and 20000 random strings per base, comparing values, end pointers and `errno` (2.9 million checks). Emulator: `strtol`/`atoi` of "123456" 196 instructions (was 373).
 
+### C7. `UnixLib$Processors` overrides the processor count (`unix/sysconf.c`) - commits `de6f87d`, `078dab1`
+
+**Problem.** Since C2, `sysconf (_SC_NPROCESSORS_ONLN)` and `(_SC_NPROCESSORS_CONF)` give 1: a program's threads all run on one processor. A program that starts "processors - 1" worker threads then starts none; most fall back to doing the work on the main thread, but one that doesn't would stall or fail. Answering 2 for every program would make others believe in a second processor and spin in their locks waiting for it.
+
+**Change.** The answer is still 1, unless the system variable `UnixLib$Processors` holds a whole number from 1 to 64 when the program asks (anything else is ignored). A port that needs it sets it in its `!Run`, e.g. `Set UnixLib$Processors 2`. Reading it leaves `errno` alone; it isn't cached by UnixLib, but `<unistd.h>` declares `sysconf` "const", so it should be set before the program starts.
+
+**Verification.** Peer-reviewed (the review asked for the whole value to be the number, and for the test's `errno` check to call through a pointer). Pi test `Procs`: unset 1, 3, 64 and 2 set as a number are given; 0, 65, "abc" and "3abc" give 1; `errno` unchanged.
+
 ### Q1. ARMEABISupport's fds with 1.05 and 1.07+: shared memory, shared files (`sys/mman-armeabi.c`, `unix/ul_close.c`, `ul_read.c`, `ul_write.c`, `ul_lseek.c`, `ul_isatty.c`, `ul_open.c`, `fstat.c`, `sync.c`, `truncate.c`, `fcntl.c`, `dup2.c`, `incl-local/internal/fd.h`, `swiparams.h`, `include/fcntl.h`, `swis.h`, `unixlib/buildoptions.h`, `signal/post.c`)
 
 **Problem.** ARMEABISupport 1.07 and 1.08 (Lee Noar; 1.05 is in GCCSDK)
