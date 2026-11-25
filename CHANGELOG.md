@@ -5,6 +5,17 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.11-rc8 (2026-11-25, pre-release, tag v5.0.3.11-rc8)
+
+5.0.3.11-rc7 plus M3 and B2. libtool `-version-info` 10:0:5. rc7's `Search` and `Strings` passed on the owner's Pi 4 (native RISC OS 5.31).
+
+- **No more deaths when memcpy or setjmp is the first to touch a page (M3).**
+  - **The symptom:** a program could die with "Unixlib detected that ARMEABISupport could not handle an abort" (EMT trap), or an abort in SVC mode. riscos-mesa saw it in about 1 run in 8, at its first shader compile.
+  - **The cause:** ARMEABISupport (1.07+) maps stack and mmap pages on first touch, but can complete at most 60 bytes of the access that touched the page. memcpy of 64 bytes or more, and setjmp, store 64 bytes at once.
+  - **The fix:** both now touch such pages with an ordinary load first.
+  - Pi test `FirstTouch`.
+- **`bcopy` copies the right way (B2).** In the EABI build it was another name for memcpy, so it copied from its second argument to its first.
+
 ## 5.0.3.11-rc7 (2026-11-25, pre-release, tag v5.0.3.11-rc7)
 
 5.0.3.11-rc6 plus C8. libtool `-version-info` 10:0:5. rc6's `Clock`, `TimedWait` and `SockPair` passed on the owner's Pi 4 (native RISC OS 5.31).

@@ -739,6 +739,73 @@ checks over a fake file that extends on OS_Args 1 as RISC OS does): seek
 the position, a full disc, the exec flush, close. Pi test `LSeek`: every check ok and PASS on the
 owner's Pi (native RISC OS, 5.0.3.9-rc1, 2026-11-11).
 
+### M3. memcpy and setjmp touch fresh pages before 64-byte VFP transfers (`string/_memcpymove-v7l.s`, `sys/_jmp.s`, new `incl-local/internal/firsttouch.s`) - commit `32616df`
+
+**Problem.** Reported by riscos-mesa (2026-11-25), on a Pi 4 with RISC OS 5.31 and ARMEABISupport 1.08:
+- About 4 runs in 30 of a GL test died at start-up with "Fatal signal received: EMT trap. Unixlib detected that ARMEABISupport could not handle an abort".
+- Each was at Mesa's first shader compile. The backtraces stop in `blake3_compress_subtree_wide` (which calls memcpy and memset) and in `ttn_compile_init`, about 8 KB down the main stack.
+
+**The cause.**
+- ARMEABISupport maps a stack page, or an anonymous mmap page, in only when it is first touched.
+- With 1.07 and later on a kernel with AbortTrap, it then completes the access that touched the page by copying the data itself.
+- Its copy (`aborttrap_handler__storeop`/`__loadop` in `abort-asm.s`) has a table of 15 words, so it handles at most 60 bytes. A longer transfer jumps outside the table: in SVC mode, the program dies with an abort or with "could not handle an abort".
+- **memcpy, memmove and mempcpy** of 64 bytes or more move 64 bytes at a time with `VLDM`/`VSTM {d0-d7}` (ROOL's arm-mem code). So whenever such an instruction was the first touch of a page, the program died.
+- **setjmp's** `VSTMIA {d8-d15}` is 64 bytes too.
+
+**Measured on the Pi** (`stkprobe`: a single instruction as the first touch of a page 256 KB down a new thread's stack, library 5.0.3.11-rc7):
+
+| First touch | Result |
+|---|---|
+| `STR`, `STM`, `STRD`, `LDR` | survives |
+| `VSTR`, `VLDR` | survives |
+| `VSTM` of 32 bytes | survives |
+| `VSTM` of 60 bytes (`{s0-s14}`) | survives |
+| NEON `VST1`/`VLD1` of 16 bytes | survives |
+| memset of 64 bytes | survives |
+| `VSTM {d0-d7}` (64 bytes) | Segmentation fault in SVC mode inside ARMEABISupport, r4 = 64 |
+| memcpy of 64 bytes | Segmentation fault in SVC mode inside ARMEABISupport, r4 = 64 |
+
+**Change.**
+- **memcpy, memmove and mempcpy, for 64 bytes or more:** first one ARM `LDRB` of the first and the last byte of the destination and of the source. Beyond 4 KB, also one of every page in between.
+- **setjmp:** an `LDRB` of both ends of the 64 bytes it is about to store with `VSTMIA`.
+- **How this fixes it:** an ordinary load maps the page in the usual way, so the 64-byte transfer finds it mapped.
+- **Loads only:** nothing is written, so another thread's data can't be overwritten.
+- **Only the blocks' own pages are touched,** so nothing faults that the copy itself wouldn't. The loop works out the last page from the block's last byte, so it can't wrap at the top of memory.
+- **Left unchanged:**
+  - copies under 64 bytes, whose largest transfer is 32 bytes;
+  - memcpy's own `VPUSH {d8-d9}` (16 bytes);
+  - memset, which stores 32 bytes at a time.
+
+**Cost.**
+- Copies under 64 bytes: 2 instructions more.
+- Longer copies: about 10 more. In the emulator that is 79 -> 89 instructions for 64 bytes, and 391 -> 401 for 4 KB.
+
+**Not covered.** GCC saves `d8-d15` with a 64-byte `VPUSH` in the prologue of functions that use them. If that push is the first touch of a stack page, the same failure follows, in any program and with any UnixLib. Only ARMEABISupport can fix that (a copy of any length), or a stack committed in advance (riscos-unixlib-web W1/W14).
+
+**Verification.**
+- **Peer-reviewed.** The review's register harness also checked r4-r11, d8-d15 and sp after every call: 24548 checks.
+- **Emulator test `tests/emu/memtouch_test.py`** (14116 checks), on the built library:
+  - results for sizes 0-299 and up to 20000 at many alignments, with memmove and bcopy overlapping both ways;
+  - blocks flush against unmapped memory;
+  - pages mapped on first touch, where a first touch by an instruction moving more than 60 bytes is refused, as ARMEABISupport does, for memcpy into and out of fresh pages, memmove, bcopy, memset and setjmp.
+  - The 5.0.3.11-rc7 library fails the fresh-page part (memcpy of 64 bytes and more, setjmp) and the bcopy part.
+- **Pi test `FirstTouch`** (`tests/riscos/ftouchtest.c`):
+  - memcpy, memmove, memset, mempcpy and bcopy into fresh stack pages of a thread with a 4 MB stack, for 1 to 9000 bytes at four offsets in the page, and reading out of fresh pages;
+  - fresh anonymous mmap pages;
+  - setjmp with its jmp_buf running into a fresh page.
+  - The first version (stack pages only) passed on the owner's Pi 4 with this change: 232 checks.
+
+### B2. bcopy copies the right way (`string/_memcpymove-v7l.s`) - commit `d32060c`
+
+**Problem.**
+- **The bug:** in the EABI build, `bcopy (src, dest, n)` was a second name for `memcpy (dest, src, n)`. It copied from its second argument to its first, the wrong way, and didn't allow the blocks to overlap.
+- **Where it came from:** GCCSDK's `_memcpymove-v7l.s`. The non-EABI `_memcpy.s` always swapped the arguments.
+- **Found** while working on M3.
+
+**Change.** bcopy swaps its first two arguments and goes to memmove.
+
+**Verification.** `tests/emu/memtouch_test.py` checks bcopy against the expected copy, overlapping both ways (the old one fails). The Pi test `FirstTouch` checks the same on the Pi.
+
 ### N1. `getservbyname_r`, `getservbyport_r`, `getservent_r` (new `netlib/getserv_r.c`, `Makefile.am`)
 
 **Problem.** Reported by the GTK port (2026-10-03): `<netdb.h>` declared the
