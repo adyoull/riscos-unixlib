@@ -644,6 +644,58 @@ index 776bd64..bc52b0d 100644
  #endif
  
  /* Macro for checking file descriptor validity.  */
+diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/firsttouch.s b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/firsttouch.s
+new file mode 100644
+index 0000000..067dd9d
+--- /dev/null
++++ b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/firsttouch.s
+@@ -0,0 +1,46 @@
++@ 2026 (M3): touch a block's pages from ARM code before a VFP or NEON
++@ instruction that moves more than 60 bytes writes or reads it.
++@
++@ ARMEABISupport maps stack pages, and anonymous mmap pages, in when they
++@ are first touched.  With 1.07 and later on a kernel with AbortTrap, it
++@ completes the access that touched the page by copying the data itself,
++@ but its copy handles at most 60 bytes (15 words).  memcpy moves 64
++@ bytes at a time with VLDM/VSTM, and setjmp stores d8-d15 (64 bytes),
++@ so when one of those was the first touch of a page the program died:
++@ an abort in SVC mode inside ARMEABISupport, or "Unixlib detected that
++@ ARMEABISupport could not handle an abort" (EMT trap).  On a Pi 4 (RISC
++@ OS 5.31, ARMEABISupport 1.08) a VSTM of 60 bytes to a fresh stack page
++@ works, NEON VST1/VLD1 of 16 bytes and memset (32 bytes at a time) work,
++@ and a VSTM or VLDM of 64 bytes, or memcpy of 64 bytes, kills the
++@ program.  A load from each page of the block first, here in ARM code,
++@ maps it the ordinary way.  Only loads: nothing is written, so another
++@ thread's data is never at risk.  A page the block doesn't reach is
++@ never touched, so nothing can fault here that the copy itself wouldn't.
++
++@ For N (a3) bytes at PTR: load the first and the last byte (enough for
++@ N <= 4096).  Uses ip and a4; a1-a3 and the other registers are kept.
++@ N must not be 0.
++.macro	first_touch_ends ptr
++	ldrb	ip, [\ptr]
++	add	a4, \ptr, a3
++	ldrb	ip, [a4, #-1]
++.endm
++
++@ For N > 4096: load a byte from every page from the second to the one
++@ before the last (the first and last are done by first_touch_ends).
++@ Uses ip, a4 and (saved) v1; a1-a3 kept.  The last page is worked out
++@ from the block's last byte, so nothing wraps past the top of memory.
++.macro	first_touch_pages ptr
++	push	{v1, lr}
++	bic	v1, \ptr, #0xFF
++	bic	v1, v1, #0xF00
++	add	a4, \ptr, a3
++	sub	a4, a4, #1
++	bic	a4, a4, #0xFF
++	bic	a4, a4, #0xF00
++91:	add	v1, v1, #0x1000
++	cmp	v1, a4
++	ldrlob	ip, [v1]
++	blo	91b
++	pop	{v1, lr}
++.endm
 diff --git a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/os.h b/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/os.h
 index deb5f8d..592552f 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/incl-local/internal/os.h
@@ -8235,6 +8287,81 @@ index 6860bb8..562c9ec 100644
  	for ( ; ; c = *s++) {
  		if (c >= '0' && c <= '9')
  			c -= '0';
+diff --git a/gcc4/recipe/files/gcc/libunixlib/string/_memcpymove-v7l.s b/gcc4/recipe/files/gcc/libunixlib/string/_memcpymove-v7l.s
+index 2d07c3b..f9ec5e1 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/string/_memcpymove-v7l.s
++++ b/gcc4/recipe/files/gcc/libunixlib/string/_memcpymove-v7l.s
+@@ -27,6 +27,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ 
+ #include "arm-mem.h"
+ #include "internal/asm_dec.s"
++#include "internal/firsttouch.s"
+ 
+ /* Prevent the stack from becoming executable */
+ #if defined(__linux__) && defined(__ELF__)
+@@ -611,14 +612,29 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  * a1 preserved
+  */
+ 
++/* 2026 (M3): before a copy of 64 bytes or more, touch both blocks' pages
++   from ARM code (internal/firsttouch.s): such a copy moves 64 bytes at a
++   time with VLDM/VSTM.  A shorter copy moves at most 32 at a time, which
++   ARMEABISupport copes with, and its VPUSH of d8-d9 is 16 bytes.  Uses
++   ip and a4 only, which the copy sets before it reads them.  */
++.macro first_touch_copy
++        cmp     a3, #64
++        blo     95f
++        first_touch_ends a1
++        first_touch_ends a2
++        cmp     a3, #4096
++        bls     95f
++        first_touch_pages a1
++        first_touch_pages a2
++95:
++.endm
++
+ .set prefetch_distance, 2
+-        .global bcopy
+-bcopy:
+ myfunc memcpy
+-1000:   memcpy  0
++1000:   first_touch_copy
++1001:   memcpy  0
+ .endfunc
+         DECLARE_FUNCTION memcpy
+-        DECLARE_FUNCTION bcopy
+ 
+ /*
+  * void *memmove(void *s1, const void *s2, size_t n);
+@@ -633,12 +649,27 @@ myfunc memcpy
+ .set prefetch_distance, 2
+ 
+ myfunc memmove
++        first_touch_copy
+         cmp     a2, a1
+-        bpl     1000b   /* pl works even over -1 - 0 and 0x7fffffff - 0x80000000 boundaries */
++        bpl     1001b   /* pl works even over -1 - 0 and 0x7fffffff - 0x80000000 boundaries */
+         memcpy  1
+ .endfunc
+ 	DECLARE_FUNCTION memmove
+ 
++/*
++ * void bcopy(const void *src, void *dest, size_t n);
++ * 2026 (B2): its arguments are the other way round from memmove's, and the
++ * blocks may overlap.  It used to be another name for memcpy here, so it
++ * copied from DEST to SRC.
++ */
++        .global bcopy
++bcopy:
++        mov     ip, a1
++        mov     a1, a2
++        mov     a2, ip
++        b       memmove
++        DECLARE_FUNCTION bcopy
++
+ /*
+  * void *mempcpy(void * restrict s1, const void * restrict s2, size_t n);
+  * On entry:
 diff --git a/gcc4/recipe/files/gcc/libunixlib/string/memchr.c b/gcc4/recipe/files/gcc/libunixlib/string/memchr.c
 index b6af555..dc0646f 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/string/memchr.c
@@ -9061,6 +9188,22 @@ index 487d724..c5559ff 100644
  cpu_is_arm7:
  	TST	a1, #1<<23
  	MOVEQ	a1, #3			@ ARM7, architecture 3
+diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_jmp.s b/gcc4/recipe/files/gcc/libunixlib/sys/_jmp.s
+index 57eab3f..12df50d 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/sys/_jmp.s
++++ b/gcc4/recipe/files/gcc/libunixlib/sys/_jmp.s
+@@ -69,6 +69,11 @@ setjmp:
+ 
+ #ifndef __SOFTFP__
+ #ifdef __VFP_FP__
++	@ 2026 (M3): a jmp_buf is often on the stack, and a store of 64
++	@ bytes can't be the first touch of a stack page (ARMEABISupport
++	@ 1.07+ copies at most 60): touch both ends from ARM code first.
++	LDRB	a4, [a1]
++	LDRB	a4, [a1, #63]
+ 	VSTMIA	a1!, {d8-d15}
+ #else
+  	SFM	f4, 4, [a1], #4*12
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
 index 3f7c274..ddcc52f 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
