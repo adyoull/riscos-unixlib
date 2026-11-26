@@ -1206,6 +1206,31 @@ times out only once resumed. **Verification.** Peer-reviewed. Pi test
   - a thread made later reads NULL for every key and 0 for its `__thread` counter;
   - times for the same key, two keys in turn, and a `__thread` access.
 
+### P12. `__thread` and C++ `thread_local` are one per thread (`pthread/create.c`, `pthread/cancel.c`, `vscript`) - commit `ae134f7`
+
+**Problem.** Found by the Pi test `LockKeys` on 2026-11-26. Its `__thread` counters failed with 5.0.3.11-rc8 and rc9 alike: four threads' counters ran on from each other (200000, 300000, 400000), and a new thread's started at 400000, not 0.
+- **How GCC's TLS works here:** GCC emulates TLS here (libgcc's `emutls.o`). Every `__thread` and C++ `thread_local` variable goes through `__emutls_get_address`.
+- **How it decides a program is threaded:** emutls reaches the pthread functions through weak references. It counts a program as threaded only when `pthread_cancel` is linked into it, which is the standard `gthr-posix.h` test.
+- **What went wrong in a static link:**
+  - A program that never called `pthread_cancel` didn't link it. emutls then kept one copy of each variable for all threads.
+  - A program that had `pthread_cancel` but not `pthread_once` would have emutls call address 0. Its TLS key was never made, so it read another key's value and crashed, as rc10's first version did on the Pi.
+- **Not affected:** libstdc++ is built with `_GLIBCXX_GTHREAD_USE_WEAK 0` (strong references), so `std::mutex` and friends always worked.
+
+**Change.**
+- `pthread_create`'s object refers to `pthread_cancel`.
+- `pthread_cancel`'s object refers to `pthread_once`, `pthread_key_create`, `pthread_getspecific`, `pthread_setspecific`, `pthread_mutex_lock` and `pthread_mutex_unlock`. These are every weak pthread reference in libgcc's `emutls.o` (the review checked them all with `nm`).
+- So a program that creates threads gets per-thread `__thread` variables. A program without threads keeps one copy, which is right.
+- **Cost:** at most about 2.6 KB of code for programs that create threads.
+- **Shared library:** the two tables are `local` in the shared library's `vscript`.
+
+**Compatibility.** Behaviour changes for threaded programs that use `__thread` or `thread_local`. Each thread now has its own copy, as the C and C++ standards say. A port whose threads relied, perhaps unknowingly, on sharing such a variable will see different behaviour.
+- One example is Mesa's current-context pointer, if it set the context in one thread and drew in another.
+
+**Verification.**
+- **Peer-reviewed.** The review asked for the table to follow `pthread_cancel` (in `cancel.c`) rather than `pthread_create`, and for the symbols to be local in the shared build.
+- **Pi 4, native RISC OS 5.31:** `LockKeys` passes (151 checks), including 4 threads' own `__thread` counters and a new thread's counter starting at 0.
+- **Startup order:** `__unixinit` (and with it `__pthread_prog_init`) runs before constructors, so `__thread` in a constructor works.
+
 ### C1. The DDEUtils prefix is measured correctly (`common/prefix.c`) - commit `b36e287`
 
 **Problem.** Found by Rob Heaton (riscos-gcc16, his report 20, 2026-10); confirmed in our tree. With a DDEUtils prefix set for the task (`*Prefix <dir>`), `__get_dde_prefix ()` never returned: the program hung at start-up. StrongED, DDE make and UnixLib's own `chdir ()` set the prefix. The function is called at start-up (`__unixinit`), in vfork, `getcwd ()` and `chdir ()`.

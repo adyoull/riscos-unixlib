@@ -5,6 +5,17 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.11-rc10 (2026-11-26, pre-release, tag v5.0.3.11-rc10)
+
+5.0.3.11-rc9 plus P12. libtool `-version-info` 10:0:5. On the owner's Pi 4 (native RISC OS 5.31): rc9's `Search`, `Strings` and `FirstTouch` pass; `LockKeys` passes with P12.
+
+- **`__thread` and C++ `thread_local` variables are one per thread (P12).**
+  - **Before:** in a statically linked program that creates threads, they were shared by all threads unless the program happened to call `pthread_cancel`. GCC's emulated TLS takes `pthread_cancel` being linked as the sign that threads are in use.
+  - **Now:** creating threads links everything emulated TLS needs.
+  - **Please retest threaded ports** that use `__thread` or `thread_local`.
+  - libstdc++'s `std::mutex` was not affected.
+- **Pi test `FirstTouch`:** a copy out of fresh pages is compared with the pages themselves. RISC OS doesn't clear pages, so the old check that they were zero was wrong.
+
 ## 5.0.3.11-rc9 (2026-11-25, pre-release, tag v5.0.3.11-rc9)
 
 5.0.3.11-rc8 plus C9, P10 and P11. libtool `-version-info` 10:0:5. rc8 was confirmed by riscos-mesa (30 runs of 30 with no EMT trap) and by TORCS, which runs and quits cleanly.
