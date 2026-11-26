@@ -358,6 +358,31 @@ doesn't do. That is long-standing behaviour, so it's left for a decision
 
 **Verification.** Peer-reviewed. Pi test `Clock` (`tests/riscos/clocktest.c`): 200000 reads never go back, finer than a centisecond, keeps pace with `OS_ReadMonotonicTime` over 3 s, a 20 ms `nanosleep` takes 20 to 40 ms. In riscos-unixlib-web on a Pi 4 natively: 3.90 µs a read before, 1.70 µs after.
 
+### T8. The native monotonic clock in two SWIs for most reads (`time/clk_gettime.c`) - commit `004a7c6`
+
+**Problem.** Suggested by the web browser (`Web Browser/handoffs/2026-11-26-unixlib-monotonic-now-swi-count.md`).
+- **Where the time went:** in Strada 0.0.0.92's profiles on a Pi 4, `clock_gettime` took 3.7% of the web task's busy time on bbc.co.uk and about 2% on YouTube, mostly in SWIs.
+- **Who calls it:** GLib's main loop, WTF's timed waits, `usleep` and WebKit's poll loop.
+- **Why it cost three SWIs:** T6's native path made three per read:
+  1. `OS_ReadMonotonicTime`;
+  2. the HAL counter;
+  3. `OS_ReadMonotonicTime` again, looping until the two centisecond counts matched.
+
+**Change.**
+- **The fast path:** with UnixLib's thread switcher held off (`HR_LOCK`), the centisecond count and the counter are read. The counter counts down from its period and reloads with the tick.
+  - If it has counted down more than `hr_margin` (1/16 of the period, 625 us) since the reload, then it reloaded before the centisecond count was read, as long as no more than 625 us passed between the two SWIs. The pair is used.
+- **Otherwise the old loop is used:** for about 1 read in 16, and always in a TaskWindow, where another task can run between the SWIs.
+- **What can still go wrong:** an interrupt or callback taking more than 625 us between the two SWIs, or a long time with interrupts off, could give one read up to a centisecond early. The existing never-backwards clamp then gives the last time again, so it is never backwards.
+- **Unchanged:** RISC OS on Linux, which uses one Linux call, and the centisecond fallback.
+
+**Verification.**
+- **Peer-reviewed.** The review asked for the TaskWindow case and a comment that says what can still happen.
+- **Pi 4, native RISC OS 5.31:** a read costs 1.05-1.10 us (was 1.55-1.60, measured on 5.0.3.12 in the same session).
+- **Pi test `Clock`:**
+  - Every check passes: never backwards, finer than a centisecond, keeps pace over 3 s, `nanosleep`.
+  - A new check: each read's centisecond lies between `OS_ReadMonotonicTime` read just before it and just after it. 100000 reads, 0 early, 0 late, in four runs.
+- **`TimedWait` and `LockKeys` pass.**
+
 ### A1. No `mmap` for large blocks on EABI (`stdlib/alloc.c`) - commit `98a9287`
 
 **Problem.** `malloc` served large requests with `mmap`. On EABI each mapping
@@ -2945,16 +2970,16 @@ file:
 
 ## 6. Version, build and symbols
 
-### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5, 5.0.3.6, 5.0.3.7, 5.0.3.8, 5.0.3.9, 5.0.3.10, 5.0.3.11 and 5.0.3.12 release commits
+### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5, 5.0.3.6, 5.0.3.7, 5.0.3.8, 5.0.3.9, 5.0.3.10, 5.0.3.11, 5.0.3.12 and 5.0.3.13 release commits
 
-`AC_INIT` and the Help file say **5.0.3.12**. Releases continue UnixLib's own
-numbering from GCCSDK's 5.0. The libtool `-version-info` is `10:1:5`:
+`AC_INIT` and the Help file say **5.0.3.13**. Releases continue UnixLib's own
+numbering from GCCSDK's 5.0. The libtool `-version-info` is `10:2:5`:
 interfaces have been added (6:0:1 for 5.0.3.1; `getservbyname_r` and
 friends for 5.0.3.2, 7:0:2; P6's thread attribute functions for 5.0.3.4,
 8:0:3; 5.0.3.5 to 5.0.3.7 changed code only, 8:3:3;
 `__pthread_vfp_reclaim` for 5.0.3.8, 9:0:4; 5.0.3.9 and 5.0.3.10 changed
 code only, 9:1:4 and 9:2:4; `mkdtemp` for 5.0.3.11, 10:0:5; 5.0.3.12
-changed code only, 10:1:5) and none
+and 5.0.3.13 changed code only, 10:1:5 and 10:2:5) and none
 removed, so the shared library's major
 version stays 5.
 

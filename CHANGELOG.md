@@ -5,6 +5,16 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.13-rc1 (2026-11-26, pre-release, tag v5.0.3.13-rc1)
+
+5.0.3.12 plus T8. libtool `-version-info` 10:2:5. On the owner's Pi 4 (native RISC OS 5.31), `Clock`, `TimedWait` and `LockKeys` pass.
+
+- **`clock_gettime(CLOCK_MONOTONIC)` costs two SWIs instead of three for most reads, natively (T8).** Suggested by the web browser, where it was 2-4% of the web task's time.
+  - **Cost:** a read takes 1.1 us instead of 1.6 on a Pi 4.
+  - **When it still takes three:** about 1 read in 16, when the hardware counter has just reloaded, and always in a TaskWindow.
+  - **Affects:** GLib's main loop, timed waits, `nanosleep` and `usleep` all read this clock.
+  - Pi test `Clock` has a new check.
+
 ## 5.0.3.12 (2026-11-26, tag v5.0.3.12)
 
 5.0.3.11 plus D2: padding only. libtool `-version-info` 10:1:5. On the owner's Pi 4 (native RISC OS 5.31, alignment exceptions on): `LockKeys`, `FirstTouch`, `Strings`, `Search`, `Clock` and `KeyDest` pass, and every test program passes `check-data-align.py`.
