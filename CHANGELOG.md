@@ -5,6 +5,43 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.11 (2026-11-26, tag v5.0.3.11)
+
+The same code as 5.0.3.11-rc10. libtool `-version-info` 10:0:5 (one new function, `mkdtemp`).
+
+**Tested:**
+- **Pi 4, native RISC OS 5.31:** every new test passes: `LSeek`, `RwLock`, `Suspend`, `SockPair`, `Once`, `TimedWait`, `FiniArray`, `Clock`, `KeyDest`, `Strings`, `Search`, `Procs`, `FirstTouch` and `LockKeys`.
+- **RISC OS on Linux:** rc1-rc3 tested, both in QEMU and on the Pi.
+- **Ports:**
+  - riscos-gtk rebuilt all 34 libraries and 8 programs against rc10 and ran them on the Pi.
+  - riscos-mesa ran 30 of 30 runs with no EMT trap (rc8).
+  - V3DRender works.
+  - TORCS loads, races and quits cleanly.
+  - Strada merged rc8 into riscos-unixlib-web.
+
+**Since 5.0.3.10, in short:**
+- **Fixes:**
+  - the heap race at thread exit (K13);
+  - `memcpy`/`setjmp` deaths on a fresh page (M3);
+  - `__thread`/`thread_local` shared between threads (P12);
+  - `bcopy`'s direction (B2);
+  - `pthread_suspend_thread` (P9), `pthread_rwlock_init` (P8), `pthread_once` deadlock (P3), timed condition waits (P4);
+  - the `socketpair` hang (N3);
+  - `sysconf`'s numbering (C2, with `UnixLib$Processors`, C7);
+  - `scanf` length modifiers (C3), `fread`/`fwrite` (C4);
+  - the DDEUtils prefix (C1);
+  - `.fini_array` at exit (I1);
+  - start-up SWI errors (R3);
+  - signal reports (O2);
+  - Thumb VFP context (Z2).
+- **New:** `mkdtemp` (H3).
+- **Faster:**
+  - string compares and searches, 2-10 times (C5, C8);
+  - `strtol` (C6), `strncpy` (C9);
+  - `pthread_getspecific` and `thread_local` (P11), mutexes (P10);
+  - the monotonic clock (T6).
+- **Withdrawn:** T7.
+
 ## 5.0.3.11-rc10 (2026-11-26, pre-release, tag v5.0.3.11-rc10)
 
 5.0.3.11-rc9 plus P12. libtool `-version-info` 10:0:5. On the owner's Pi 4 (native RISC OS 5.31): rc9's `Search`, `Strings` and `FirstTouch` pass; `LockKeys` passes with P12.
