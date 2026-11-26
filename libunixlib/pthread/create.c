@@ -18,6 +18,16 @@
 #include <sys/debug.h>
 #endif
 
+/* 2026 (P12): GCC's emulated TLS (libgcc emutls.o, behind every __thread
+   and C++ thread_local variable) treats a program as threaded when
+   pthread_cancel is linked into it (a weak reference).  In a static
+   link, a program that never called pthread_cancel didn't get it, so
+   emutls kept one copy of each such variable for all threads.  A program
+   that creates threads now always has pthread_cancel, and with it the
+   other functions emutls needs (see pthread/cancel.c).  */
+void *const __pthread_cancel_for_emutls __attribute__ ((used))
+  = (void *) pthread_cancel;
+
 /* __pthread_create is the first thing called when a new thread
    is switched to.  */
 static void

@@ -7,6 +7,22 @@
 #include <internal/os.h>
 #include <pthread.h>
 
+/* 2026 (P12): libgcc's emutls.o (behind __thread and C++ thread_local)
+   reaches these through weak references, and uses them once
+   pthread_cancel is linked (its test for "threads are in use").  In a
+   static link, a program with pthread_cancel but without pthread_once
+   had emutls call address 0: its key was never made, and it read
+   another key's value.  Linking pthread_cancel now brings them all.  */
+void *const __pthread_emutls_needs[] __attribute__ ((used)) =
+{
+  (void *) pthread_once,
+  (void *) pthread_key_create,
+  (void *) pthread_getspecific,
+  (void *) pthread_setspecific,
+  (void *) pthread_mutex_lock,
+  (void *) pthread_mutex_unlock
+};
+
 
 /* Set the cancelability state of the current thread */
 int

@@ -197,11 +197,12 @@ Shm         shared memory (shm_open, ftruncate, mmap twice, msync, dup,
             first line says which ARMEABISupport it found (1.05, or 1.07
             or later); it must work with either. Each line must say ok,
             then PASS. Please say which version it reported.
-LockKeys    (5.0.3.11, P10, P11) mutexes and thread-specific keys with
+LockKeys    (5.0.3.11, P10, P11, P12) mutexes and thread-specific keys with
             threads switching: an exact counter from 4 threads, the
             recursive and error-checking types, a waiter that gets a
             mutex when it is given up, 24 keys and a __thread counter
-            in 4 threads, destructors. Prints the times of a lock and
+            in 4 threads (before rc10, __thread variables were shared by
+            all threads: P12), destructors. Prints the times of a lock and
             unlock, pthread_getspecific, a __thread access and strncpy.
             Must print PASS.
 FirstTouch  (5.0.3.11, M3, B2) memcpy, memmove, memset, mempcpy and bcopy

@@ -5,6 +5,8 @@ VERSION {
     that an entry is not generated for them in the PLT. */
 
     local:
+     __pthread_cancel_for_emutls;
+     __pthread_emutls_needs;
      __addenv;
      __addenv_to_env;
      __alloc_file_descriptor;
