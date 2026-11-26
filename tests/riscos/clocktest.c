@@ -5,8 +5,10 @@
    centisecond resolution (several different values within one
    centisecond); over about 3 seconds it keeps pace with RISC OS's
    centisecond clock (OS_ReadMonotonicTime) to within 2 cs; nanosleep of
-   20 ms takes 20-40 ms by it. Prints what a read costs and which way it
-   reads (Linux's clock under RISC OS on Linux, else the HAL counter).  */
+   20 ms takes 20-40 ms by it; natively (T8), each read's centisecond lies
+   between OS_ReadMonotonicTime read just before and just after it.
+   Prints what a read costs and which way it reads (Linux's clock under
+   RISC OS on Linux, else the HAL counter).  */
 
 #include <stdio.h>
 #include <stdint.h>
@@ -96,6 +98,33 @@ main (void)
   nanosleep (&want, NULL);
   uint64_t slept = now_ns () - s0;
   CHECK (slept >= 20000000 && slept <= 40000000, "nanosleep 20 ms took %.1f ms", slept / 1e6);
+
+  /* 5. (T8) each read agrees with OS_ReadMonotonicTime read just before
+     and just after it: its centisecond is between the two.  A pair of
+     readings that didn't match (the counter's reload missed) would give
+     a time a centisecond early.  Native only: under RISC OS on Linux the
+     clock is Linux's, with another starting point.  A sanity check
+     rather than a stress test: an idle machine rarely puts 625 us
+     between two SWIs.  */
+  if (!linux)
+    {
+      int early = 0, late = 0;
+      for (int i = 0; i < 100000; i++)
+	{
+	  unsigned before = cs ();
+	  uint64_t n = now_ns ();
+	  unsigned after = cs ();
+	  unsigned tcs = (unsigned) (n / 10000000u);
+	  if (tcs < before)
+	    early++;
+	  else if (tcs > after)
+	    late++;
+	}
+      CHECK (early == 0 && late == 0,
+	     "100000 reads between OS_ReadMonotonicTime's (%d early, %d late)",
+	     early, late);
+    }
+
 
   printf ("%s: %d failure%s\n", failures ? "FAILED" : "PASSED", failures,
 	  failures == 1 ? "" : "s");

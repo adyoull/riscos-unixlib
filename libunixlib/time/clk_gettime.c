@@ -63,6 +63,7 @@
 
 static int hr_state;			/* 0 = unknown, 1 = HAL, 2 = Linux, -1 = centiseconds */
 static unsigned int hr_period;
+static unsigned int hr_margin;		/* T8: hr_period / 16 */
 static uint64_t hr_scale;		/* ns per counter tick, << 16 */
 static unsigned int hr_last_sec, hr_last_nsec;
 
@@ -125,6 +126,7 @@ hr_init (void)
     return hr_state;
 
   hr_period = period;
+  hr_margin = period / 16;
   /* ticks * hr_scale >> 16 = ns: 10^7 ns in a period of ticks (the
      counter's own period, so a whole period is exactly 1 cs). ticks is at
      most the period, so the product is at most 10^7 << 16, < 2^40.  */
@@ -158,6 +160,25 @@ monotonic_now (unsigned int *sec_out, unsigned int *nsec_out)
       nsec = (cs1 % 100) * 10000000u;
       break;
     default:
+      /* 2026 (T8, suggested by the web browser): two SWIs instead of
+	 three for most reads.  The counter counts down from hr_period and
+	 reloads as the centisecond tick happens.  If, when read, it has
+	 counted down more than hr_margin (1/16 of a centisecond, 625 us)
+	 since it last reloaded, then it reloaded before the centisecond
+	 count was read just before it, unless more than hr_margin passed
+	 between the two SWIs: the pair is consistent and is used.
+	 Otherwise (about 1 read in 16) the centisecond count is read again
+	 after it, and the reads are repeated until it hasn't changed, as
+	 before.
+	 What can make the gap longer: UnixLib's own thread switcher is
+	 held off here (HR_LOCK); in a TaskWindow another task can run
+	 between the SWIs, so there all three are always read; an interrupt
+	 or a callback that takes over 625 us, or a long time with
+	 interrupts off, could still give one read up to a centisecond
+	 early, which the never-backwards clamp below turns into the last
+	 time given (it never goes backwards).  A tick interrupt taken late
+	 is covered by the clamp as before.  */
+      HR_LOCK ();
       do
 	{
 	  _swix (OS_ReadMonotonicTime, _OUT(0), &cs1);
@@ -168,9 +189,16 @@ monotonic_now (unsigned int *sec_out, unsigned int *nsec_out)
 	      cnt = hr_period;
 	      break;
 	    }
+	  if (cnt < hr_period - hr_margin
+#ifndef __TARGET_SCL__
+	      && !__ul_global.taskwindow
+#endif
+	      )
+	    break;
 	  _swix (OS_ReadMonotonicTime, _OUT(0), &cs2);
 	}
       while (cs1 != cs2);
+      HR_UNLOCK ();
       if (cnt > hr_period)
 	cnt = hr_period;
       sec = cs1 / 100;
