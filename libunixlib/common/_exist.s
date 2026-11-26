@@ -25,6 +25,7 @@ __get_feature_imagefs_is_file:
 	DECLARE_FUNCTION __get_feature_imagefs_is_file
 
 	.data
+	.balign 4
 
 __feature_imagefs_is_file_internal:
 	.word	1

@@ -45,6 +45,14 @@ tests/host/rename/run.sh
 echo "== host tests: semaphores (sem_wait blocks, sem_timedwait)"
 tests/host/sem/run.sh
 
+echo "== data alignment: libunixlib.a, crt0.o, gcrt0.o (D2; needs a build)"
+if [ -f build/work/build/.libs/libunixlib.a ]; then
+  python3 tools/check-data-align.py build/work/build/.libs/libunixlib.a \
+    build/work/build/crt0.o build/work/build/gcrt0.o
+else
+  echo "SKIP (no build/work/build)"
+fi
+
 echo "== emulator: thread ticker machine code (needs a build + unicorn)"
 GCCSDK_ENV=${GCCSDK_ENV:-$HOME/gccsdk/env}
 if [ -f build/work/build/sul ] && [ -x "$GCCSDK_ENV/bin/arm-riscos-gnueabihf-nm" ] &&
@@ -126,6 +134,6 @@ echo "== scripts parse"
 for s in build/*.sh tests/*.sh tests/abi/check.sh tests/host/*/run.sh tests/riscos/build.sh tests/riscos/build-shared.sh tools/*.sh; do
   sh -n "$s"
 done
-python3 -m py_compile tools/mkrozip.py tests/emu/ticker_test.py tests/emu/swi_test.py tests/emu/heap_test.py tests/emu/itimer_test.py tests/emu/fdop_test.py tests/emu/scanf_test.py
+python3 -m py_compile tools/mkrozip.py tools/check-data-align.py tests/emu/ticker_test.py tests/emu/swi_test.py tests/emu/heap_test.py tests/emu/itimer_test.py tests/emu/fdop_test.py tests/emu/scanf_test.py
 rm -rf tools/__pycache__ tests/emu/__pycache__
 echo "== all checks passed"

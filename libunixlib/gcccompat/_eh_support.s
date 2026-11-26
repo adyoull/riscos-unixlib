@@ -44,6 +44,7 @@ scl_name:
 	DECLARE_FUNCTION __ehs_init
 
 	.data
+	.balign 4
 
 scl_pos_block:
 	@ Start address of SharedCLibrary module.

@@ -1103,6 +1103,7 @@ __h_sigalrm_init:
 
 #if PIC
 	.data
+	.balign 4
 #endif
 
 	@ Set to one to prevent multiple CallEverys being set up.
@@ -1169,6 +1170,7 @@ __h_sigvtalrm_init:
 
 #if PIC
 	.data
+	.balign 4
 #endif
 
 	@ Set to one to prevent multiple CallEverys being set up.
@@ -1236,6 +1238,7 @@ __h_sigprof_init:
 
 #if PIC
 	.data
+	.balign 4
 #endif
 
 	@ Set to one to prevent multiple CallEverys being set up.
@@ -1245,6 +1248,7 @@ __h_sigprof_sema:
 	DECLARE_OBJECT __h_sigprof_sema
 
 	.data
+	.balign 4
 
 @ The fp at the time when __h_cback_common is executed.  This value
 @ will be used during write_backtrace() to know when we can dump the CPSR

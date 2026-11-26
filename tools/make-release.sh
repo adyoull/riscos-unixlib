@@ -39,6 +39,9 @@ cp release/PThreadTicker-Licence "$M/Licence,fff"
 python3 tools/mkrozip.py "$OUT/PThreadTicker-$MODVER.zip" "$M"
 rm -rf "$OUT/tmp"
 
+# 2026 (D2): no writable data section of 4 bytes or more may be less than
+# word aligned (an abort on a Pi with alignment exceptions on).
+python3 tools/check-data-align.py "$B/.libs/libunixlib.a" "$B/crt0.o" "$B/gcrt0.o"
 cp "$B/.libs/libunixlib.a" patches/unixlib-riscos.diff patches/unixlib-sound.diff \
    tests/riscos/out/UnixLibTests.zip "$OUT/"
 # No paths from the build machine in anything we ship (the zips are

@@ -438,6 +438,7 @@ wimp_filter_enable_timer:
 	DECLARE_FUNCTION wimp_filter_enable_timer
 
 	.data
+	.balign 4
 
 	.global	__profiler_interrupt_handler_start
 	.hidden	__profiler_interrupt_handler_start

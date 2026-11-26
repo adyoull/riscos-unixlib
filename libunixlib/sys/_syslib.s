@@ -827,6 +827,7 @@ __exit_with_error_num:
 	DECLARE_FUNCTION __exit_with_error_num
 
 	.data
+	.balign 4
 
 	@ Make sure there are no absolute addresses in shared library by
 	@ placing error_table in read/write segment and addressing via GOT.
@@ -1049,6 +1050,7 @@ t06:
 
 #if PIC
 	.data
+	.balign 4
 #endif
 
 	@ In the shared library, we can't have absolute addresses in the read only
@@ -1594,6 +1596,7 @@ crt1_data:
 	DECLARE_OBJECT crt1_data
 
 	.data
+	.balign 4
 
 	.global	__dynamic_area_refcount
 __dynamic_area_refcount:

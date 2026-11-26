@@ -25,6 +25,7 @@ _start:
 	.size	_start, . - _start
 
 	.data
+	.balign 4
 
 crt1_data:
 	.word	_init			@ #0

@@ -41,6 +41,7 @@ __set_riscosify_control:
 	DECLARE_FUNCTION __set_riscosify_control
 
 	.data
+	.balign 4
 
 __riscosify_control_internal:
 	.word	0
