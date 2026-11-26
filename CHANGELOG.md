@@ -7,7 +7,7 @@ How to release: docs/MAINTAINING.md.
 
 ## 5.0.3.12 (2026-11-26, tag v5.0.3.12)
 
-5.0.3.11 plus D2: padding only. libtool `-version-info` 10:1:5.
+5.0.3.11 plus D2: padding only. libtool `-version-info` 10:1:5. On the owner's Pi 4 (native RISC OS 5.31, alignment exceptions on): `LockKeys`, `FirstTouch`, `Strings`, `Search`, `Clock` and `KeyDest` pass, and every test program passes `check-data-align.py`.
 
 - **`.data` in UnixLib's assembler files is word aligned (D2).**
   - **The problem:** in `_exist.o`, `_riscosify.o`, `_profile.o`, `_signal.o`, `crt0.o` and `gcrt0.o` it could land at any byte. On a Pi with alignment exceptions on, a program whose link put it off a word boundary aborted in UnixLib's start-up, before `main`. Geofrey Baxendale reported it on the ROOL forum (Groove, YTDL).

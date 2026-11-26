@@ -1,5 +1,5 @@
 diff --git a/gcc4/recipe/files/gcc/libunixlib/Makefile.am b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
-index e887b17..0e279b2 100644
+index e887b17..d2ada92 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 +++ b/gcc4/recipe/files/gcc/libunixlib/Makefile.am
 @@ -622,6 +622,7 @@ netlib_src = \
@@ -101,7 +101,7 @@ index e887b17..0e279b2 100644
 +unixlib_asm_objs = $(patsubst %.s,%.lo,$(notdir $(filter %.s,$(libunixlib_la_SOURCES))))
 +$(unixlib_asm_objs) crt0.o gcrt0.o sul.o pthticker.o: $(unixlib_asm_deps)
 +
-+libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 10:0:5 -Wl,--version-script -Wl,$(top_srcdir)/vscript
++libunixlib_la_LDFLAGS = -Wc,-lgcc_s -Wc,-nostdlib -version-info 10:1:5 -Wl,--version-script -Wl,$(top_srcdir)/vscript
  
  libm_la_SOURCES = libm-support/libm.c
  
@@ -141,6 +141,30 @@ index d7a6a30..8a7608c 100644
  	/* Terminal type device file.  */
  	mode |= S_IFCHR;
  	break;
+diff --git a/gcc4/recipe/files/gcc/libunixlib/common/_exist.s b/gcc4/recipe/files/gcc/libunixlib/common/_exist.s
+index b550eb0..250f9bf 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/common/_exist.s
++++ b/gcc4/recipe/files/gcc/libunixlib/common/_exist.s
+@@ -25,6 +25,7 @@ __get_feature_imagefs_is_file:
+ 	DECLARE_FUNCTION __get_feature_imagefs_is_file
+ 
+ 	.data
++	.balign 4
+ 
+ __feature_imagefs_is_file_internal:
+ 	.word	1
+diff --git a/gcc4/recipe/files/gcc/libunixlib/common/_riscosify.s b/gcc4/recipe/files/gcc/libunixlib/common/_riscosify.s
+index 7b45988..7b7f4b9 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/common/_riscosify.s
++++ b/gcc4/recipe/files/gcc/libunixlib/common/_riscosify.s
+@@ -41,6 +41,7 @@ __set_riscosify_control:
+ 	DECLARE_FUNCTION __set_riscosify_control
+ 
+ 	.data
++	.balign 4
+ 
+ __riscosify_control_internal:
+ 	.word	0
 diff --git a/gcc4/recipe/files/gcc/libunixlib/common/env.c b/gcc4/recipe/files/gcc/libunixlib/common/env.c
 index c9673b7..9af4dd4 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/common/env.c
@@ -251,7 +275,7 @@ index b5e931d..0825bef 100644
  
        if (*in == '<')
 diff --git a/gcc4/recipe/files/gcc/libunixlib/configure.ac b/gcc4/recipe/files/gcc/libunixlib/configure.ac
-index 53fe31c..cd7c226 100644
+index 53fe31c..7afb9a5 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/configure.ac
 +++ b/gcc4/recipe/files/gcc/libunixlib/configure.ac
 @@ -5,7 +5,7 @@ dnl Process this file with autoconf to produce a configure script
@@ -259,17 +283,41 @@ index 53fe31c..cd7c226 100644
  
  AC_PREREQ(2.64)
 -AC_INIT([RISC OS UnixLib C Runtime Library], 5.0, [http://gccsdk.riscos.info/], [libunixlib])
-+AC_INIT([RISC OS UnixLib C Runtime Library], 5.0.3.11, [https://github.com/adyoull/riscos-unixlib/issues], [libunixlib])
++AC_INIT([RISC OS UnixLib C Runtime Library], 5.0.3.12, [https://github.com/adyoull/riscos-unixlib/issues], [libunixlib])
  AC_CONFIG_SRCDIR([assert/assert.c])
  AC_CONFIG_HEADER(config.h)
  
+diff --git a/gcc4/recipe/files/gcc/libunixlib/crt/crt0.s b/gcc4/recipe/files/gcc/libunixlib/crt/crt0.s
+index 95da33a..daa14b9 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/crt/crt0.s
++++ b/gcc4/recipe/files/gcc/libunixlib/crt/crt0.s
+@@ -25,6 +25,7 @@ _start:
+ 	.size	_start, . - _start
+ 
+ 	.data
++	.balign 4
+ 
+ crt1_data:
+ 	.word	_init			@ #0
+diff --git a/gcc4/recipe/files/gcc/libunixlib/crt/gcrt0.s b/gcc4/recipe/files/gcc/libunixlib/crt/gcrt0.s
+index a16a82f..af58de6 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/crt/gcrt0.s
++++ b/gcc4/recipe/files/gcc/libunixlib/crt/gcrt0.s
+@@ -25,6 +25,7 @@ _start:
+ 	.size	_start, . - _start
+ 
+ 	.data
++	.balign 4
+ 
+ crt1_data:
+ 	.word	_init			@ #0
 diff --git a/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help b/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
-index 7775d56..5f98630 100644
+index 7775d56..b222345 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
 +++ b/gcc4/recipe/files/gcc/libunixlib/doc/UnixLib/Help
 @@ -1,4 +1,4 @@
 -                                UnixLib 5.0
-+                               UnixLib 5.0.3.11
++                               UnixLib 5.0.3.12
                                  ~~~~~~~~~~~
  
  This document provides a VERY short introduction to UnixLib, and only covers
@@ -288,6 +336,30 @@ index 7775d56..5f98630 100644
  
  
  What
+diff --git a/gcc4/recipe/files/gcc/libunixlib/gcccompat/_eh_support.s b/gcc4/recipe/files/gcc/libunixlib/gcccompat/_eh_support.s
+index 44f6236..842b108 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/gcccompat/_eh_support.s
++++ b/gcc4/recipe/files/gcc/libunixlib/gcccompat/_eh_support.s
+@@ -44,6 +44,7 @@ scl_name:
+ 	DECLARE_FUNCTION __ehs_init
+ 
+ 	.data
++	.balign 4
+ 
+ scl_pos_block:
+ 	@ Start address of SharedCLibrary module.
+diff --git a/gcc4/recipe/files/gcc/libunixlib/gmon/_profile.s b/gcc4/recipe/files/gcc/libunixlib/gmon/_profile.s
+index 36e599e..4705234 100644
+--- a/gcc4/recipe/files/gcc/libunixlib/gmon/_profile.s
++++ b/gcc4/recipe/files/gcc/libunixlib/gmon/_profile.s
+@@ -438,6 +438,7 @@ wimp_filter_enable_timer:
+ 	DECLARE_FUNCTION wimp_filter_enable_timer
+ 
+ 	.data
++	.balign 4
+ 
+ 	.global	__profiler_interrupt_handler_start
+ 	.hidden	__profiler_interrupt_handler_start
 diff --git a/gcc4/recipe/files/gcc/libunixlib/grp/getgrgid_r.c b/gcc4/recipe/files/gcc/libunixlib/grp/getgrgid_r.c
 index 36f5b79..d9490d0 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/grp/getgrgid_r.c
@@ -5558,7 +5630,7 @@ index 0000000..09a1e5a
 +  return 0;
 +}
 diff --git a/gcc4/recipe/files/gcc/libunixlib/signal/_signal.s b/gcc4/recipe/files/gcc/libunixlib/signal/_signal.s
-index 2109ed1..b2739cc 100644
+index 2109ed1..c5f5aac 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/signal/_signal.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/signal/_signal.s
 @@ -13,6 +13,78 @@
@@ -5929,7 +6001,15 @@ index 2109ed1..b2739cc 100644
  	ADD	a1, a1, #1
  	@ Function to call
  	ADR	a2, __h_sigalrm_init
-@@ -977,8 +1141,7 @@ __h_sigvtalrm:
+@@ -939,6 +1103,7 @@ __h_sigalrm_init:
+ 
+ #if PIC
+ 	.data
++	.balign 4
+ #endif
+ 
+ 	@ Set to one to prevent multiple CallEverys being set up.
+@@ -977,8 +1142,7 @@ __h_sigvtalrm:
  	TEQEQ	a2, #0
   PICEQ "LDMFDEQ	sp!, {a1, a2, a3, v4, pc}"
   PICNE "LDMFDEQ	sp!, {a1, a2, a3, pc}"
@@ -5939,7 +6019,15 @@ index 2109ed1..b2739cc 100644
  	ADD	a1, a1, #1
  	ADR	a2, __h_sigvtalrm_init
  	MOV	a3, ip
-@@ -1045,8 +1208,7 @@ __h_sigprof:
+@@ -1006,6 +1170,7 @@ __h_sigvtalrm_init:
+ 
+ #if PIC
+ 	.data
++	.balign 4
+ #endif
+ 
+ 	@ Set to one to prevent multiple CallEverys being set up.
+@@ -1045,8 +1210,7 @@ __h_sigprof:
  	TEQEQ	a2, #0
   PICEQ "LDMFDEQ	sp!, {a1, a2, a3, v4, pc}"
   PICNE "LDMFDEQ	sp!, {a1, a2, a3, pc}"
@@ -5949,6 +6037,22 @@ index 2109ed1..b2739cc 100644
  	ADD	a1, a1, #1
  	ADR	a2, __h_sigprof_init
  	MOV	a3, ip
+@@ -1074,6 +1238,7 @@ __h_sigprof_init:
+ 
+ #if PIC
+ 	.data
++	.balign 4
+ #endif
+ 
+ 	@ Set to one to prevent multiple CallEverys being set up.
+@@ -1083,6 +1248,7 @@ __h_sigprof_sema:
+ 	DECLARE_OBJECT __h_sigprof_sema
+ 
+ 	.data
++	.balign 4
+ 
+ @ The fp at the time when __h_cback_common is executed.  This value
+ @ will be used during write_backtrace() to know when we can dump the CPSR
 diff --git a/gcc4/recipe/files/gcc/libunixlib/signal/post.c b/gcc4/recipe/files/gcc/libunixlib/signal/post.c
 index cb0fc62..a2068d9 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/signal/post.c
@@ -9464,7 +9568,7 @@ index 57eab3f..12df50d 100644
  #else
   	SFM	f4, 4, [a1], #4*12
 diff --git a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
-index 3f7c274..ddcc52f 100644
+index 3f7c274..b1942f2 100644
 --- a/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
 +++ b/gcc4/recipe/files/gcc/libunixlib/sys/_syslib.s
 @@ -45,6 +45,9 @@
@@ -9614,7 +9718,7 @@ index 3f7c274..ddcc52f 100644
  
  no_main_routine:
  	.asciz	"There is no main function"
-@@ -724,12 +806,24 @@ __exit_with_error_num:
+@@ -724,15 +806,28 @@ __exit_with_error_num:
  	@ exist, so we need to read the error table first. The errors themselves
  	@ are in the text section, so we're OK there.
   PICEQ "SWI	XSOM_DeregisterClient"
@@ -9639,7 +9743,11 @@ index 3f7c274..ddcc52f 100644
  	DECLARE_FUNCTION __exit_with_error_num
  
  	.data
-@@ -835,6 +929,7 @@ __dynamic_area_exit:
++	.balign 4
+ 
+ 	@ Make sure there are no absolute addresses in shared library by
+ 	@ placing error_table in read/write segment and addressing via GOT.
+@@ -835,6 +930,7 @@ __dynamic_area_exit:
   PICEQ "LDMFDNE	sp!, {v4, pc}"
  
  	BL	__munmap_all
@@ -9647,7 +9755,15 @@ index 3f7c274..ddcc52f 100644
  
  	LDR	a2, .L1+4		@=__ul_global
   PICEQ "LDR	a2, [v4, a2]"
-@@ -1134,7 +1229,7 @@ raise_sigstak:
+@@ -954,6 +1050,7 @@ t06:
+ 
+ #if PIC
+ 	.data
++	.balign 4
+ #endif
+ 
+ 	@ In the shared library, we can't have absolute addresses in the read only
+@@ -1134,7 +1231,7 @@ raise_sigstak:
  	MOV	a1, #0
  	MOV	a2, #SIGSTAK
  	BL	__unixlib_raise_signal
@@ -9656,7 +9772,7 @@ index 3f7c274..ddcc52f 100644
  
  #if __UNIXLIB_EXTREMELY_PARANOID || __UNIXLIB_STACK_CHECK_MAGIC
  stack_corrupt_msg:
-@@ -1455,7 +1550,7 @@ __unixlib_fatal_got_msg:
+@@ -1455,7 +1552,7 @@ __unixlib_fatal_got_msg:
  	SWI	XOS_Write0
  	SWI	XOS_NewLine
  	MOV	a1, #1
@@ -9665,7 +9781,15 @@ index 3f7c274..ddcc52f 100644
  	@ Should never return
  #ifdef __ARM_EABI__
  	LDMIA	sp!, {v1, fp, pc}
-@@ -1537,3 +1632,12 @@ __ul_memory:
+@@ -1499,6 +1596,7 @@ crt1_data:
+ 	DECLARE_OBJECT crt1_data
+ 
+ 	.data
++	.balign 4
+ 
+ 	.global	__dynamic_area_refcount
+ __dynamic_area_refcount:
+@@ -1537,3 +1635,12 @@ __ul_memory:
  	.word	0			@ appspace_limit	offset = 44
  	.word	0			@ old_himem		offset = 48
  	DECLARE_OBJECT __ul_memory
