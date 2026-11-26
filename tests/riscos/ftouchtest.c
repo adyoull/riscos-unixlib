@@ -75,13 +75,15 @@ run (void *arg)
       ((volatile unsigned char *) jb)[0] = 0;	/* its first page in use */
       CHECK (setjmp (*jb) == 0, "setjmp %u bytes before a fresh page", slack);
     }
-  /* Reading from fresh pages: they read as zero.  */
+  /* Reading from fresh pages.  Their contents are whatever the page
+     held before (RISC OS doesn't clear pages it hands out), so the copy
+     is compared with the pages themselves.  */
   for (unsigned s = 0; s < sizeof sizes / sizeof sizes[0]; s++)
     {
       static unsigned char dst[9000];
       base -= 16 * 1024;
       p_memcpy (dst, (unsigned char *) base + 8, sizes[s]);
-      CHECK (dst[0] == 0 && dst[sizes[s] - 1] == 0, "memcpy of %u bytes from a fresh page", sizes[s]);
+      CHECK (!memcmp (dst, (unsigned char *) base + 8, sizes[s]), "memcpy of %u bytes from a fresh page", sizes[s]);
     }
   return NULL;
 }
@@ -120,7 +122,7 @@ main (void)
       for (unsigned i = 0; i < 4; i++, q += 16 * 1024)
 	{
 	  p_memcpy (dst, q + 0x100, msizes[i]);
-	  CHECK (dst[0] == 0 && dst[msizes[i] - 1] == 0, "memcpy of %u bytes from fresh mmap pages", msizes[i]);
+	  CHECK (!memcmp (dst, q + 0x100, msizes[i]), "memcpy of %u bytes from fresh mmap pages", msizes[i]);
 	}
       munmap (m, 256 * 1024);
     }
