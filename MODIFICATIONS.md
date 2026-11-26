@@ -806,6 +806,29 @@ owner's Pi (native RISC OS, 5.0.3.9-rc1, 2026-11-11).
 
 **Verification.** `tests/emu/memtouch_test.py` checks bcopy against the expected copy, overlapping both ways (the old one fails). The Pi test `FirstTouch` checks the same on the Pi.
 
+### D2. `.data` in the assembler files is word aligned (`common/_exist.s`, `common/_riscosify.s`, `crt/crt0.s`, `crt/gcrt0.s`, `gcccompat/_eh_support.s`, `gmon/_profile.s`, `signal/_signal.s`, `sys/_syslib.s`; new `tools/check-data-align.py`; `tests/check.sh`, `tools/make-release.sh`) - commit `4d8d2e7`
+
+**Problem.**
+- **The cause:** 13 `.data` lines in 8 assembler files switched to `.data` with no alignment.
+- **Which objects:** in `_exist.o` (4 bytes), `_riscosify.o` (4), `_profile.o` (8), `_signal.o` (524), `crt0.o` and `gcrt0.o` (52 each), nothing aligned the section later. Their `.data` had `sh_addralign` 1, so the linker could put it at any byte.
+- **The effect:** on a Pi with alignment exceptions on (the RISC OS 5 default), a word load from such data aborts.
+  - In Groove 0.2 to 0.4.2, `__riscosify_control_internal` landed at an address ending in 6, and UnixLib's start-up (`__get_riscosify_control`) aborted before `main`. Geofrey Baxendale reported it on the ROOL forum, and the Groove port found the cause. YTDL was hit too.
+  - RISC OS on Linux doesn't check alignment, so it never showed there.
+- **Why it went unfixed:** riscos-crossdev 1.13 adds the alignment with a `sed` at build time. riscos-crossdev asked for the fix in the sources on 2026-11-21, but 5.0.3.10 and 5.0.3.11 went out without it. A port linking the released `libunixlib.a` directly lost crossdev's fix. riscos-reeledit and Groove found it again in 5.0.3.11.
+
+**Change.**
+- **The fix:** a `.balign 4` follows each of the 13 bare `.data` lines, exactly what crossdev's `sed` does. It's padding only.
+  - Checked against the previous build with `objdump -dr`: every object's code and relocations are the same, and so is its data.
+  - Only the alignment of those six `.data` sections changes, from 1 to 4.
+- **The check:** riscos-crossdev's `checks/check-data-align.py` (MIT, by the same owner) is now `tools/check-data-align.py`. It runs on `libunixlib.a`, `crt0.o` and `gcrt0.o`:
+  - in `tests/check.sh`;
+  - in `make release`, which fails if any writable data section of 4 bytes or more is aligned below 4.
+- **Already aligned:** the `.bss` sections in `sys/_vfork.s` and `sys/_syslib.s` (`.align` after `.section ".bss"`) and the SCL chunk stubs.
+
+**Verification.**
+- `check-data-align.py` reports `ok` for the new `libunixlib.a`, `crt0.o` and `gcrt0.o`.
+- It reports the four objects and `crt0.o`/`gcrt0.o` as wrong for 5.0.3.11.
+
 ### N1. `getservbyname_r`, `getservbyport_r`, `getservent_r` (new `netlib/getserv_r.c`, `Makefile.am`)
 
 **Problem.** Reported by the GTK port (2026-10-03): `<netdb.h>` declared the
@@ -2922,15 +2945,16 @@ file:
 
 ## 6. Version, build and symbols
 
-### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5, 5.0.3.6, 5.0.3.7, 5.0.3.8, 5.0.3.9, 5.0.3.10 and 5.0.3.11 release commits
+### V1. Version number (`configure.ac`, `doc/UnixLib/Help`) - commits `d0bff5c`, `de2f01e`, `f9a1d48`, and the 5.0.3, 5.0.3.1, 5.0.3.2, 5.0.3.3, 5.0.3.4, 5.0.3.5, 5.0.3.6, 5.0.3.7, 5.0.3.8, 5.0.3.9, 5.0.3.10, 5.0.3.11 and 5.0.3.12 release commits
 
-`AC_INIT` and the Help file say **5.0.3.11**. Releases continue UnixLib's own
-numbering from GCCSDK's 5.0. The libtool `-version-info` is `10:0:5`:
+`AC_INIT` and the Help file say **5.0.3.12**. Releases continue UnixLib's own
+numbering from GCCSDK's 5.0. The libtool `-version-info` is `10:1:5`:
 interfaces have been added (6:0:1 for 5.0.3.1; `getservbyname_r` and
 friends for 5.0.3.2, 7:0:2; P6's thread attribute functions for 5.0.3.4,
 8:0:3; 5.0.3.5 to 5.0.3.7 changed code only, 8:3:3;
 `__pthread_vfp_reclaim` for 5.0.3.8, 9:0:4; 5.0.3.9 and 5.0.3.10 changed
-code only, 9:1:4 and 9:2:4; `mkdtemp` for 5.0.3.11, 10:0:5) and none
+code only, 9:1:4 and 9:2:4; `mkdtemp` for 5.0.3.11, 10:0:5; 5.0.3.12
+changed code only, 10:1:5) and none
 removed, so the shared library's major
 version stays 5.
 

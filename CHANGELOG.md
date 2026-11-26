@@ -5,6 +5,16 @@ Versions are UnixLib version numbers, continuing from GCCSDK's UnixLib 5.0
 repo were numbered 0.1.x: 0.1.0, and 0.1.1-rc1, the pre-release of 5.0.1.
 How to release: docs/MAINTAINING.md.
 
+## 5.0.3.12 (2026-11-26, tag v5.0.3.12)
+
+5.0.3.11 plus D2: padding only. libtool `-version-info` 10:1:5.
+
+- **`.data` in UnixLib's assembler files is word aligned (D2).**
+  - **The problem:** in `_exist.o`, `_riscosify.o`, `_profile.o`, `_signal.o`, `crt0.o` and `gcrt0.o` it could land at any byte. On a Pi with alignment exceptions on, a program whose link put it off a word boundary aborted in UnixLib's start-up, before `main`. Geofrey Baxendale reported it on the ROOL forum (Groove, YTDL).
+  - **Who was at risk:** riscos-crossdev 1.13's toolchain already fixed this when building, but a port that linked the released 5.0.3.10 or 5.0.3.11 `libunixlib.a` directly could hit it.
+  - **The fix:** a `.balign 4` after each bare `.data`. Code and data are unchanged.
+  - **The check:** `make check` and `make release` now run riscos-crossdev's `check-data-align.py` on the library, `crt0.o` and `gcrt0.o`.
+
 ## 5.0.3.11 (2026-11-26, tag v5.0.3.11)
 
 The same code as 5.0.3.11-rc10. libtool `-version-info` 10:0:5 (one new function, `mkdtemp`).
